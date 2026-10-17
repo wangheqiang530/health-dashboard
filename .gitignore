@@ -12,7 +12,7 @@ dist
 dist-ssr
 *.local
 .env
-data/
+/data/
 
 # Personal health exports and downloaded activity files
 fitdays_latest_data.json

@@ -2,7 +2,7 @@
 .env
 node_modules
 dist
-data
+/data
 temp_inspect
 *.log
 fitdays_latest_data.json
