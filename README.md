@@ -58,6 +58,16 @@ docker compose logs -f db
 
 PostgreSQL 只映射到宿主机 `127.0.0.1:5433`，数据库名 `health_dashboard`，用户 `health`。密码来自 `.env`。
 
+如果宿主机通过本地代理访问 Docker Hub 或外部健康服务，可在 `.env` 中配置容器代理：
+
+```dotenv
+CONTAINER_HTTP_PROXY=http://host.docker.internal:10808
+CONTAINER_HTTPS_PROXY=http://host.docker.internal:10808
+CONTAINER_NO_PROXY=localhost,127.0.0.1,db
+```
+
+没有代理时保持为空即可。
+
 ## 配置数据源
 
 进入网页的 **配置中心 → PostgreSQL 数据管道**。
