@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.ts';
+import { httpFetch } from '../http.ts';
 import { dateInTimeZone, timeInTimeZone } from '../time.ts';
 
 const BASE_URL = 'https://prod.zh.igpsport.com/service';
@@ -67,8 +68,12 @@ const integerOrNull = (value: unknown): number | null => {
 const stringValue = (value: unknown, fallback = ''): string =>
   typeof value === 'string' && value.trim() ? value : fallback;
 
-async function requestJson<T>(url: string, init: RequestInit, timeoutMs = 30_000): Promise<T> {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+async function requestJson<T>(
+  url: string,
+  init: Parameters<typeof httpFetch>[1],
+  timeoutMs = 30_000
+): Promise<T> {
+  const response = await httpFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) {
     throw new Error(`iGPSPORT HTTP ${response.status}`);
   }
@@ -154,7 +159,7 @@ async function downloadFitFile(
     throw new Error(`无法获取 iGPSPORT Ride ID ${rideId} 的 FIT 下载链接。`);
   }
 
-  const response = await fetch(urlJson.data, { signal: AbortSignal.timeout(60_000) });
+  const response = await httpFetch(urlJson.data, { signal: AbortSignal.timeout(60_000) });
   if (!response.ok) {
     throw new Error(`下载 FIT 文件失败: HTTP ${response.status}`);
   }

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.ts';
+import { httpFetch } from './http.ts';
 
 interface DockerHubTag {
   name: string;
@@ -42,7 +43,7 @@ const compareVersions = (left: string, right: string): number => {
 
 const fetchLatestDockerHubVersion = async (): Promise<string | null> => {
   const repository = config.dockerHubRepository;
-  const response = await fetch(
+  const response = await httpFetch(
     `https://hub.docker.com/v2/repositories/${repository}/tags?page_size=50&ordering=last_updated`,
     {
       headers: { Accept: 'application/json', 'User-Agent': 'health-dashboard-update-check' },
@@ -76,6 +77,6 @@ export async function getVersionInfo(): Promise<VersionInfo> {
     dockerImage: `docker.io/${config.dockerHubRepository}`,
     checkedAt: new Date().toISOString(),
   };
-  cacheExpiresAt = Date.now() + 60 * 60 * 1000;
+  cacheExpiresAt = Date.now() + (latestVersion ? 60 * 60 * 1000 : 5 * 60 * 1000);
   return cachedVersionInfo;
 }

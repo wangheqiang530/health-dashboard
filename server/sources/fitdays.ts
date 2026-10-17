@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { config } from '../config.ts';
+import { httpFetch } from '../http.ts';
 import { dateInTimeZone } from '../time.ts';
 
 export interface FitdaysCredentials {
@@ -113,7 +114,7 @@ async function fitdaysRequest(
     uid,
   };
   const query = new URLSearchParams({ ...signParams, sign: buildSign(signParams), capp_ver: '1.21.0' });
-  const response = await fetch(`https://online.fitdays.cn/${path.replace(/^\//, '')}?${query}`, {
+  const response = await httpFetch(`https://online.fitdays.cn/${path.replace(/^\//, '')}?${query}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json;charset=UTF-8',

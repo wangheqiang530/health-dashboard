@@ -28,6 +28,8 @@ services:
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -41,7 +43,10 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       APP_VERSION: ${APP_VERSION:-0.0.1}
       DOCKERHUB_REPOSITORY: ${DOCKERHUB_REPOSITORY:-wangheqiang/health-dashboard}
-      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-wangheqiang/health-dashboard}
+      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-wangheqiang530/health-dashboard}
+      HTTP_PROXY: ${CONTAINER_HTTP_PROXY:-}
+      HTTPS_PROXY: ${CONTAINER_HTTPS_PROXY:-}
+      NO_PROXY: ${CONTAINER_NO_PROXY:-localhost,127.0.0.1,db}
     ports:
       - "${DASHBOARD_PORT:-8443}:8080"
     volumes:
