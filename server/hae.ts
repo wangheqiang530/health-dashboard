@@ -1,0 +1,374 @@
+import { createHash } from 'node:crypto';
+import type { PoolClient } from 'pg';
+import type { DailySummary } from '../src/types/health.ts';
+import { parseHealthAutoExportJSON } from '../src/utils/haeParser.ts';
+import { archiveJson, registerArchive } from './archive.ts';
+import { config } from './config.ts';
+import { pool } from './db.ts';
+import { dateInTimeZone } from './time.ts';
+
+interface HaeDataPoint {
+  date?: string;
+  startDate?: string;
+  endDate?: string;
+  inBedStart?: string;
+  qty?: number;
+  avg?: number;
+  sum?: number;
+  min?: number;
+  max?: number;
+  Avg?: number;
+  source?: string;
+  [key: string]: unknown;
+}
+
+interface HaeMetric {
+  name?: string;
+  units?: string;
+  data?: HaeDataPoint[];
+}
+
+interface HaeWorkout {
+  name?: string;
+  start?: string;
+  end?: string;
+  duration?: number;
+  activeEnergy?: { qty?: number; units?: string } | Array<{ qty?: number; units?: string }>;
+  distance?: { qty?: number; units?: string };
+  cyclingDistance?: { qty?: number; units?: string };
+  avgHeartRate?: { qty?: number; units?: string };
+  maxHeartRate?: { qty?: number; units?: string };
+  elevationAscended?: { qty?: number; units?: string };
+  [key: string]: unknown;
+}
+
+interface HaePayload {
+  data?:
+    | {
+        metrics?: HaeMetric[];
+        workouts?: HaeWorkout[];
+      }
+    | Array<{
+        metrics?: HaeMetric[];
+        workouts?: HaeWorkout[];
+      }>;
+  metrics?: HaeMetric[];
+  workouts?: HaeWorkout[];
+}
+
+interface NormalizedMetric {
+  fingerprint: string;
+  metricName: string;
+  units: string | null;
+  sourceName: string;
+  recordedAt: string | null;
+  localDate: string | null;
+  value: number | null;
+  rawPoint: HaeDataPoint;
+}
+
+interface NormalizedWorkout {
+  fingerprint: string;
+  name: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSec: number | null;
+  activeEnergyKcal: number | null;
+  distanceKm: number | null;
+  avgHeartRate: number | null;
+  maxHeartRate: number | null;
+  elevationGainM: number | null;
+  rawWorkout: HaeWorkout;
+}
+
+export interface HaeImportResult {
+  importId: string;
+  dateFrom: string;
+  dateTo: string;
+  metricCount: number;
+  workoutCount: number;
+  dailySummaryCount: number;
+  archivePath: string;
+  days: Record<string, DailySummary>;
+}
+
+const finiteNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const integerOrNull = (value: unknown): number | null => {
+  const parsed = finiteNumber(value);
+  return parsed === null ? null : Math.round(parsed);
+};
+
+const fingerprint = (value: unknown): string =>
+  createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+const parseTimestamp = (value: string | undefined): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const unpackPayload = (payload: unknown): { metrics: HaeMetric[]; workouts: HaeWorkout[] } => {
+  const data = payload as HaePayload;
+  const metrics: HaeMetric[] = [];
+  const workouts: HaeWorkout[] = [];
+
+  if (Array.isArray(data.data)) {
+    for (const item of data.data) {
+      metrics.push(...(item.metrics || []));
+      workouts.push(...(item.workouts || []));
+    }
+  } else if (data.data && !Array.isArray(data.data)) {
+    metrics.push(...(data.data.metrics || []));
+    workouts.push(...(data.data.workouts || []));
+  } else {
+    metrics.push(...(data.metrics || []));
+    workouts.push(...(data.workouts || []));
+  }
+
+  return { metrics, workouts };
+};
+
+const normalizeMetrics = (metrics: HaeMetric[]): NormalizedMetric[] => {
+  const result: NormalizedMetric[] = [];
+  for (const metric of metrics) {
+    const metricName = metric.name?.trim();
+    if (!metricName) continue;
+
+    for (const point of metric.data || []) {
+      const rawDate = point.date || point.startDate || point.inBedStart;
+      const recordedAt = parseTimestamp(rawDate);
+      const value =
+        finiteNumber(point.qty) ??
+        finiteNumber(point.avg) ??
+        finiteNumber(point.sum) ??
+        finiteNumber(point.Avg) ??
+        finiteNumber(point.min) ??
+        finiteNumber(point.max);
+      const sourceName = typeof point.source === 'string' ? point.source : '';
+
+      result.push({
+        fingerprint: fingerprint({
+          metricName,
+          rawDate,
+          sourceName,
+          value,
+          point,
+        }),
+        metricName,
+        units: metric.units?.trim() || null,
+        sourceName,
+        recordedAt: recordedAt?.toISOString() || null,
+        localDate: recordedAt ? dateInTimeZone(recordedAt, config.timezone) : null,
+        value,
+        rawPoint: point,
+      });
+    }
+  }
+  return result;
+};
+
+const energyToKcal = (value: { qty?: number; units?: string } | undefined): number | null => {
+  const qty = finiteNumber(value?.qty);
+  if (qty === null) return null;
+  return value?.units?.toLowerCase().includes('kj') ? Number((qty / 4.184).toFixed(2)) : qty;
+};
+
+const normalizeWorkouts = (workouts: HaeWorkout[]): NormalizedWorkout[] =>
+  workouts.map((workout) => {
+    const start = parseTimestamp(workout.start);
+    const end = parseTimestamp(workout.end);
+    const activeEnergy = Array.isArray(workout.activeEnergy)
+      ? energyToKcal(
+          workout.activeEnergy.reduce<{ qty?: number; units?: string }>(
+            (total, item) => ({
+              qty: (total.qty || 0) + (finiteNumber(item.qty) || 0),
+              units: total.units || item.units,
+            }),
+            {}
+          )
+        )
+      : energyToKcal(workout.activeEnergy);
+    const distanceMeters =
+      finiteNumber(workout.distance?.qty) ?? finiteNumber(workout.cyclingDistance?.qty);
+
+    return {
+      fingerprint: fingerprint(workout),
+      name: workout.name?.trim() || '体能训练',
+      startedAt: start?.toISOString() || null,
+      endedAt: end?.toISOString() || null,
+      durationSec: integerOrNull(workout.duration),
+      activeEnergyKcal: activeEnergy,
+      distanceKm: distanceMeters === null ? null : Number((distanceMeters / 1000).toFixed(3)),
+      avgHeartRate: integerOrNull(workout.avgHeartRate?.qty),
+      maxHeartRate: integerOrNull(workout.maxHeartRate?.qty),
+      elevationGainM: finiteNumber(workout.elevationAscended?.qty),
+      rawWorkout: workout,
+    };
+  });
+
+async function insertMetrics(client: PoolClient, importId: string, rows: NormalizedMetric[]): Promise<void> {
+  const batchSize = 400;
+  for (let offset = 0; offset < rows.length; offset += batchSize) {
+    const batch = rows.slice(offset, offset + batchSize);
+    const values: unknown[] = [];
+    const placeholders = batch.map((row, index) => {
+      const base = index * 9;
+      values.push(
+        importId,
+        row.fingerprint,
+        row.metricName,
+        row.units,
+        row.sourceName,
+        row.recordedAt,
+        row.localDate,
+        row.value,
+        JSON.stringify(row.rawPoint)
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+    });
+
+    await client.query(
+      `INSERT INTO health_metric_points
+        (import_id, fingerprint, metric_name, units, source_name, recorded_at, local_date, value, raw_point)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (fingerprint) DO NOTHING`,
+      values
+    );
+  }
+}
+
+async function insertWorkouts(
+  client: PoolClient,
+  importId: string,
+  rows: NormalizedWorkout[]
+): Promise<void> {
+  const batchSize = 200;
+  for (let offset = 0; offset < rows.length; offset += batchSize) {
+    const batch = rows.slice(offset, offset + batchSize);
+    const values: unknown[] = [];
+    const placeholders = batch.map((row, index) => {
+      const base = index * 12;
+      values.push(
+        importId,
+        row.fingerprint,
+        row.name,
+        row.startedAt,
+        row.endedAt,
+        row.durationSec,
+        row.activeEnergyKcal,
+        row.distanceKm,
+        row.avgHeartRate,
+        row.maxHeartRate,
+        row.elevationGainM,
+        JSON.stringify(row.rawWorkout)
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}::jsonb)`;
+    });
+
+    await client.query(
+      `INSERT INTO health_workouts
+        (import_id, fingerprint, name, started_at, ended_at, duration_sec, active_energy_kcal,
+         distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, raw_workout)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (fingerprint) DO NOTHING`,
+      values
+    );
+  }
+}
+
+export async function importHaePayload(
+  payload: unknown,
+  metadata: { payloadSizeBytes: number; sourceIp: string | null }
+): Promise<HaeImportResult> {
+  const parsed = parseHealthAutoExportJSON(payload);
+  const { metrics, workouts } = unpackPayload(payload);
+  const normalizedMetrics = normalizeMetrics(metrics);
+  const normalizedWorkouts = normalizeWorkouts(workouts);
+  const dates = parsed.dates;
+  if (dates.length === 0) {
+    throw new Error('HAE 数据中没有可用的日期。');
+  }
+  const archive = await archiveJson('hae', 'health-auto-export', payload);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await registerArchive(
+      client,
+      archive,
+      'hae',
+      'health-auto-export',
+      normalizedMetrics.length + normalizedWorkouts.length,
+      {
+        dateFrom: dates[0],
+        dateTo: dates[dates.length - 1],
+        metricCount: normalizedMetrics.length,
+        workoutCount: normalizedWorkouts.length,
+      }
+    );
+    const importRow = await client.query<{ id: string }>(
+      `INSERT INTO hae_imports
+        (payload_size_bytes, source_ip, date_from, date_to, metric_count, workout_count,
+         daily_summary_count, raw_payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       RETURNING id`,
+      [
+        metadata.payloadSizeBytes,
+        metadata.sourceIp,
+        dates[0],
+        dates[dates.length - 1],
+        normalizedMetrics.length,
+        normalizedWorkouts.length,
+        parsed.totalDays,
+        JSON.stringify(payload),
+      ]
+    );
+    const importId = importRow.rows[0].id;
+
+    await insertMetrics(client, importId, normalizedMetrics);
+    await insertWorkouts(client, importId, normalizedWorkouts);
+
+    for (const [day, summary] of Object.entries(parsed.days)) {
+      await client.query(
+        `INSERT INTO daily_summaries (day, summary, hae_import_id, updated_at)
+         VALUES ($1, $2::jsonb, $3, NOW())
+         ON CONFLICT (day) DO UPDATE SET
+           summary = EXCLUDED.summary,
+           hae_import_id = EXCLUDED.hae_import_id,
+           updated_at = NOW()`,
+        [day, JSON.stringify(summary), importId]
+      );
+    }
+
+    await client.query(
+      `UPDATE data_sources
+       SET last_sync_at = NOW(), last_success_at = NOW(), last_error = NULL, updated_at = NOW()
+       WHERE id = 'hae'`
+    );
+
+    await client.query('COMMIT');
+    return {
+      importId,
+      dateFrom: dates[0],
+      dateTo: dates[dates.length - 1],
+      metricCount: normalizedMetrics.length,
+      workoutCount: normalizedWorkouts.length,
+      dailySummaryCount: parsed.totalDays,
+      archivePath: archive.relativePath,
+      days: parsed.days,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    await pool.query(
+      `UPDATE data_sources
+       SET last_error = $1, updated_at = NOW()
+       WHERE id = 'hae'`,
+      [error instanceof Error ? error.message : String(error)]
+    );
+    throw error;
+  } finally {
+    client.release();
+  }
+}

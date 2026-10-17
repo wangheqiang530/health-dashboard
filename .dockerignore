@@ -1,0 +1,11 @@
+.git
+.env
+node_modules
+dist
+data
+temp_inspect
+*.log
+fitdays_latest_data.json
+igpsport_rides_summary.json
+igpsport_fits
+public/sample_hae.json

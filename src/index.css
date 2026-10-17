@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-apple: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  body {
+    font-family: var(--font-apple);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 160, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 140, 160, 0.45);
+}
+
+/* Apple Liquid Glass Keyframes */
+@keyframes liquid-drift-1 {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  33% {
+    transform: translate(60px, -45px) scale(1.12) rotate(4deg);
+  }
+  66% {
+    transform: translate(-45px, 55px) scale(0.94) rotate(-3deg);
+  }
+}
+
+@keyframes liquid-drift-2 {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  33% {
+    transform: translate(-70px, 60px) scale(1.08) rotate(-4deg);
+  }
+  66% {
+    transform: translate(50px, -35px) scale(1.15) rotate(5deg);
+  }
+}
+
+@keyframes liquid-drift-3 {
+  0%, 100% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  33% {
+    transform: translate(45px, 50px) scale(0.92) rotate(3deg);
+  }
+  66% {
+    transform: translate(-65px, -45px) scale(1.1) rotate(-4deg);
+  }
+}
+
+/* Apple Liquid Glass (液态玻璃 / Frosted Specular Acrylic) */
+.apple-glass-dark {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(14, 16, 25, 0.76);
+  backdrop-filter: blur(40px) saturate(210%);
+  -webkit-backdrop-filter: blur(40px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 
+    0 24px 56px -12px rgba(0, 0, 0, 0.7),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.apple-glass-light {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.88) 0%, rgba(246, 248, 252, 0.75) 100%);
+  backdrop-filter: blur(40px) saturate(190%);
+  -webkit-backdrop-filter: blur(40px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 
+    0 16px 40px -10px rgba(15, 23, 42, 0.09),
+    0 4px 14px -2px rgba(15, 23, 42, 0.05),
+    inset 0 1.5px 1.5px 0 rgba(255, 255, 255, 1),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.glow-move {
+  filter: drop-shadow(0 0 14px rgba(250, 17, 79, 0.5));
+}
+.glow-exercise {
+  filter: drop-shadow(0 0 14px rgba(161, 255, 0, 0.5));
+}
+.glow-stand {
+  filter: drop-shadow(0 0 14px rgba(0, 245, 212, 0.5));
+}
+.glow-vitality {
+  filter: drop-shadow(0 0 18px rgba(120, 119, 255, 0.45));
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+.animate-heart-pulse {
+  animation: pulse-subtle 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
