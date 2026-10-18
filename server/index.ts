@@ -11,6 +11,7 @@ import { closeDatabase, migrate, pool } from './db.ts';
 import { configRoutes } from './routes/config.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
 import { haeRoutes } from './routes/hae.ts';
+import { repairHistoricalHaeSummaries } from './hae.ts';
 import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
 import { ensureHaeApiKey } from './settings.ts';
@@ -112,6 +113,14 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 try {
   await migrate();
   await ensureHaeApiKey();
+  try {
+    const repair = await repairHistoricalHaeSummaries();
+    if (repair.repairedCount > 0) {
+      app.log.info(`[hae:repair] 成功自愈与增量合并 ${repair.repairedCount} 天历史健康数据。`);
+    }
+  } catch (repairErr) {
+    app.log.warn({ err: repairErr }, '[hae:repair] 历史数据自愈合并跳过');
+  }
   await reloadSchedules();
   await startArchiveCleanupScheduler();
   await startBackupScheduler();

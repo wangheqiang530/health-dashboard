@@ -7,14 +7,14 @@
 
 ## 1. 项目基本概况
 
-- **当前版本**：`v0.0.5`
+- **当前版本**：`v0.0.6`
 - **定位**：全功能私有化人体健康数据大盘（“人体探针”），基于苹果原生健康（Apple Health）精致质感设计，整合手机日常生理指标、Apple Watch 运动体征、Fitdays 智能体脂秤体成分，以及 iGPSPORT 专业骑行码表数据。
 - **核心架构**：
   - **前端**：React 19 + TypeScript + Vite + Tailwind CSS v4 + Lucide React + Framer Motion
   - **后端**：Node.js 20 (TSX) + Fastify v5 + node-cron + undici
   - **数据库**：PostgreSQL 16 Alpine
   - **部署形态**：Docker Compose 容器化部署（支持纯字面量无环境依赖启动）
-  - **官方镜像**：`wangheqiang/health-dashboard:0.0.5`
+  - **官方镜像**：`wangheqiang/health-dashboard:0.0.6`
   - **GitHub 仓库**：`https://github.com/wangheqiang530/health-dashboard.git`
 
 ---

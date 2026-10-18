@@ -1,11 +1,36 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import { gunzip } from 'node:zlib';
+import { promisify } from 'node:util';
 import type { PoolClient } from 'pg';
-import type { DailySummary } from '../src/types/health.ts';
+import type { DailySummary, WorkoutRecord } from '../src/types/health.ts';
 import { parseHealthAutoExportJSON } from '../src/utils/haeParser.ts';
-import { archiveJson, registerArchive } from './archive.ts';
+import { archiveJson, registerArchive, resolveArchivePath } from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
 import { dateInTimeZone } from './time.ts';
+
+const gunzipAsync = promisify(gunzip);
+
+export function mergeWorkouts(
+  existingWorkouts: WorkoutRecord[] = [],
+  newWorkouts: WorkoutRecord[] = []
+): WorkoutRecord[] {
+  const merged = [...existingWorkouts];
+  for (const nw of newWorkouts) {
+    const idx = merged.findIndex(
+      (w) =>
+        (w.id && nw.id && w.id === nw.id) ||
+        (w.startTime === nw.startTime && w.name === nw.name)
+    );
+    if (idx >= 0) {
+      merged[idx] = { ...merged[idx], ...nw };
+    } else {
+      merged.push(nw);
+    }
+  }
+  return merged;
+}
 
 interface HaeDataPoint {
   date?: string;
@@ -331,6 +356,38 @@ export async function importHaePayload(
     await insertWorkouts(client, importId, normalizedWorkouts);
 
     for (const [day, summary] of Object.entries(parsed.days)) {
+      const existing = await client.query<{ summary: DailySummary }>(
+        'SELECT summary FROM daily_summaries WHERE day = $1',
+        [day]
+      );
+
+      let finalSummary = summary;
+      if (existing.rows[0]) {
+        const prev = existing.rows[0].summary;
+        const hasMetrics = normalizedMetrics.length > 0;
+        const hasWorkouts = normalizedWorkouts.length > 0;
+
+        if (!hasMetrics && hasWorkouts) {
+          finalSummary = {
+            ...prev,
+            date: summary.date || prev.date,
+            dayName: summary.dayName || prev.dayName,
+            shortDay: summary.shortDay || prev.shortDay,
+            workouts: mergeWorkouts(prev.workouts, summary.workouts),
+          };
+        } else if (hasMetrics && !hasWorkouts) {
+          finalSummary = {
+            ...summary,
+            workouts: mergeWorkouts(prev.workouts, summary.workouts),
+          };
+        } else {
+          finalSummary = {
+            ...summary,
+            workouts: mergeWorkouts(prev.workouts, summary.workouts),
+          };
+        }
+      }
+
       await client.query(
         `INSERT INTO daily_summaries (day, summary, hae_import_id, updated_at)
          VALUES ($1, $2::jsonb, $3, NOW())
@@ -338,7 +395,7 @@ export async function importHaePayload(
            summary = EXCLUDED.summary,
            hae_import_id = EXCLUDED.hae_import_id,
            updated_at = NOW()`,
-        [day, JSON.stringify(summary), importId]
+        [day, JSON.stringify(finalSummary), importId]
       );
     }
 
@@ -371,4 +428,90 @@ export async function importHaePayload(
   } finally {
     client.release();
   }
+}
+
+export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: number }> {
+  const archives = await pool.query<{ id: string; relative_path: string }>(
+    `SELECT id, relative_path
+     FROM source_archive_files
+     WHERE source_id = 'hae' AND deleted_at IS NULL
+     ORDER BY captured_at ASC`
+  );
+  if (archives.rows.length === 0) return { repairedCount: 0 };
+
+  let repairedCount = 0;
+  for (const row of archives.rows) {
+    try {
+      const absPath = resolveArchivePath(row.relative_path);
+      const fileBuf = await fs.readFile(absPath);
+      let contentStr = '';
+      if (row.relative_path.endsWith('.gz')) {
+        contentStr = (await gunzipAsync(fileBuf)).toString('utf8');
+      } else {
+        contentStr = fileBuf.toString('utf8');
+      }
+      const payload = JSON.parse(contentStr);
+      const parsed = parseHealthAutoExportJSON(payload);
+      const { metrics, workouts } = unpackPayload(payload);
+      const normalizedMetrics = normalizeMetrics(metrics);
+      const normalizedWorkouts = normalizeWorkouts(workouts);
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const [day, summary] of Object.entries(parsed.days)) {
+          const existing = await client.query<{ summary: DailySummary }>(
+            'SELECT summary FROM daily_summaries WHERE day = $1',
+            [day]
+          );
+
+          let finalSummary = summary;
+          if (existing.rows[0]) {
+            const prev = existing.rows[0].summary;
+            const hasMetrics = normalizedMetrics.length > 0;
+            const hasWorkouts = normalizedWorkouts.length > 0;
+
+            if (!hasMetrics && hasWorkouts) {
+              finalSummary = {
+                ...prev,
+                date: summary.date || prev.date,
+                dayName: summary.dayName || prev.dayName,
+                shortDay: summary.shortDay || prev.shortDay,
+                workouts: mergeWorkouts(prev.workouts, summary.workouts),
+              };
+            } else if (hasMetrics && !hasWorkouts) {
+              finalSummary = {
+                ...summary,
+                workouts: mergeWorkouts(prev.workouts, summary.workouts),
+              };
+            } else {
+              finalSummary = {
+                ...summary,
+                workouts: mergeWorkouts(prev.workouts, summary.workouts),
+              };
+            }
+          }
+
+          await client.query(
+            `INSERT INTO daily_summaries (day, summary, updated_at)
+             VALUES ($1, $2::jsonb, NOW())
+             ON CONFLICT (day) DO UPDATE SET
+               summary = EXCLUDED.summary,
+               updated_at = NOW()`,
+            [day, JSON.stringify(finalSummary)]
+          );
+          repairedCount += 1;
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        console.warn(`[hae:repair] 归档 ${row.relative_path} 合并失败:`, err);
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      console.warn(`[hae:repair] 读取归档 ${row.relative_path} 异常:`, err);
+    }
+  }
+  return { repairedCount };
 }

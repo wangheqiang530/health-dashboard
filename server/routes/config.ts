@@ -1,4 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import fs from 'node:fs';
+import path from 'node:path';
 import cron from 'node-cron';
 import { z } from 'zod';
 import {
@@ -462,6 +464,43 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       request.log.error(error, '导入 Apple Health ZIP 失败');
       return reply.code(500).send({
         error: error instanceof Error ? error.message : '解析或导入 Apple Health ZIP 失败',
+      });
+    }
+  });
+
+  app.get('/api/v1/config/logs', async (_request, reply) => {
+    const logFile = path.join(config.dataDir, 'logs', 'app.log');
+    try {
+      if (!fs.existsSync(logFile)) {
+        return { lines: ['[INFO] 日志系统已就绪，当前暂无历史日志。'], totalBytes: 0, logFilePath: logFile };
+      }
+      const stats = fs.statSync(logFile);
+      const readBytes = Math.min(stats.size, 256 * 1024);
+      const buffer = Buffer.alloc(readBytes);
+      const fd = fs.openSync(logFile, 'r');
+      fs.readSync(fd, buffer, 0, readBytes, Math.max(0, stats.size - readBytes));
+      fs.closeSync(fd);
+
+      const content = buffer.toString('utf8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0).slice(-400);
+      return { lines, totalBytes: stats.size, logFilePath: logFile };
+    } catch (err) {
+      return reply.code(500).send({
+        error: err instanceof Error ? err.message : '读取运行日志失败',
+      });
+    }
+  });
+
+  app.delete('/api/v1/config/logs', async (_request, reply) => {
+    const logFile = path.join(config.dataDir, 'logs', 'app.log');
+    try {
+      if (fs.existsSync(logFile)) {
+        fs.writeFileSync(logFile, `[${new Date().toISOString()}] [INFO] 系统运行日志已由管理员清空重置。\n`, 'utf8');
+      }
+      return { ok: true, message: '日志视窗已清空' };
+    } catch (err) {
+      return reply.code(500).send({
+        error: err instanceof Error ? err.message : '清空日志失败',
       });
     }
   });

@@ -5,6 +5,7 @@ import { useCustomization, PRESET_COLORS, type LiquidColorPreset } from '../../c
 import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
+import { SystemLogsModal } from '../dashboard/SystemLogsModal';
 import {
   Server,
   UploadCloud,
@@ -16,6 +17,7 @@ import {
   Sliders,
   Palette,
   Sparkles,
+  Terminal,
 } from 'lucide-react';
 
 interface ConfigCenterViewProps {
@@ -38,6 +40,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   onOpenWizard,
 }) => {
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
+  const [isLogsOpen, setIsLogsOpen] = useState(false);
   const {
     liquid,
     updateLiquid,
@@ -75,7 +78,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 </h2>
                 <span className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  容器服务在线 (8443)
+                  API 状态: 在线 (200 OK)
                 </span>
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
@@ -97,6 +100,15 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? '读取中...' : '刷新后端数据'}</span>
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsLogsOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 border border-black/5 dark:border-white/10 transition-all cursor-pointer flex items-center gap-1.5"
+              title="查看后端 Fastify 与数据同步运行日志"
+            >
+              <Terminal className="w-3.5 h-3.5 text-sky-500" />
+              <span>运行日志</span>
             </motion.button>
             {onOpenWizard && (
               <motion.button
@@ -484,6 +496,11 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
         isOpen={isZipImportOpen}
         onClose={() => setIsZipImportOpen(false)}
         onImportSuccess={onRefreshData}
+      />
+
+      <SystemLogsModal
+        isOpen={isLogsOpen}
+        onClose={() => setIsLogsOpen(false)}
       />
     </div>
   );

@@ -143,8 +143,8 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         (SELECT COUNT(*) FROM health_workouts)::int AS workouts,
         (SELECT COUNT(*) FROM body_measurements)::int AS body_measurements,
         (SELECT COUNT(*) FROM cycling_activities)::int AS cycling_activities,
-        (SELECT COUNT(*) FROM archives)::int AS archive_count,
-        (SELECT COALESCE(SUM(file_size_bytes), 0)::bigint FROM archives) AS archive_size_bytes
+        (SELECT COUNT(*) FROM source_archive_files WHERE deleted_at IS NULL)::int AS archive_count,
+        (SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM source_archive_files WHERE deleted_at IS NULL) AS archive_size_bytes
     `);
     if (counts.rows[0]) {
       const row = counts.rows[0];

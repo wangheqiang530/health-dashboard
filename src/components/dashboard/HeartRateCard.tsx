@@ -4,6 +4,8 @@ import type { HeartRatePoint, VitalsData } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { Heart, Waves, Moon, Footprints, Flame } from 'lucide-react';
 
+type MetricViewType = 'latest' | 'resting' | 'sleeping' | 'walking' | 'hrv' | 'peak';
+
 interface HeartRateCardProps {
   timeline: HeartRatePoint[];
   vitals: VitalsData;
@@ -11,7 +13,10 @@ interface HeartRateCardProps {
 
 export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }) => {
   const [hoveredPoint, setHoveredPoint] = useState<HeartRatePoint | null>(null);
+  const [hoveredCoords, setHoveredCoords] = useState<{ x: number; y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<'hourly' | 'daily' | 'weekly' | 'hrv'>('hourly');
+  const [selectedMetric, setSelectedMetric] = useState<MetricViewType>('latest');
+  const svgRef = React.useRef<SVGSVGElement | null>(null);
 
   // Chart Dimensions
   const width = 500;
@@ -67,6 +72,40 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
   const walkingHrValue = vitals.walkingHrAvg || 78;
   const peakHr = timeline.length > 0 ? Math.max(...timeline.map((p) => p.hr)) : 140;
   const peakZoneLabel = peakHr >= 165 ? '极限无氧区' : peakHr >= 140 ? '有氧耐力区' : '日常燃脂区';
+
+  // Mouse Move on Chart for Crosshair (User Comment 1)
+  const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current || points.length === 0) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * width;
+
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - mouseX);
+    for (let i = 1; i < points.length; i++) {
+      const diff = Math.abs(points[i].x - mouseX);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = points[i];
+      }
+    }
+    setHoveredPoint(closest.pt);
+    setHoveredCoords({ x: closest.x, y: closest.y });
+  };
+
+  const handleSvgMouseLeave = () => {
+    setHoveredPoint(null);
+    setHoveredCoords(null);
+  };
+
+  // Metric selection handler (User Comment 2)
+  const handleSelectMetric = (metric: MetricViewType) => {
+    setSelectedMetric(metric);
+    if (metric === 'hrv') {
+      setActiveTab('hrv');
+    } else if (activeTab === 'hrv') {
+      setActiveTab('hourly');
+    }
+  };
 
   return (
     <AppleCard className="overflow-hidden h-full flex flex-col justify-between">
@@ -131,7 +170,15 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
 
         {/* 6 Key Heart Rate Metrics Grid */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('latest')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'latest'
+                ? 'bg-rose-500/15 border-rose-500/50 shadow-md shadow-rose-500/10 ring-1 ring-rose-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <span className="text-[10px] text-neutral-400 block mb-0.5">最新心率</span>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
@@ -140,9 +187,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-rose-500 font-semibold">BPM</span>
             </div>
             <span className="text-[9px] text-emerald-500 mt-0.5 block">即时监测</span>
-          </div>
+          </button>
 
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('resting')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'resting'
+                ? 'bg-rose-500/15 border-rose-500/50 shadow-md shadow-rose-500/10 ring-1 ring-rose-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <span className="text-[10px] text-neutral-400 block mb-0.5">静息心率</span>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
@@ -151,9 +206,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
             <span className="text-[9px] text-emerald-500 mt-0.5 block">优秀水平</span>
-          </div>
+          </button>
 
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('sleeping')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'sleeping'
+                ? 'bg-indigo-500/15 border-indigo-500/50 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <div className="flex items-center gap-1 text-[10px] text-neutral-400 mb-0.5">
               <Moon className="w-2.5 h-2.5 text-indigo-400" />
               <span>睡眠心率</span>
@@ -165,9 +228,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
             <span className="text-[9px] text-indigo-400 mt-0.5 block">深层休整</span>
-          </div>
+          </button>
 
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('walking')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'walking'
+                ? 'bg-teal-500/15 border-teal-500/50 shadow-md shadow-teal-500/10 ring-1 ring-teal-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <div className="flex items-center gap-1 text-[10px] text-neutral-400 mb-0.5">
               <Footprints className="w-2.5 h-2.5 text-teal-400" />
               <span>步行均值</span>
@@ -179,9 +250,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
             <span className="text-[9px] text-teal-500 mt-0.5 block">平稳舒缓</span>
-          </div>
+          </button>
 
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('hrv')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'hrv'
+                ? 'bg-purple-500/15 border-purple-500/50 shadow-md shadow-purple-500/10 ring-1 ring-purple-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <div className="flex items-center gap-1 text-[10px] text-neutral-400 mb-0.5">
               <Waves className="w-2.5 h-2.5 text-purple-400" />
               <span>HRV (SDNN)</span>
@@ -193,9 +272,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-neutral-400">ms</span>
             </div>
             <span className="text-[9px] text-purple-400 mt-0.5 block">副交感活跃</span>
-          </div>
+          </button>
 
-          <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
+          <button
+            type="button"
+            onClick={() => handleSelectMetric('peak')}
+            className={`p-2.5 rounded-2xl text-left transition-all cursor-pointer border ${
+              selectedMetric === 'peak'
+                ? 'bg-amber-500/15 border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
+                : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05] hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+            }`}
+          >
             <div className="flex items-center gap-1 text-[10px] text-neutral-400 mb-0.5">
               <Flame className="w-2.5 h-2.5 text-amber-500" />
               <span>运动峰值</span>
@@ -207,7 +294,7 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <span className="text-[10px] text-neutral-400">BPM</span>
             </div>
             <span className="text-[9px] text-amber-500 mt-0.5 block">{peakZoneLabel}</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -224,7 +311,10 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               className="w-full h-full relative"
             >
               <svg
-                className="w-full h-full overflow-visible"
+                ref={svgRef}
+                onMouseMove={handleSvgMouseMove}
+                onMouseLeave={handleSvgMouseLeave}
+                className="w-full h-full overflow-visible select-none cursor-crosshair"
                 viewBox={`0 0 ${width} ${height}`}
                 preserveAspectRatio="none"
               >
@@ -262,6 +352,31 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
                   );
                 })}
 
+                {/* Resting Baseline Marker when Resting is clicked */}
+                {selectedMetric === 'resting' && (
+                  <g>
+                    {(() => {
+                      const yRest = height - paddingY - ((vitals.restingHr - minHr) / (maxHr - minHr)) * (height - paddingY * 2);
+                      return (
+                        <>
+                          <line
+                            x1={paddingX}
+                            y1={yRest}
+                            x2={width - paddingX}
+                            y2={yRest}
+                            stroke="#FB7185"
+                            strokeWidth="1.5"
+                            strokeDasharray="4 2"
+                          />
+                          <text x={paddingX + 4} y={yRest - 4} className="text-[10px] font-bold fill-rose-400 font-mono">
+                            静息基准线: {vitals.restingHr} BPM
+                          </text>
+                        </>
+                      );
+                    })()}
+                  </g>
+                )}
+
                 {/* Gradient area */}
                 <path d={areaD} fill="url(#hrAreaGradient)" />
 
@@ -287,25 +402,74 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
                     fill={p.pt.isWorkout ? '#FFD60A' : '#FA114F'}
                     stroke="#1c1c22"
                     strokeWidth="1"
-                    className="cursor-pointer hover:r-5 transition-all"
-                    onMouseEnter={() => setHoveredPoint(p.pt)}
-                    onMouseLeave={() => setHoveredPoint(null)}
+                    className="transition-all"
                   />
                 ))}
+
+                {/* Crosshair Lines (User Comment 1) */}
+                {hoveredCoords && (
+                  <g pointerEvents="none">
+                    <line
+                      x1={hoveredCoords.x}
+                      y1={0}
+                      x2={hoveredCoords.x}
+                      y2={height - paddingY + 6}
+                      stroke="#FA114F"
+                      strokeWidth="1.2"
+                      strokeDasharray="3 3"
+                      strokeOpacity="0.8"
+                    />
+                    <line
+                      x1={paddingX}
+                      y1={hoveredCoords.y}
+                      x2={width - paddingX}
+                      y2={hoveredCoords.y}
+                      stroke="#FA114F"
+                      strokeWidth="1"
+                      strokeDasharray="3 3"
+                      strokeOpacity="0.6"
+                    />
+                    <circle
+                      cx={hoveredCoords.x}
+                      cy={hoveredCoords.y}
+                      r="10"
+                      fill="#FA114F"
+                      fillOpacity="0.25"
+                    />
+                    <circle
+                      cx={hoveredCoords.x}
+                      cy={hoveredCoords.y}
+                      r="4.5"
+                      fill="#FA114F"
+                      stroke="#FFFFFF"
+                      strokeWidth="2"
+                    />
+                  </g>
+                )}
               </svg>
 
-              {/* Hover Tooltip */}
-              {hoveredPoint && (
-                <div className="absolute top-1 right-2 px-2.5 py-1 rounded-xl bg-neutral-900/95 border border-white/20 text-xs shadow-xl text-white backdrop-blur-md flex items-center gap-2 pointer-events-none">
-                  <span className="text-neutral-400 font-mono text-[10px]">{hoveredPoint.time}</span>
-                  <span className="font-bold text-rose-400">{hoveredPoint.hr} BPM</span>
-                  {hoveredPoint.isWorkout && (
-                    <span className="px-1 py-0.2 rounded text-[9px] bg-amber-500/20 text-amber-300">
-                      体能时段
+              {/* Crosshair Tooltip Follower */}
+              <AnimatePresence>
+                {hoveredPoint && hoveredCoords && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.1 }}
+                    style={{
+                      left: `${Math.min(Math.max((hoveredCoords.x / width) * 100, 15), 85)}%`,
+                      top: `${Math.max(10, (hoveredCoords.y / height) * 100 - 32)}%`,
+                    }}
+                    className="absolute -translate-x-1/2 -translate-y-full px-3 py-1.5 rounded-xl bg-neutral-950/95 text-white border border-white/20 shadow-2xl backdrop-blur-2xl text-xs pointer-events-none z-30 whitespace-nowrap flex items-center gap-2.5 font-mono"
+                  >
+                    <span className="text-neutral-400 text-[10px]">{hoveredPoint.time}</span>
+                    <span className="font-bold text-rose-400 text-sm">{hoveredPoint.hr} <span className="text-[10px] font-normal text-neutral-400">BPM</span></span>
+                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-sans font-semibold bg-rose-500/20 text-rose-300">
+                      {hoveredPoint.isWorkout ? '体能训练' : hoveredPoint.hr > 120 ? '高心率' : hoveredPoint.hr < 60 ? '静息缓释' : '日常平稳'}
                     </span>
-                  )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Bottom Labels */}
               <div className="flex justify-between items-center text-[10px] text-neutral-400 px-2 font-mono -mt-1">
@@ -329,7 +493,17 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               className="w-full h-full flex flex-col justify-between"
             >
               <div className="flex items-center justify-between text-[11px] text-neutral-400 mb-1">
-                <span className="font-medium">每日心率范围 (最高 - 最低) 及 静息/睡眠锚点</span>
+                <span className="font-medium">
+                  {selectedMetric === 'resting'
+                    ? '7 日静息心率基线走势 (45~55 bpm 黄金区间)'
+                    : selectedMetric === 'sleeping'
+                      ? '7 日夜间睡眠深度休整心率波动 (bpm)'
+                      : selectedMetric === 'walking'
+                        ? '7 日日常步行平均心率走势 (bpm)'
+                        : selectedMetric === 'peak'
+                          ? '7 日运动峰值心率冲击高度 (bpm)'
+                          : '每日心率范围 (最高 - 最低) 及 静息/睡眠锚点'}
+                </span>
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500" />静息心率</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-400" />睡眠心率</span>
@@ -338,24 +512,46 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
 
               <div className="flex items-end justify-between h-[100px] gap-2 px-1">
                 {dailyRanges.map((d, idx) => {
-                  const bottomPct = ((d.minHr - 40) / 120) * 100;
-                  const topPct = ((d.maxHr - 40) / 120) * 100;
-                  const barHeight = Math.max(topPct - bottomPct, 15);
                   const isLatest = idx === dailyRanges.length - 1;
+                  const displayVal = selectedMetric === 'resting'
+                    ? d.restingHr
+                    : selectedMetric === 'sleeping'
+                      ? d.sleepingHr
+                      : selectedMetric === 'walking'
+                        ? d.avgHr
+                        : selectedMetric === 'peak'
+                          ? d.maxHr
+                          : d.maxHr;
+
+                  const bottomPct = selectedMetric === 'latest' ? ((d.minHr - 40) / 120) * 100 : 0;
+                  const topPct = ((displayVal - 40) / 120) * 100;
+                  const barHeight = Math.max(topPct - bottomPct, 18);
 
                   return (
                     <div key={d.date} className="flex-1 flex flex-col items-center h-full justify-end group">
-                      <span className="text-[9px] text-neutral-400 font-mono mb-1">{d.maxHr}</span>
+                      <span className="text-[9px] text-neutral-400 font-mono mb-1">{displayVal}</span>
                       <div className="relative w-3 sm:w-4 h-[75px] bg-black/5 dark:bg-white/5 rounded-full overflow-hidden flex items-end">
                         <div
                           className={`w-full rounded-full transition-all duration-500 ${
                             isLatest
-                              ? 'bg-gradient-to-t from-rose-500 via-rose-400 to-amber-400'
-                              : 'bg-gradient-to-t from-rose-500/70 to-amber-400/70'
+                              ? selectedMetric === 'sleeping'
+                                ? 'bg-gradient-to-t from-indigo-500 to-sky-400'
+                                : selectedMetric === 'walking'
+                                  ? 'bg-gradient-to-t from-teal-500 to-emerald-400'
+                                  : selectedMetric === 'peak'
+                                    ? 'bg-gradient-to-t from-amber-500 to-orange-500'
+                                    : 'bg-gradient-to-t from-rose-500 via-rose-400 to-amber-400'
+                              : selectedMetric === 'sleeping'
+                                ? 'bg-indigo-500/70'
+                                : selectedMetric === 'walking'
+                                  ? 'bg-teal-500/70'
+                                  : selectedMetric === 'peak'
+                                    ? 'bg-amber-500/70'
+                                    : 'bg-gradient-to-t from-rose-500/70 to-amber-400/70'
                           }`}
                           style={{
                             height: `${barHeight}%`,
-                            marginBottom: `${bottomPct * 0.4}%`,
+                            marginBottom: selectedMetric === 'latest' ? `${bottomPct * 0.4}%` : '0%',
                           }}
                         />
                       </div>

@@ -297,3 +297,18 @@ export async function deleteArchiveFile(archiveId: string): Promise<{ ok: true; 
   });
   return parseResponse(response);
 }
+
+export async function fetchSystemLogs(): Promise<{ lines: string[]; totalBytes: number; logFilePath: string }> {
+  const response = await fetch('/api/v1/config/logs', {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}
+
+export async function clearSystemLogs(): Promise<{ ok: boolean }> {
+  const response = await fetch('/api/v1/config/logs', {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}

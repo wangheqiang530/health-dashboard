@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.5-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.6-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -63,7 +63,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.5
+    image: wangheqiang/health-dashboard:0.0.6
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
