@@ -6,11 +6,11 @@ services:
     container_name: health-dashboard-db
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: health_dashboard
       POSTGRES_USER: health
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-HealthSecretPassword2026!}
+      POSTGRES_PASSWORD: "HealthPassword12345"
       TZ: Asia/Shanghai
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
@@ -34,8 +34,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://health:${POSTGRES_PASSWORD:-HealthSecretPassword2026!}@db:5432/health_dashboard
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a}
+      DATABASE_URL: postgresql://health:HealthPassword12345@db:5432/health_dashboard
+      APP_ENCRYPTION_KEY: "efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a"
       PUBLIC_BASE_URL: ""
       TZ: Asia/Shanghai
       LOG_LEVEL: info
