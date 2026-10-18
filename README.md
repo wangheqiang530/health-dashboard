@@ -1,102 +1,176 @@
-# Apple Health × Grow · 私有化健康数字中枢
+# 🏃 Health Dashboard · 个人私有健康数字中枢
 
-基于 Apple Health 与 Grow App Bento 风格设计的全功能个人健康数据中枢与大屏看板。将 iPhone 苹果健康、Apple Watch 体征监测、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表无缝接入私有化数据库，支持自动化 Webhook 接收、云端定时拉取、官方压缩包导入与本地滚动持久化归档。
+> **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-当前版本：**v0.0.2**
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.3-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
+[![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
 
-- 仓库地址：<https://github.com/wangheqiang530/health-dashboard>
-- 预构建镜像：`wangheqiang/health-dashboard:0.0.2` (Docker Hub)
+一款专为极客、运动爱好者与 NAS 玩家打造的**开源私有化健康数据看板**。完美融合 **Apple Fitness 三环美学** 与 **Grow Bento 风格**，无缝聚合 Apple Watch、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表全量时序数据，实现从采集、解析、图表可视化到物理持久化的全流程闭环。
 
-## 架构
+![综合看板预览](docs/images/overview.png)
 
 ---
 
-## 项目架构与设计理念
+## ✨ 为什么选择 Health Dashboard？
 
-```text
-┌─────────────────────────────────┐
-│           多来源健康数据        │
-│  · iOS 健康 App 导出.zip (官方包)│
-│  · Health Auto Export (Webhook) │
-│  · Fitdays 智能体脂秤 (云端 API)│
-│  · iGPSPORT 骑行码表 (云端 API) │
-└────────────────┬────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐      ┌─────────────────────────┐
-│     Fastify 全功能 API 管道     │ ───► │  本地来源持久化备份     │
-│  · AES-256-GCM 凭据加密入库     │      │  · 原始 ZIP / gzip 归档 │
-│  · node-cron 进程内无死锁调度器 │      │  · 默认 365 天滚动清除  │
-│  · 784MB XML 流式高性能解析器   │      │  · 支持手动下载与单项清理│
-└────────────────┬────────────────┘      └─────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐
-│         PostgreSQL 16           │
-│  · 每日聚合看板 (daily_summaries)│
-│  · 8 维体测记录 (body_measure)  │
-│  · 码表骑行活动 (cycling_activ) │
-│  · 运动训练与心率时序点         │
-└────────────────┬────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────┐
-│     React + Tailwind 前端大屏   │
-│  · 5 大专用视图与 100% 真实数据 │
-│  · 苹果液态玻璃与弥散流光动态   │
-│  · 纯本地部署，默认 0 隐私数据  │
-└─────────────────────────────────┘
+* 🍏 **颜值即正义 · 原生 Apple 级交互**  
+  深度还原 Apple Fitness 经典三色健身圆环合盖动画、身体状态能量电池（0-100分）、24小时全天心率流光曲线，以及支持躯干与四肢 5 大节段解剖透视的 8 电极体成分分析。
+* 💾 **全要素纯本地持久化 · NAS 深度友好**  
+  摒弃难以管理的 Docker 内部匿名卷，**数据库实体文件、运行日志、每日自动压缩 SQL 冷备、采集原始流通通落盘在宿主机本地 `./data` 目录**。在群晖/威联通/Unraid 上不仅一眼可见，更支持直接文件级冷备迁移。
+* 🚀 **超轻量流式解包引擎 · 轻松吞吐 G 级大包**  
+  很多健康面板在导入 iPhone 官方“导出健康数据.zip”（常常解压出 800MB+ 的 XML）时容易 OOM 崩溃。本项目自研流式事件解析器，几秒内静默消化数百万行健康记录，内存占用极度克制。
+* 🔄 **多端静默汇流 · 告别手动记账**  
+  * **iOS 健康**：支持 Health Auto Export 自动化 Webhook 实时接收，支持全量官方 ZIP 拖拽导入；
+  * **Fitdays 智能体脂秤**：云端静默抓取，保留 8 维指标、BMI 以及 5 节段解剖肌脂分布；
+  * **iGPSPORT 码表**：骑行活动自动同步，不仅有里程、时速、爬升、踏频与心率区间，还自动归档原汁原味的 `.fit` 轨迹源文件。
+* 🔒 **隐私至上 · 100% 数据主权**  
+  没有第三方埋点，没有厂商云端分析，所有外部同步密码均通过 **AES-256-GCM** 加密后保存在你自己的本地数据库中。
+
+---
+
+## ⚡ 1 分钟极速启动 (Docker Compose)
+
+无需克隆庞大仓库，只需准备一个干净的目录与一个 `docker-compose.yml`，即可一键启动：
+
+```yaml
+name: health-dashboard
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: health-dashboard-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: health_dashboard
+      POSTGRES_USER: health
+      POSTGRES_PASSWORD: "YourStrongPassword2026!" # 数据库密码（建议纯字母数字）
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data   # 数据库物理文件直接存放在 NAS/本地目录
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    image: wangheqiang/health-dashboard:0.0.3
+    container_name: health-dashboard-app
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://health:YourStrongPassword2026!@db:5432/health_dashboard
+      APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a # 64位十六进制密钥
+      PUBLIC_BASE_URL: ""
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      MAX_HAE_BYTES: 268435456     # 单次上传允许最大字节（默认 256MB，ZIP 导入支持 500MB）
+      BACKUP_RETENTION_DAYS: 365   # 归档及备份保留天数（默认 365 天）
+    ports:
+      - "8443:8080"
+    volumes:
+      - ./data:/app/data           # 日志、冷备、原始文件全部持久化在本地
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 ```
 
-- **纯私有化、零隐私泄露**：项目在 Docker 容器与局域网内运行，初始部署默认 0 数据，不包含任何个人隐私凭据。
-- **全格式兼容**：同时支持 iOS 健康 App 官方压缩包 (`导出.zip`)、Health Auto Export 自动化 Webhook、Fitdays 智能体脂秤云端 API 与 iGPSPORT 码表活动 / `.fit` 文件。
-- **三层存储保障**：原始数据先落盘归档（默认保留 365 天）➔ 核心时序指标标准化入库 ➔ 每日聚合大屏秒级响应。
+### 启动服务
+
+```bash
+docker compose up -d
+```
+
+启动完成后，打开浏览器访问：`http://<NAS或服务器IP>:8443`，立即体验！
 
 ---
 
-## 核心功能与大屏效果
+## 📂 本地持久化文件全景 (NAS Directory Structure)
 
-### 1. 综合看板 (Overview)
-深度还原 Apple Fitness 三色圆环（动态能量 / 锻炼时长 / 站立小时），配以 Grow 风格身体状态能量电池（0-100 分）、24 小时心率波动时间线、双足支撑与步态健康、睡眠分期、感官环境音量以及全屏日期快速切换。
+项目所有的运行时核心状态、数据库实体、日常抓包流与历史备份都规整地落在本地 `./data` 目录下，结构一目了然：
 
-![综合看板效果](docs/images/overview.png)
-
-#### 全历史日期日历选择
-顶部的健身圆环合盖记录栏提供全局日历选择弹窗，可无缝回溯全量收录的任意历史日期，即时联动全屏三环、体征与各项卡片：
-
-![日历选择弹窗](docs/images/calendar_modal.png)
-
----
-
-### 2. 健康趋势 (Trends)
-各生理指标（动态能量消耗、静息心率、睡眠时长、体重体脂、HRV 变异性、每日步数、VO2 Max 最大摄氧量、呼吸扰动指数）均支持日、周、月、年独立时间跨度。
-- **交互十字探针**：鼠标滑过折线图时，高光垂直虚线贯穿波形，实时吸附游标并显示准确数据值与日期浮标。
-- **动态聚合**：周与月跨度根据数据库内真实历史自动汇总总消耗与周期均值。
-
-![健康趋势折线图](docs/images/trends.png)
+```text
+./data/
+├── postgres/        # PostgreSQL 数据库物理文件（数据表、索引、WAL 日志，换机直接拷贝走）
+├── logs/            # 应用运行日志与错误输出（app.log，自带 10MB 自动轮转防护）
+├── backups/         # 数据库定时 SQL 快照（每日 03:15 自动生成 .sql.gz 冷备）
+├── archive/         # 各数据源抓取到的原始数据报文（默认保留 365 天滚动清理）
+│   ├── hae/         # iOS 导入的原始 JSON/ZIP
+│   ├── fitdays/     # 沃莱云端每次拉取的原始 JSON.gz
+│   └── igpsport/    # 码表原始活动报文与 .fit 轨迹原件
+└── temp_unzip/      # 大包解析临时解压池（解析完毕即刻自动清理，零空间残留）
+```
 
 ---
 
-### 3. 身体详情与解剖节段分布 (Body Details)
-全面打通 Fitdays 8 电极体脂秤的高精度身体成分数据：
-- **8 维核心指标**：骨骼肌量、身体水分率、内脏脂肪等级、基础代谢率 (BMR)、骨量、蛋白质率、身体年龄、去脂净重，支持悬停查看 7 日微走势，点击弹出 30 日深度医学趋势大窗。
-- **5 节段解剖肌脂分布**：支持**躯干、左上肢、右上肢、左下肢、右下肢**共五大节段独立切换，模型悬停高亮联动右侧 7 日肌肉与脂肪演变走势。
-- **无遮挡月份日历**：顶部日历选择器已采用全屏弹窗重构，彻底解决层叠样式遮挡问题。
+## 📱 数据源接入指引
 
-![身体详情卡片](docs/images/body.png)
+系统启动后，在右上角进入 **设置中心 (Settings)** 即可直观配置各数据源：
 
-![5节段肌脂分布](docs/images/body_silhouette.png)
+### 1. iOS 苹果健康
+* **自动化无感上报**：在 iPhone 安装 *Health Auto Export* App，设置 REST API Webhook 地址为 `http://<你的IP>:8443/api/v1/hae/webhook`，填入面板生成的专属 API Key，每晚即可自动静默上报；
+* **历史全量导入**：在 iPhone“健康”App 点击右上角头像 ➔“导出所有健康数据”➔ 将生成的 `导出.zip` 在看板设置页直接点击“导入苹果健康 ZIP 包”，数秒即可完整回溯多年历史！
+
+### 2. Fitdays (沃莱) 智能体脂秤
+* 填入 Fitdays App 的账号与密码，系统内嵌 AES 加密保护；
+* 默认每 6 小时自动查询一次最新称重记录，支持立即测试连接并全量拉取。
+
+### 3. iGPSPORT (迹驰) 骑行码表
+* 填入 iGPSPORT 账号密码，定时静默抓取最新骑行活动；
+* 自动下载活动对应的原始 `.fit` 轨迹并结构化提取功率、踏频、心率区间与海拔高度。
+
+---
+
+## 🛠️ 进阶管理与脚本工具
+
+项目内置开箱即用的运维脚本，可以在容器内或本地终端中随时使用：
+
+```bash
+# 立即手动执行一次数据库完整快照（生成压缩 .sql.gz 至 ./data/backups/）
+docker exec health-dashboard-app pnpm backup:db
+
+# 实时查看后端运行日志
+docker compose logs -f app
+
+# 也可以直接在宿主机打开日志文件实时排查
+tail -f ./data/logs/app.log
+```
 
 ---
 
-### 4. 体能训练中心 (Workouts)
-汇聚 Apple Watch 体能训练与 iGPSPORT 公路车码表所有运动记录。
-- **动态全周期统计**：切换“本周 / 本月 / 本季度 / 年度 / 全部”时，根据真实记录精准统计总消耗、骑行里程、累计爬升海拔与平均心率。
-- **运动清单与展开抽屉**：单项运动鼠标悬停即可展开踏频、峰值心率、心率区间占比与配速，点击可打开包含区间分布与关键指标的完整体能报告。
+## 💡 常见问题 (FAQ)
 
-![体能训练中心](docs/images/workouts.png)
+* **Q：复杂密码包含特殊字符怎么办？**  
+  A：在 `docker-compose.yml` 或 `.env` 中用双引号包裹（如 `POSTGRES_PASSWORD: "MyPassword2026!"`）。如果密码中包含 `$`，需写成 `$$` 转义，连接串中若含有 `@` 或 `:` 请注意做 URL 编码；最推荐使用 32 位以上的纯字母数字随机字符串，高强度且零语法冲突。
+* **Q：在 NAS 上怎么对外暴露？**  
+  A：支持反向代理（Nginx Proxy Manager / Traefik / 群晖内置反代）。将域名或子路径反代至容器的 `8443` 端口即可，可开启 HTTPS。
 
 ---
+
+## 🤝 参与贡献
+
+欢迎提交 Issue 或 Pull Request！未来规划支持 Garmin、Keep、迈金 (Magene) 等更多运动健康设备生态接入。如果你喜欢这个项目，欢迎点一颗 ⭐️ Star 支持！
+
+**MIT License © 2026 wangheqiang**
 
 ### 5. 配置中心与数据管道 (Config Center)
 配置中心提供完整的后端管理与个性化控制：

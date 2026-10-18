@@ -79,7 +79,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       POSTGRES_PASSWORD: HealthSecretPassword2026!
       TZ: Asia/Shanghai
     volumes:
-      - health_pgdata:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
       interval: 5s
@@ -87,7 +87,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.2
+    image: wangheqiang/health-dashboard:0.0.3
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -110,9 +110,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       interval: 15s
       timeout: 5s
       retries: 10
-
-volumes:
-  health_pgdata:`;
+`;
 
   return (
     <div className="space-y-5">

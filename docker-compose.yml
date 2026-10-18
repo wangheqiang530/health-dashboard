@@ -13,15 +13,20 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-HealthSecretPassword2026!}
       TZ: Asia/Shanghai
     volumes:
-      - health_pgdata:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
       interval: 5s
       timeout: 5s
       retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.2
+    image: wangheqiang/health-dashboard:0.0.3
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -36,7 +41,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.2
+      APP_VERSION: 0.0.3
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -54,6 +59,8 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-
-volumes:
-  health_pgdata:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

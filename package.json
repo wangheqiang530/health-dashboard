@@ -1,12 +1,13 @@
 {
   "name": "health-dashboard",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:api": "tsx watch server/index.ts",
     "start": "tsx server/index.ts",
+    "backup:db": "node scripts/backup.mjs",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "lint": "oxlint",

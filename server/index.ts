@@ -5,11 +5,13 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { startArchiveCleanupScheduler, stopArchiveCleanupScheduler } from './archive.ts';
+import { startBackupScheduler, stopBackupScheduler } from './backup.ts';
 import { config } from './config.ts';
 import { closeDatabase, migrate, pool } from './db.ts';
 import { configRoutes } from './routes/config.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
 import { haeRoutes } from './routes/hae.ts';
+import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
 import { ensureHaeApiKey } from './settings.ts';
 import { reloadSchedules, stopScheduler } from './sync.ts';
@@ -17,6 +19,7 @@ import { reloadSchedules, stopScheduler } from './sync.ts';
 const app = Fastify({
   logger: {
     level: config.logLevel,
+    stream: appLogStream,
   },
   bodyLimit: config.maxHaeBytes,
   trustProxy: true,
@@ -96,8 +99,10 @@ const shutdown = async (signal: string): Promise<void> => {
   app.log.info(`收到 ${signal}，正在停止服务。`);
   await stopScheduler();
   await stopArchiveCleanupScheduler();
+  await stopBackupScheduler();
   await app.close();
   await closeDatabase();
+  closeLogger();
   process.exit(0);
 };
 
@@ -109,10 +114,12 @@ try {
   await ensureHaeApiKey();
   await reloadSchedules();
   await startArchiveCleanupScheduler();
+  await startBackupScheduler();
   await app.listen({ host: config.host, port: config.port });
   app.log.info(`Health Dashboard API listening on http://${config.host}:${config.port}`);
 } catch (error) {
   app.log.error(error);
   await closeDatabase();
+  closeLogger();
   process.exit(1);
 }
