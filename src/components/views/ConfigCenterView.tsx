@@ -69,24 +69,47 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   const dockerComposeSnippet = `services:
   db:
     image: postgres:16-alpine
+    container_name: health-dashboard-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: health_dashboard
       POSTGRES_USER: health
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
-    ports:
-      - "\${POSTGRES_PORT:-5433}:5432"
+      POSTGRES_PASSWORD: HealthSecretPassword2026!
+      TZ: Asia/Shanghai
     volumes:
       - health_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   app:
-    image: \${DOCKERHUB_USERNAME:-wangheqiang}/health-dashboard:\${APP_VERSION:-0.0.2}
+    image: wangheqiang/health-dashboard:0.0.2
     container_name: health-dashboard-app
     restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://health:HealthSecretPassword2026!@db:5432/health_dashboard
+      APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      MAX_HAE_BYTES: 268435456
+      BACKUP_RETENTION_DAYS: 365
     ports:
       - "8443:8080"
-    env_file: .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
 volumes:
   health_pgdata:`;

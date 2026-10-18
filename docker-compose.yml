@@ -5,13 +5,13 @@ services:
     image: postgres:16-alpine
     container_name: health-dashboard-db
     restart: unless-stopped
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_DB: health_dashboard
       POSTGRES_USER: health
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TZ: ${TZ:-Asia/Shanghai}
-    ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      POSTGRES_PASSWORD: HealthSecretPassword2026!
+      TZ: Asia/Shanghai
     volumes:
       - health_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,34 +21,26 @@ services:
       retries: 20
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${DOCKERHUB_USERNAME:-wangheqiang}/health-dashboard:${APP_VERSION:-0.0.2}
+    image: wangheqiang/health-dashboard:0.0.2
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://health:${POSTGRES_PASSWORD}@db:5432/health_dashboard
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY}
-      HAE_API_KEY: ${HAE_API_KEY}
-      TZ: ${TZ:-Asia/Shanghai}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      MAX_HAE_BYTES: ${MAX_HAE_BYTES:-268435456}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-365}
-      APP_VERSION: ${APP_VERSION:-0.0.2}
-      DOCKERHUB_REPOSITORY: ${DOCKERHUB_REPOSITORY:-wangheqiang/health-dashboard}
-      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-wangheqiang530/health-dashboard}
-      HTTP_PROXY: ${CONTAINER_HTTP_PROXY:-}
-      HTTPS_PROXY: ${CONTAINER_HTTPS_PROXY:-}
-      NO_PROXY: ${CONTAINER_NO_PROXY:-localhost,127.0.0.1,db}
+      DATABASE_URL: postgresql://health:HealthSecretPassword2026!@db:5432/health_dashboard
+      APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a
+      PUBLIC_BASE_URL: ""
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      MAX_HAE_BYTES: 268435456
+      BACKUP_RETENTION_DAYS: 365
+      APP_VERSION: 0.0.2
+      DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
+      GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
-      - "${DASHBOARD_PORT:-8443}:8080"
+      - "8443:8080"
     volumes:
       - ./data:/app/data
     healthcheck:

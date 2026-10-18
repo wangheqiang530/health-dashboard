@@ -114,22 +114,67 @@
 
 ## 快速开始
 
-### 方式一：Docker Compose 极简运行 (推荐)
+### 方式一：Docker Compose 单文件免 .env 运行 (最推荐 NAS / 群晖 / 威联通 / Unraid)
 
-1. 克隆代码库：
+在 NAS 上的任意目录（如 `/volume1/docker/health-dashboard`）创建 `docker-compose.yml`，粘贴以下内容（配置已直接写入，**无需任何 .env 文件**）：
 
-```bash
-git clone https://github.com/wangheqiang530/health-dashboard.git
-cd health-dashboard
+```yaml
+name: health-dashboard
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: health-dashboard-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: health_dashboard
+      POSTGRES_USER: health
+      POSTGRES_PASSWORD: HealthSecretPassword2026!
+      TZ: Asia/Shanghai
+    volumes:
+      - health_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: wangheqiang/health-dashboard:0.0.2
+    container_name: health-dashboard-app
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://health:HealthSecretPassword2026!@db:5432/health_dashboard
+      APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a
+      PUBLIC_BASE_URL: ""
+      TZ: Asia/Shanghai
+      LOG_LEVEL: info
+      MAX_HAE_BYTES: 268435456
+      BACKUP_RETENTION_DAYS: 365
+      APP_VERSION: 0.0.2
+      DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
+      GITHUB_REPOSITORY: wangheqiang530/health-dashboard
+    ports:
+      - "8443:8080"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  health_pgdata:
 ```
 
-2. 根据模板创建配置文件：
-
-```bash
-cp .env.example .env
-```
-
-3. 启动容器服务（自动拉取 Docker Hub 预构建镜像并初始化 PostgreSQL）：
+在同级目录下执行启动（群晖 Container Manager / Portainer 用户直接在图形界面粘贴保存并启动）：
 
 ```bash
 docker compose up -d
