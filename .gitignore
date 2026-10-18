@@ -31,3 +31,6 @@ public/sample_hae.json
 *.njsproj
 *.sln
 *.sw?
+
+# Codex raw session files
+codex_context/raw_sessions/

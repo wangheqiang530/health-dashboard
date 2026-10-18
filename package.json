@@ -11,7 +11,9 @@
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "restore:db": "node scripts/restore_db.mjs",
+    "export:history": "node scripts/export_codex_history.mjs"
   },
   "dependencies": {
     "@fastify/multipart": "^10.1.4",
