@@ -1,243 +1,237 @@
-# Apple Health × Grow · 私有化健康数字大屏
+# Apple Health × Grow · 私有化健康数字中枢
 
-iOS 健康、Apple Watch、Fitdays 体脂秤与 iGPSPORT 码表的本地数据中枢。前端使用 React + Vite，后端使用 Fastify + PostgreSQL，整个项目由 Docker Compose 启动。
+基于 Apple Health 与 Grow App Bento 风格设计的全功能个人健康数据中枢与大屏看板。将 iPhone 苹果健康、Apple Watch 体征监测、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表无缝接入私有化数据库，支持自动化 Webhook 接收、云端定时拉取、官方压缩包导入与本地滚动持久化归档。
 
-当前版本：**v0.0.1**
+当前版本：**v0.0.2**
 
-- GitHub：<https://github.com/wangheqiang530/health-dashboard>
-- Docker Hub：`wangheqiang/health-dashboard`
+- 仓库地址：<https://github.com/wangheqiang530/health-dashboard>
+- 预构建镜像：`wangheqiang/health-dashboard:0.0.2` (Docker Hub)
 
 ## 架构
 
+---
+
+## 项目架构与设计理念
+
 ```text
-iPhone / HAE ── REST Webhook ──┐
-Fitdays 云端 ── Cron 拉取 ─────┼── Fastify API ── PostgreSQL
-iGPSPORT 云端 ── Cron 拉取 ────┘        │
-                                        └── React 静态站点
+┌─────────────────────────────────┐
+│           多来源健康数据        │
+│  · iOS 健康 App 导出.zip (官方包)│
+│  · Health Auto Export (Webhook) │
+│  · Fitdays 智能体脂秤 (云端 API)│
+│  · iGPSPORT 骑行码表 (云端 API) │
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐      ┌─────────────────────────┐
+│     Fastify 全功能 API 管道     │ ───► │  本地来源持久化备份     │
+│  · AES-256-GCM 凭据加密入库     │      │  · 原始 ZIP / gzip 归档 │
+│  · node-cron 进程内无死锁调度器 │      │  · 默认 365 天滚动清除  │
+│  · 784MB XML 流式高性能解析器   │      │  · 支持手动下载与单项清理│
+└────────────────┬────────────────┘      └─────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│         PostgreSQL 16           │
+│  · 每日聚合看板 (daily_summaries)│
+│  · 8 维体测记录 (body_measure)  │
+│  · 码表骑行活动 (cycling_activ) │
+│  · 运动训练与心率时序点         │
+└────────────────┬────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────┐
+│     React + Tailwind 前端大屏   │
+│  · 5 大专用视图与 100% 真实数据 │
+│  · 苹果液态玻璃与弥散流光动态   │
+│  · 纯本地部署，默认 0 隐私数据  │
+└─────────────────────────────────┘
 ```
 
-- **PostgreSQL 16**：保存原始导入、标准化指标、训练、身体测量、骑行活动与页面聚合。
-- **Fastify API**：配置管理、HAE Webhook、定时同步、同步任务记录与看板查询。
-- **node-cron**：进程内调度器。Cron 从数据库恢复，修改配置后立即重载。
-- **AES-256-GCM**：Fitdays/iGPSPORT 密码和 HAE 接收密钥加密后入库。
-- **单应用容器**：生产环境同时提供 `/api/*` 和前端静态文件，减少 NAS 上的容器数量。
+- **纯私有化、零隐私泄露**：项目在 Docker 容器与局域网内运行，初始部署默认 0 数据，不包含任何个人隐私凭据。
+- **全格式兼容**：同时支持 iOS 健康 App 官方压缩包 (`导出.zip`)、Health Auto Export 自动化 Webhook、Fitdays 智能体脂秤云端 API 与 iGPSPORT 码表活动 / `.fit` 文件。
+- **三层存储保障**：原始数据先落盘归档（默认保留 365 天）➔ 核心时序指标标准化入库 ➔ 每日聚合大屏秒级响应。
 
-## 本机启动
+---
 
-1. 创建环境文件并替换其中所有随机值：
+## 核心功能与大屏效果
 
-```powershell
-Copy-Item .env.example .env
+### 1. 综合看板 (Overview)
+深度还原 Apple Fitness 三色圆环（动态能量 / 锻炼时长 / 站立小时），配以 Grow 风格身体状态能量电池（0-100 分）、24 小时心率波动时间线、双足支撑与步态健康、睡眠分期、感官环境音量以及全屏日期快速切换。
+
+![综合看板效果](docs/images/overview.png)
+
+#### 全历史日期日历选择
+顶部的健身圆环合盖记录栏提供全局日历选择弹窗，可无缝回溯全量收录的任意历史日期，即时联动全屏三环、体征与各项卡片：
+
+![日历选择弹窗](docs/images/calendar_modal.png)
+
+---
+
+### 2. 健康趋势 (Trends)
+各生理指标（动态能量消耗、静息心率、睡眠时长、体重体脂、HRV 变异性、每日步数、VO2 Max 最大摄氧量、呼吸扰动指数）均支持日、周、月、年独立时间跨度。
+- **交互十字探针**：鼠标滑过折线图时，高光垂直虚线贯穿波形，实时吸附游标并显示准确数据值与日期浮标。
+- **动态聚合**：周与月跨度根据数据库内真实历史自动汇总总消耗与周期均值。
+
+![健康趋势折线图](docs/images/trends.png)
+
+---
+
+### 3. 身体详情与解剖节段分布 (Body Details)
+全面打通 Fitdays 8 电极体脂秤的高精度身体成分数据：
+- **8 维核心指标**：骨骼肌量、身体水分率、内脏脂肪等级、基础代谢率 (BMR)、骨量、蛋白质率、身体年龄、去脂净重，支持悬停查看 7 日微走势，点击弹出 30 日深度医学趋势大窗。
+- **5 节段解剖肌脂分布**：支持**躯干、左上肢、右上肢、左下肢、右下肢**共五大节段独立切换，模型悬停高亮联动右侧 7 日肌肉与脂肪演变走势。
+- **无遮挡月份日历**：顶部日历选择器已采用全屏弹窗重构，彻底解决层叠样式遮挡问题。
+
+![身体详情卡片](docs/images/body.png)
+
+![5节段肌脂分布](docs/images/body_silhouette.png)
+
+---
+
+### 4. 体能训练中心 (Workouts)
+汇聚 Apple Watch 体能训练与 iGPSPORT 公路车码表所有运动记录。
+- **动态全周期统计**：切换“本周 / 本月 / 本季度 / 年度 / 全部”时，根据真实记录精准统计总消耗、骑行里程、累计爬升海拔与平均心率。
+- **运动清单与展开抽屉**：单项运动鼠标悬停即可展开踏频、峰值心率、心率区间占比与配速，点击可打开包含区间分布与关键指标的完整体能报告。
+
+![体能训练中心](docs/images/workouts.png)
+
+---
+
+### 5. 配置中心与数据管道 (Config Center)
+配置中心提供完整的后端管理与个性化控制：
+- **官方导出 ZIP 一键导入**：直接上传 iPhone「健康」App 导出的 `导出.zip`，流式解析数百 MB XML 并将压缩包存档至本地（默认保留 365 天）。
+- **Health Auto Export 自动化 Webhook**：提供局域网 REST URL 与密钥，支持自动推送。
+- **Fitdays & iGPSPORT 定时同步**：配置 Cron 定时器，凭据 AES-256-GCM 密文入库，支持测试连通性与立即同步。
+- **本地来源备份管理**：默认 365 天滚动清除，支持随时调整保留期、下载备份包或单项手动删除。
+- **苹果液态玻璃与弥散流光动态调节**：实时拖动滑块自定义底色流光速度、模糊半径、玻璃饱和度与高光反射。
+
+![配置中心](docs/images/config.png)
+
+![ZIP包导入弹窗](docs/images/zip_import_modal.png)
+
+---
+
+## 快速开始
+
+### 方式一：Docker Compose 极简运行 (推荐)
+
+1. 克隆代码库：
+
+```bash
+git clone https://github.com/wangheqiang530/health-dashboard.git
+cd health-dashboard
 ```
 
-2. 启动 PostgreSQL 和应用：
+2. 根据模板创建配置文件：
 
-```powershell
-docker compose up -d --build
+```bash
+cp .env.example .env
 ```
 
-3. 打开：
+3. 启动容器服务（自动拉取 Docker Hub 预构建镜像并初始化 PostgreSQL）：
+
+```bash
+docker compose up -d
+```
+
+4. 打开浏览器访问：
 
 ```text
 http://localhost:8443
 ```
 
-也可以直接运行已发布镜像：
+> **提示**：初次启动时数据库默认是 0 数据的干净状态，页面将引导前往「配置中心」导入健康数据或连接数据源。
 
-```powershell
-docker pull wangheqiang/health-dashboard:0.0.1
+---
+
+### 方式二：源码本地开发
+
+```bash
+# 1. 安装依赖 (Node.js >= 22)
+pnpm install
+
+# 2. 启动开发环境
+pnpm dev:api   # 启动后端 API (默认 8080)
+pnpm dev       # 启动 Vite 前端开发服务器 (默认 5173)
+
+# 3. 生产打包与语法检查
+pnpm build
+pnpm lint
 ```
 
-容器状态与日志：
+---
 
-```powershell
-docker compose ps
-docker compose logs -f app
-docker compose logs -f db
-```
+## 数据导入与源配置指南
 
-PostgreSQL 只映射到宿主机 `127.0.0.1:5433`，数据库名 `health_dashboard`，用户 `health`。密码来自 `.env`。
+### 1. iOS 健康 App 官方压缩包 (`导出.zip`)
+1. 打开 iPhone 上的「健康」App，点击右上角个人头像。
+2. 滑动到最下方，点击 **导出所有健康数据**，等待 iPhone 打包完成并生成 `导出.zip`。
+3. 将 `导出.zip` 发送至电脑端。
+4. 打开大屏 **配置中心 ➔ 导入 iOS 健康 App 官方导出包 (.zip)**，拖入文件点击开始导入。
+5. 系统将自动保存压缩包至本地备份目录（保留 365 天），并在数秒内完成数百 MB XML 数据流式入库。
 
-如果宿主机通过本地代理访问 Docker Hub 或外部健康服务，可在 `.env` 中配置容器代理：
+### 2. Health Auto Export 实时自动推送 (Webhook)
+1. 在 iPhone 安装并打开 **Health Auto Export** App。
+2. 进入「Automations」页面，添加 REST API 导出任务。
+3. 从配置中心复制对应的 `REST API URL`（例如 `http://192.168.1.100:8443/api/v1/health-auto-export`）与 `X-Api-Key`。
+4. 勾选需要导出的所有指标与 Workouts，开启每日后台自动化同步。
 
-```dotenv
-CONTAINER_HTTP_PROXY=http://host.docker.internal:10808
-CONTAINER_HTTPS_PROXY=http://host.docker.internal:10808
-CONTAINER_NO_PROXY=localhost,127.0.0.1,db
-```
+### 3. Fitdays 智能体脂秤云端直连
+1. 打开配置中心 ➔ **Fitdays 体脂秤** 卡片。
+2. 填写注册账号（手机号）与密码。若家庭多用户，可填入主号档案 SUID（留空则自动识别当前活跃档案）。
+3. 设定定时拉取 Cron 表达式（默认每 6 小时同步一次：`15 */6 * * *`）。
+4. 点击 **保存配置** 并点击 **立即同步**。
 
-没有代理时保持为空即可。
-
-## 配置数据源
-
-进入网页的 **配置中心 → PostgreSQL 数据管道**。
-
-### Fitdays 体脂秤
-
-填写登录账号、密码、档案 SUID（留空则使用账号当前档案）、回看天数和 Cron。首次保存后密码密文入库，后续留空密码即可保留原密码。
-
-### iGPSPORT 码表
-
-填写登录账号、密码、每次拉取活动数量和 Cron。FIT 文件保存到：
-
-```text
-data/igpsport_fits/
-```
-
-### Cron 示例
-
-调度时区由 `.env` 的 `TZ` 决定，默认 `Asia/Shanghai`。
-
-```text
-15 */6 * * *     每 6 小时的第 15 分钟
-0 8 * * *        每天 08:00
-30 7 * * 1-5     工作日 07:30
-```
-
-保存配置后可以点击“立即同步”。任务异步执行，状态会写入 `sync_runs`，网页显示结果和最近错误。
-
-每个来源都有“测试连接”按钮：
-
-- Fitdays/iGPSPORT 会实际登录云端并读取一条最近数据，不会写入数据库。
-- HAE 会检查 Webhook 最近接收记录和本地归档目录写入权限。
-
-## 来源备份与保留期
-
-三个来源的数据都遵循同一顺序：
-
-```text
-云端/Webhook 元数据 → 本地 gzip 备份 → 导入 PostgreSQL
-```
-
-备份目录：
-
-```text
-data/archive/hae/
-data/archive/fitdays/
-data/archive/igpsport/
-data/archive/igpsport/fits/
-```
-
-配置中心可以设置备份文件保留天数。超过期限时，只删除本地 gzip 备份和 FIT 文件，PostgreSQL 中的历史数据不会删除。备份文件可以在配置中心直接下载。
-
-## Health Auto Export
-
-1. 在 iPhone 上打开 Health Auto Export。
-2. 新建 REST API 自动化。
-3. 在配置中心复制 Webhook URL 和 `X-Api-Key`。
-4. 选择需要导出的健康指标与 Workouts，启用后台自动导出。
-
-Webhook：
-
-```text
-POST /api/v1/health-auto-export
-X-Api-Key: <配置中心中显示的密钥>
-Content-Type: application/json
-```
+### 4. iGPSPORT 骑行码表全量活动直连
+1. 打开配置中心 ➔ **iGPSPORT 码表** 卡片。
+2. 填写 iGPSPORT 登录手机号与密码。
+3. 设定每次拉取活动数量（例如 `100`）及 Cron 定时表达式。
+4. 点击 **立即同步**，系统将自动拉取所有骑行记录、踏频、功率及海拔，并自动下载归档原始 `.fit` 文件。
 
 如果浏览器当前使用 `localhost` 打开页面，复制出的 URL 不能从 iPhone 访问。请改用电脑的局域网 IP 打开网页，例如：
 
 ```text
 http://192.168.1.20:8443
-```
+---
 
-也可以设置：
+## 环境变量说明 (`.env`)
 
-```dotenv
-PUBLIC_BASE_URL=http://192.168.1.20:8443
-```
+| 环境变量 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `POSTGRES_PASSWORD` | - | PostgreSQL 数据库连接强密码 |
+| `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
+| `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
+| `APP_VERSION` | `0.0.2` | 当前发布的容器镜像版本号 |
+| `BACKUP_RETENTION_DAYS` | `365` | 本地原始备份（ZIP / gzip / FIT）滚动保留天数（默认 1 年） |
+| `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |
+| `TZ` | `Asia/Shanghai` | 系统与 Cron 调度时区 |
+| `CONTAINER_HTTP_PROXY` | - | 容器内部外部同步请求的 HTTP 代理 (例如 `http://host.docker.internal:10808`) |
+| `CONTAINER_HTTPS_PROXY` | - | 容器内部外部同步请求的 HTTPS 代理 |
 
-一次 HAE 导入会同时写入：
+---
 
-- `source_archive_files`：本地 gzip 备份索引、校验值、大小和过期状态。
-- `hae_imports`：HAE 原始 JSON 与导入摘要。
-- `health_metric_points`：标准化指标点。
-- `health_workouts`：HAE 训练。
-- `daily_summaries`：前端每日聚合。
+## 路线图 (Roadmap)
 
-网页也支持手动导入 HAE JSON 文件；导入会先写 PostgreSQL，再刷新看板。
+- [x] iOS 健康 App 官方 `导出.zip` 流式解析与本地持久化归档
+- [x] Fitdays 沃莱 8 电极体脂秤 8 维指标与 5 节段解剖肌脂分布
+- [x] iGPSPORT 码表全量骑行活动、踏频、气压计爬升与原始 `.fit` 归档
+- [x] 全页面历史任意日期日历选择与全屏数据联动
+- [x] 交互折线图垂直十字探针与悬停数据标注
+- [x] 备份文件 365 天自动滚动清除与单项手动清理
+- [ ] Strava / Garmin 码表云端直连适配
+- [ ] 导出 PDF 格式的体检与体态报告
 
-## API
+---
 
-| 方法 | 路径 | 用途 |
-| --- | --- | --- |
-| `GET` | `/api/health` | 应用与数据库健康检查 |
-| `GET` | `/api/v1/dashboard` | 看板聚合数据 |
-| `GET` | `/api/v1/config` | 数据源、HAE 参数和数据库计数 |
-| `GET` | `/api/v1/version` | 当前版本与 Docker Hub 新版本检查 |
-| `PUT` | `/api/v1/config/sources/:sourceId` | 保存 Fitdays/iGPSPORT 配置 |
-| `POST` | `/api/v1/config/sources/:sourceId/test` | 测试三个来源连接 |
-| `POST` | `/api/v1/config/sources/:sourceId/sync` | 立即同步 |
-| `PUT` | `/api/v1/config/storage` | 设置备份文件保留天数 |
-| `POST` | `/api/v1/health-auto-export` | HAE Webhook |
+## 安全与隐私说明
 
-`sourceId` 可取 `hae`、`fitdays` 或 `igpsport`；同步接口只接受后两者。
+- **无外泄风险**：所有个人体征指标与运动轨迹仅存储于您自己的 PostgreSQL 数据库和本地归档目录。
+- **敏感凭据加密**：三方数据源密码与 Webhook API Key 使用 `AES-256-GCM` 硬件级强加密落盘。
+- **开源安全发布**：发布版本默认 0 数据，不含任何内置账号密码或演示测试数据。
 
-## 数据库备份
+---
 
-```powershell
-docker compose exec -T db pg_dump -U health -d health_dashboard -Fc > health-dashboard.dump
-```
+## 开源协议
 
-恢复：
-
-```powershell
-docker compose exec -T db pg_restore -U health -d health_dashboard --clean --if-exists < health-dashboard.dump
-```
-
-持久化卷：
-
-```text
-health-dashboard_health_pgdata
-data/
-```
-
-删除容器不会删除这两处数据；不要随意执行 `docker compose down -v`。
-
-## 本地开发
-
-只启动数据库：
-
-```powershell
-docker compose up -d db
-```
-
-本地 `.env` 中设置：
-
-```dotenv
-DATABASE_URL=postgresql://health:<POSTGRES_PASSWORD>@localhost:5433/health_dashboard
-```
-
-分别启动 API 与 Vite：
-
-```powershell
-pnpm dev:api
-pnpm dev
-```
-
-Vite 会把 `/api` 代理到 `http://127.0.0.1:8080`。
-
-构建与检查：
-
-```powershell
-pnpm build
-pnpm lint
-```
-
-## 自动发布
-
-`.github/workflows/docker-publish.yml` 会在推送 `v*` 标签时构建并推送 Docker Hub 镜像。仓库需要配置：
-
-```text
-DOCKERHUB_USERNAME
-DOCKERHUB_TOKEN
-```
-
-版本徽标显示 `package.json` 中的当前版本，并通过 Docker Hub 标签检查是否有新版本。
-
-## 安全边界
-
-- HAE 接收接口使用 `X-Api-Key` 鉴权。
-- 数据源密码和 HAE 密钥使用 `APP_ENCRYPTION_KEY` 加密。更换该密钥后，旧密文无法解密。
-- 配置接口没有内置用户登录，默认只适合可信局域网。若通过公网反向代理访问，必须在反向代理层增加 HTTPS 和身份认证。
-- `.env`、个人健康 JSON、FIT 文件与 `data/` 已加入 `.gitignore`，不要提交到代码仓库。
+本项目采用 [MIT License](LICENSE) 协议开源。

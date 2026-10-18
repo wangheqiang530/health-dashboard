@@ -71,6 +71,37 @@ export async function archiveJson(
   };
 }
 
+export async function archiveZip(
+  sourceId: 'hae' | 'fitdays' | 'igpsport',
+  archiveKind: string,
+  buffer: Buffer,
+  originalFilename?: string
+): Promise<ArchiveFile> {
+  const capturedAt = new Date();
+  const year = String(capturedAt.getUTCFullYear());
+  const month = String(capturedAt.getUTCMonth() + 1).padStart(2, '0');
+  const timestamp = capturedAt.toISOString().replace(/[:.]/g, '-');
+  const baseName = originalFilename
+    ? path.basename(originalFilename).replace(/\.[^/.]+$/, '').replace(/[^\w-]/g, '_')
+    : archiveKind;
+  const fileName = `${timestamp}-${baseName}-${randomUUID().slice(0, 8)}.zip`;
+  const relativePath = path.posix.join('archive', sourceId, year, month, fileName);
+  const absolutePath = resolveArchivePath(relativePath);
+  const temporaryPath = `${absolutePath}.tmp`;
+
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.writeFile(temporaryPath, buffer);
+  await fs.rename(temporaryPath, absolutePath);
+
+  return {
+    relativePath,
+    absolutePath,
+    sizeBytes: buffer.byteLength,
+    sha256: createHash('sha256').update(buffer).digest('hex'),
+    capturedAt: capturedAt.toISOString(),
+  };
+}
+
 export async function registerArchive(
   client: PoolClient,
   archive: ArchiveFile,
@@ -215,7 +246,7 @@ export async function getArchiveStats(): Promise<{
 
 export async function getArchiveStream(
   archiveId: string
-): Promise<{ stream: NodeJS.ReadableStream; fileName: string }> {
+): Promise<{ stream: NodeJS.ReadableStream; fileName: string; isZip: boolean }> {
   const result = await pool.query<{
     relative_path: string;
     deleted_at: Date | null;
@@ -234,7 +265,28 @@ export async function getArchiveStream(
   return {
     stream: createReadStream(absolutePath),
     fileName: path.basename(absolutePath),
+    isZip: archive.relative_path.endsWith('.zip'),
   };
+}
+
+export async function deleteArchive(archiveId: string): Promise<void> {
+  const result = await pool.query<{ relative_path: string }>(
+    `UPDATE source_archive_files
+     SET deleted_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING relative_path`,
+    [archiveId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error('备份记录不存在或已被删除。');
+  }
+  try {
+    const absolutePath = resolveArchivePath(row.relative_path);
+    await fs.unlink(absolutePath);
+  } catch {
+    // File might already be deleted or missing
+  }
 }
 
 export async function testArchiveWritable(): Promise<{ ok: true; path: string }> {

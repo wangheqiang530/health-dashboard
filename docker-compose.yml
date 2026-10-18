@@ -24,7 +24,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${DOCKERHUB_USERNAME:-wangheqiang}/health-dashboard:${APP_VERSION:-0.0.1}
+    image: ${DOCKERHUB_USERNAME:-wangheqiang}/health-dashboard:${APP_VERSION:-0.0.2}
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -39,9 +39,9 @@ services:
       HAE_API_KEY: ${HAE_API_KEY}
       TZ: ${TZ:-Asia/Shanghai}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      MAX_HAE_BYTES: ${MAX_HAE_BYTES:-67108864}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
-      APP_VERSION: ${APP_VERSION:-0.0.1}
+      MAX_HAE_BYTES: ${MAX_HAE_BYTES:-268435456}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-365}
+      APP_VERSION: ${APP_VERSION:-0.0.2}
       DOCKERHUB_REPOSITORY: ${DOCKERHUB_REPOSITORY:-wangheqiang/health-dashboard}
       GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-wangheqiang530/health-dashboard}
       HTTP_PROXY: ${CONTAINER_HTTP_PROXY:-}

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { startArchiveCleanupScheduler, stopArchiveCleanupScheduler } from './archive.ts';
@@ -19,7 +20,13 @@ const app = Fastify({
   },
   bodyLimit: config.maxHaeBytes,
   trustProxy: true,
-  requestTimeout: 120_000,
+  requestTimeout: 600_000,
+});
+
+await app.register(fastifyMultipart, {
+  limits: {
+    fileSize: 500 * 1024 * 1024,
+  },
 });
 
 app.addContentTypeParser(

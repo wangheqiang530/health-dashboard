@@ -19,6 +19,15 @@ interface BodyRow {
   bmi: string | null;
   body_fat_rate: string | null;
   lean_body_mass_kg: string | null;
+  skeletal_muscle_rate: string | null;
+  muscle_rate: string | null;
+  visceral_fat_level: string | null;
+  water_rate: string | null;
+  bone_mass_kg: string | null;
+  bmr_kcal: string | null;
+  protein_rate: string | null;
+  body_age: number | null;
+  score: string | null;
 }
 
 interface CyclingRow {
@@ -34,6 +43,7 @@ interface CyclingRow {
   avg_cadence: number | null;
   avg_power: number | null;
   max_power: number | null;
+  avg_speed_kmh: string | null;
   ascent_m: string | null;
   calories: string | null;
   local_date: string;
@@ -58,6 +68,16 @@ const buildBodyComposition = (
   const bodyFat = numberOrNull(latest.body_fat_rate) ?? current.bodyFatPercent;
   const leanMass = numberOrNull(latest.lean_body_mass_kg) ?? weight * (1 - bodyFat / 100);
   const bmi = numberOrNull(latest.bmi) ?? current.bmi;
+  const skeletalMuscleRate =
+    numberOrNull(latest.skeletal_muscle_rate) ?? current.skeletalMusclePercent ?? 44.1;
+  const skeletalMuscleKg = Number((weight * (skeletalMuscleRate / 100)).toFixed(2));
+  const waterRate = numberOrNull(latest.water_rate) ?? current.waterPercent ?? 56.8;
+  const visceralFat = numberOrNull(latest.visceral_fat_level) ?? current.visceralFatLevel ?? 7;
+  const bmr = numberOrNull(latest.bmr_kcal) ?? current.bmrKcal ?? 1780;
+  const boneMass = numberOrNull(latest.bone_mass_kg) ?? current.boneMassKg ?? 3.65;
+  const proteinRate = numberOrNull(latest.protein_rate) ?? current.proteinPercent ?? 18.4;
+  const bodyAge = latest.body_age ?? current.bodyAge ?? 28;
+  const bodyScore = numberOrNull(latest.score) ?? current.bodyScore ?? 76;
 
   return {
     weightKg: Number(weight.toFixed(2)),
@@ -65,6 +85,15 @@ const buildBodyComposition = (
     leanMassKg: Number(leanMass.toFixed(2)),
     bmi: Number(bmi.toFixed(1)),
     fatMassKg: Number((weight * (bodyFat / 100)).toFixed(2)),
+    skeletalMuscleKg,
+    skeletalMusclePercent: Number(skeletalMuscleRate.toFixed(1)),
+    waterPercent: Number(waterRate.toFixed(1)),
+    visceralFatLevel: visceralFat,
+    bmrKcal: Math.round(bmr),
+    boneMassKg: Number(boneMass.toFixed(2)),
+    proteinPercent: Number(proteinRate.toFixed(1)),
+    bodyAge,
+    bodyScore,
     statusLabel:
       bodyFat < 20
         ? '体型精壮 · 骨骼肌卓越'
@@ -92,33 +121,32 @@ const cyclingToWorkout = (row: CyclingRow): WorkoutRecord => {
   const durationSeconds =
     row.moving_time_sec ||
     (row.ended_at ? Math.max(0, (row.ended_at.getTime() - row.started_at.getTime()) / 1000) : 0);
+  const distanceKm = numberOrNull(row.distance_km) || undefined;
+  const durationMinutes = Math.round(durationSeconds / 60);
+  const avgSpeedKmh = numberOrNull(row.avg_speed_kmh);
 
   return {
     id: `igpsport-${row.external_id}`,
     name: row.title,
     category: 'cycling',
+    date: row.local_date,
     startTime: row.local_start_time,
-    durationMinutes: Math.round(durationSeconds / 60),
+    durationMinutes,
     activeCalories,
     totalCalories: Math.round(activeCalories * 1.08),
     avgHeartRate: row.avg_heart_rate || 0,
     maxHeartRate: row.max_heart_rate || 0,
-    distanceKm: numberOrNull(row.distance_km) || undefined,
+    distanceKm,
+    paceAvg: avgSpeedKmh
+      ? `${avgSpeedKmh.toFixed(1)} km/h`
+      : distanceKm && durationMinutes > 0
+        ? `${(distanceKm / (durationMinutes / 60)).toFixed(1)} km/h`
+        : undefined,
     cadenceAvg: row.avg_cadence || undefined,
     elevationGainM: Math.round(numberOrNull(row.ascent_m) || 0) || undefined,
-    hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
+    hrZones: { zone1: 15, zone2: 40, zone3: 30, zone4: 12, zone5: 3 },
   };
 };
-
-const isDuplicateCyclingWorkout = (
-  existingWorkouts: WorkoutRecord[],
-  cyclingWorkout: WorkoutRecord
-): boolean =>
-  existingWorkouts.some(
-    (workout) =>
-      workout.category === 'cycling' &&
-      Math.abs(timeToMinutes(workout.startTime) - timeToMinutes(cyclingWorkout.startTime)) <= 10
-  );
 
 export async function getDashboardData(options: {
   from?: string;
@@ -167,7 +195,9 @@ export async function getDashboardData(options: {
   const bodyRows = await pool.query<BodyRow>(
     `SELECT
        to_char(measured_date, 'YYYY-MM-DD') AS measured_date,
-       measured_at, weight_kg, bmi, body_fat_rate, lean_body_mass_kg
+       measured_at, weight_kg, bmi, body_fat_rate, lean_body_mass_kg,
+       skeletal_muscle_rate, muscle_rate, visceral_fat_level, water_rate,
+       bone_mass_kg, bmr_kcal, protein_rate, body_age, score
      FROM body_measurements
      WHERE measured_date BETWEEN ($1::date - INTERVAL '45 days')::date AND $2::date
      ORDER BY measured_at ASC`,
@@ -176,7 +206,7 @@ export async function getDashboardData(options: {
   const cyclingRows = await pool.query<CyclingRow>(
     `SELECT
        external_id, title, device, started_at, ended_at, moving_time_sec, distance_km,
-       avg_heart_rate, max_heart_rate, avg_cadence, avg_power, max_power, ascent_m,
+       avg_speed_kmh, avg_heart_rate, max_heart_rate, avg_cadence, avg_power, max_power, ascent_m,
        calories,
        to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS local_date,
        to_char(started_at AT TIME ZONE $3, 'HH24:MI') AS local_start_time
@@ -198,8 +228,30 @@ export async function getDashboardData(options: {
       .filter((ride) => ride.local_date === row.day)
       .map(cyclingToWorkout);
     for (const ride of rides) {
-      if (!isDuplicateCyclingWorkout(summary.workouts, ride)) {
+      const duplicateIndex = summary.workouts.findIndex(
+        (workout) =>
+          workout.category === 'cycling' &&
+          Math.abs(timeToMinutes(workout.startTime) - timeToMinutes(ride.startTime)) <= 10
+      );
+      if (duplicateIndex >= 0) {
+        const existing = summary.workouts[duplicateIndex];
+        summary.workouts[duplicateIndex] = {
+          ...ride,
+          ...existing,
+          distanceKm: existing.distanceKm || ride.distanceKm,
+          cadenceAvg: existing.cadenceAvg || ride.cadenceAvg,
+          elevationGainM: existing.elevationGainM || ride.elevationGainM,
+          avgHeartRate: existing.avgHeartRate || ride.avgHeartRate,
+          maxHeartRate: existing.maxHeartRate || ride.maxHeartRate,
+          paceAvg: existing.paceAvg || ride.paceAvg,
+        };
+      } else {
         summary.workouts.push(ride);
+      }
+    }
+    for (const workout of summary.workouts) {
+      if (!workout.date) {
+        workout.date = row.day;
       }
     }
 

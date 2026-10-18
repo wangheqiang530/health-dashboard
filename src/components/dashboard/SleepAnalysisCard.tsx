@@ -222,11 +222,13 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                 const isSelected = selectedDate === d.date;
                 const maxDayMinutes = 600; // 10h baseline
                 const totalHeightPct = Math.min((s.totalMinutes / maxDayMinutes) * 100, 100);
+                const stageTotal =
+                  s.stages.deep + s.stages.core + s.stages.rem + s.stages.awake || s.totalMinutes || 1;
 
-                const deepPct = (s.stages.deep / Math.max(s.totalMinutes, 1)) * 100;
-                const corePct = (s.stages.core / Math.max(s.totalMinutes, 1)) * 100;
-                const remPct = (s.stages.rem / Math.max(s.totalMinutes, 1)) * 100;
-                const awakePct = (s.stages.awake / Math.max(s.totalMinutes, 1)) * 100;
+                const deepPct = (s.stages.deep / stageTotal) * 100;
+                const corePct = (s.stages.core / stageTotal) * 100;
+                const remPct = (s.stages.rem / stageTotal) * 100;
+                const awakePct = (s.stages.awake / stageTotal) * 100;
 
                 return (
                   <div

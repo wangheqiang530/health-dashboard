@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { CustomizationProvider } from './context/CustomizationContext';
-import { mockDaysData, mockSyncInfo } from './data/mockHealthData';
-import type { DailySummary, DashboardModuleConfig, DashboardModuleId } from './types/health';
+import type { AutoExportSyncInfo, DailySummary, DashboardModuleConfig, DashboardModuleId } from './types/health';
 import { Navbar, type DashboardTab } from './components/layout/Navbar';
 import { LiquidBackground } from './components/ui/LiquidBackground';
 import { WeekStrip } from './components/dashboard/WeekStrip';
@@ -31,6 +30,7 @@ import {
   Sparkles,
   RotateCcw,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -50,9 +50,10 @@ function DashboardContent() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
 
-  const [daysData, setDaysData] = useState<Record<string, DailySummary>>(mockDaysData);
-  const [selectedDate, setSelectedDate] = useState<string>('2026-10-17');
-  const [syncInfo, setSyncInfo] = useState(mockSyncInfo);
+  const [daysData, setDaysData] = useState<Record<string, DailySummary>>({});
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [syncInfo, setSyncInfo] = useState<AutoExportSyncInfo | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [currentTab, setCurrentTab] = useState<DashboardTab>('overview');
   const [isSyncHubOpen, setIsSyncHubOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -98,7 +99,7 @@ function DashboardContent() {
       setSyncInfo(data.syncInfo);
       if (Object.keys(data.days).length > 0) {
         setDaysData(data.days);
-        setSelectedDate(data.selectedDate || data.dates[data.dates.length - 1]);
+        setSelectedDate((prev) => (prev && data.days[prev] ? prev : data.selectedDate || data.dates[data.dates.length - 1] || ''));
         if (!silent) {
           showToast(`已从 PostgreSQL 刷新 ${data.dates.length} 天健康数据。`);
         }
@@ -112,6 +113,7 @@ function DashboardContent() {
       }
     } finally {
       setIsRefreshing(false);
+      setInitialLoading(false);
     }
   };
 
@@ -119,7 +121,7 @@ function DashboardContent() {
     void refreshDashboard(true);
   }, []);
 
-  const currentDay = daysData[selectedDate] || Object.values(daysData)[0] || mockDaysData['2026-10-17'];
+  const currentDay = (selectedDate ? daysData[selectedDate] : null) || Object.values(daysData)[0] || null;
 
   // Handle successful import of user's real HAE JSON
   const handleImportSuccess = (parsedDays: Record<string, DailySummary>, latestDate: string) => {
@@ -213,6 +215,31 @@ function DashboardContent() {
         return null;
     }
   };
+
+  if (initialLoading || !currentDay) {
+    return (
+      <div
+        className={`min-h-screen relative flex flex-col items-center justify-center p-6 transition-colors duration-500 ${
+          isDark ? 'bg-[#060709] text-white' : 'bg-[#EAECEF] text-neutral-900'
+        }`}
+      >
+        <LiquidBackground />
+        <div className="relative z-10 flex flex-col items-center gap-4 text-center max-w-sm apple-glass-dark p-8 rounded-3xl border border-white/10 shadow-2xl">
+          <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-rose-500 via-indigo-500 to-emerald-400 text-white shadow-lg shadow-indigo-500/25">
+            <RefreshCw className="w-6 h-6 animate-spin" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold tracking-tight text-neutral-900 dark:text-white">
+              正在加载健康档案
+            </h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
+              正在连接 PostgreSQL 数据库并读取全部体测、骑行与健康体征数据...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -346,6 +373,8 @@ function DashboardContent() {
               <TrendsView
                 days={daysData}
                 currentDay={currentDay}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
                 isManageOpen={isEditingLayout && currentTab === 'trends'}
                 onCloseManage={() => setIsEditingLayout(false)}
               />
@@ -363,6 +392,9 @@ function DashboardContent() {
             >
               <BodyDetailsView
                 currentDay={currentDay}
+                days={daysData}
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
                 isManageOpen={isEditingLayout && currentTab === 'body'}
                 onCloseManage={() => setIsEditingLayout(false)}
               />
@@ -392,7 +424,18 @@ function DashboardContent() {
               transition={{ duration: 0.15 }}
             >
               <ConfigCenterView
-                syncInfo={syncInfo}
+                syncInfo={
+                  syncInfo || {
+                    lastSyncTime: '尚未同步',
+                    status: 'offline',
+                    device: 'PostgreSQL',
+                    osVersion: 'iOS',
+                    watchModel: 'Apple Watch',
+                    payloadSizeKb: 0,
+                    pendingSyncCount: 0,
+                    nasEndpoint: 'http://127.0.0.1:8443',
+                  }
+                }
                 days={daysData}
                 onOpenImport={() => setIsImportOpen(true)}
                 onRefreshData={() => void refreshDashboard(false)}
@@ -413,8 +456,8 @@ function DashboardContent() {
             />
             <span>
               {backendConnected
-                ? 'PostgreSQL · Health Auto Export · 局域网私有化存储'
-                : '后端未连接 · 当前显示演示数据'}
+                ? `PostgreSQL 已连接 · 实时加载 ${Object.keys(daysData).length} 天健康档案`
+                : '后端未连接 · 请先启动数据库与容器服务'}
             </span>
           </div>
           <div>
@@ -424,12 +467,14 @@ function DashboardContent() {
       </div>
 
       {/* Sync Hub Modal */}
-      <AutoExportHubModal
-        isOpen={isSyncHubOpen}
-        onClose={() => setIsSyncHubOpen(false)}
-        syncInfo={syncInfo}
-        onRefreshData={() => void refreshDashboard(false)}
-      />
+      {syncInfo && (
+        <AutoExportHubModal
+          isOpen={isSyncHubOpen}
+          onClose={() => setIsSyncHubOpen(false)}
+          syncInfo={syncInfo}
+          onRefreshData={() => void refreshDashboard(false)}
+        />
+      )}
 
       {/* HAE Import Modal */}
       <HAEImportModal

@@ -100,7 +100,7 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-black text-[#00F5D4]">
-                {cyclingDistanceKm > 0 ? cyclingDistanceKm : '18.2'}
+                {cyclingDistanceKm !== undefined ? cyclingDistanceKm : 0}
               </span>
               <span className="text-xs text-neutral-400">km</span>
             </div>

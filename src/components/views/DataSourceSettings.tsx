@@ -20,9 +20,11 @@ import {
   Server,
   ShieldCheck,
   Smartphone,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
+  deleteArchiveFile,
   fetchBackendConfig,
   testDataSource,
   triggerSourceSync,
@@ -100,7 +102,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   });
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [retentionDays, setRetentionDays] = useState('30');
+  const [retentionDays, setRetentionDays] = useState('365');
   const [savingStorage, setSavingStorage] = useState(false);
   const [testingId, setTestingId] = useState<'hae' | SourceId | null>(null);
   const [testResult, setTestResult] = useState<{
@@ -259,6 +261,16 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
       });
     } finally {
       setTestingId(null);
+    }
+  };
+
+  const handleDeleteArchive = async (archiveId: string) => {
+    try {
+      await deleteArchiveFile(archiveId);
+      setMessage({ type: 'success', text: '备份文件已从磁盘与记录中删除。' });
+      await loadConfig(false);
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '删除备份文件失败' });
     }
   };
 
@@ -656,13 +668,23 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
                     {archive.deletedAt ? (
                       <span className="flex-shrink-0 text-neutral-400">已过期</span>
                     ) : (
-                      <a
-                        href={`/api/v1/config/archives/${archive.id}/download`}
-                        className="flex-shrink-0 p-1 rounded-md text-sky-500 hover:bg-sky-500/10"
-                        title={`下载 ${formatDateTime(archive.capturedAt)} 的备份`}
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </a>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <a
+                          href={`/api/v1/config/archives/${archive.id}/download`}
+                          className="p-1 rounded-md text-sky-500 hover:bg-sky-500/10 cursor-pointer"
+                          title={`下载 ${formatDateTime(archive.capturedAt)} 的备份`}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteArchive(archive.id)}
+                          className="p-1 rounded-md text-neutral-400 hover:text-rose-500 hover:bg-rose-500/10 cursor-pointer transition-colors"
+                          title="删除此本地备份文件"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}

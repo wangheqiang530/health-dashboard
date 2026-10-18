@@ -4,9 +4,11 @@ import type { AutoExportSyncInfo, DailySummary } from '../../types/health';
 import { useCustomization, PRESET_COLORS, type LiquidColorPreset } from '../../context/CustomizationContext';
 import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
+import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
 import {
   Server,
   UploadCloud,
+  FileArchive,
   Download,
   Copy,
   Check,
@@ -36,6 +38,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   onResetLayout,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const {
     liquid,
     updateLiquid,
@@ -52,13 +55,15 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   };
 
   const handleExportBackup = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(days, null, 2));
+    const blob = new Blob([JSON.stringify(days, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
+    downloadAnchor.setAttribute('href', url);
     downloadAnchor.setAttribute('download', `AppleHealth_Backup_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const dockerComposeSnippet = `services:
@@ -407,6 +412,28 @@ volumes:
           </div>
 
           <div className="space-y-3">
+            {/* Import Apple Health ZIP Tile */}
+            <div
+              onClick={() => setIsZipImportOpen(true)}
+              className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/5 dark:border-white/5 transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-500 group-hover:scale-105 transition-transform">
+                  <FileArchive className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                    <span>导入 iOS 健康 App 官方导出包 (.zip)</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/20 text-amber-500 font-normal">支持 导出.zip</span>
+                  </h4>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    直接上传 iPhone 导出的官方完整压缩包，持久化本地备份并流式解析全周期健康档案
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-amber-500">上传 ZIP ➔</span>
+            </div>
+
             {/* Import Button Tile */}
             <div
               onClick={onOpenImport}
@@ -495,6 +522,12 @@ volumes:
           {dockerComposeSnippet}
         </pre>
       </AppleCard>
+
+      <AppleHealthZipModal
+        isOpen={isZipImportOpen}
+        onClose={() => setIsZipImportOpen(false)}
+        onImportSuccess={onRefreshData}
+      />
     </div>
   );
 };

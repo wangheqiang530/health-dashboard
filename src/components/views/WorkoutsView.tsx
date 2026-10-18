@@ -12,12 +12,10 @@ import {
   Heart,
   Gauge,
   Mountain,
-  Navigation,
   ChevronDown,
   Timer,
   Calendar,
 } from 'lucide-react';
-import gpxSamplePoints from '../../data/outdoorRideGpx.json';
 
 interface WorkoutsViewProps {
   days: Record<string, DailySummary>;
@@ -32,36 +30,59 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
   const [hoveredWorkoutId, setHoveredWorkoutId] = useState<string | null>(null);
 
-  // Extract all workouts
-  const allWorkouts = Object.values(days).flatMap((d) => d.workouts);
+  // Extract all workouts and sort descending by date and time
+  const allWorkouts = Object.values(days)
+    .flatMap((d) => d.workouts)
+    .sort((a, b) => ((b.date || '') + (b.startTime || '')).localeCompare((a.date || '') + (a.startTime || '')));
 
   const filtered = allWorkouts.filter((w) => {
     if (filterCategory === 'all') return true;
     return w.category === filterCategory;
   });
 
-  // Range-adjusted statistics multiplier simulation
-  const rangeConfig: Record<TimeRange, { label: string; multiplier: number; workoutsCount: number }> = {
-    week: { label: '本周', multiplier: 1, workoutsCount: allWorkouts.length },
-    month: { label: '本月', multiplier: 3.8, workoutsCount: Math.round(allWorkouts.length * 3.8) },
-    quarter: { label: '本季度', multiplier: 11.5, workoutsCount: Math.round(allWorkouts.length * 11.5) },
-    year: { label: '年度', multiplier: 42, workoutsCount: Math.round(allWorkouts.length * 42) },
-    all: { label: '全周期', multiplier: 65, workoutsCount: Math.round(allWorkouts.length * 65) },
+  const latestDate = Object.keys(days).sort().slice(-1)[0] || '2026-10-17';
+  const getCutoffDate = (daysAgo: number) => {
+    const d = new Date(latestDate + 'T12:00:00+08:00');
+    d.setDate(d.getDate() - daysAgo);
+    return d.toISOString().slice(0, 10);
   };
 
-  const currentMultiplier = rangeConfig[selectedRange].multiplier;
-  const baseKcal = allWorkouts.reduce((acc, cur) => acc + cur.activeCalories, 0) || 4876;
-  const baseCyclingKm = allWorkouts
-    .filter((w) => w.category === 'cycling')
-    .reduce((acc, cur) => acc + (cur.distanceKm || 0), 0) || 83.9;
+  const rangeFilteredWorkouts = allWorkouts.filter((w) => {
+    const wDate = w.date || '';
+    if (selectedRange === 'week') return wDate >= getCutoffDate(7);
+    if (selectedRange === 'month') return wDate >= getCutoffDate(30);
+    if (selectedRange === 'quarter') return wDate >= getCutoffDate(90);
+    if (selectedRange === 'year') return wDate >= '2026-01-01';
+    return true;
+  });
 
-  const totalKcal = Math.round(baseKcal * currentMultiplier);
-  const totalCyclingKm = (baseCyclingKm * currentMultiplier).toFixed(1);
-  const totalDurationMinutes = Math.round(allWorkouts.reduce((acc, cur) => acc + cur.durationMinutes, 0) * currentMultiplier) || 460;
-  const totalElevationGain = Math.round((allWorkouts.reduce((acc, cur) => acc + (cur.elevationGainM || 0), 0) || 280) * currentMultiplier);
-  const avgHeartRate = 124;
-  const maxHeartRate = 172;
+  const rangeWorkouts = rangeFilteredWorkouts.length > 0 ? rangeFilteredWorkouts : allWorkouts;
+
+  const totalKcal = rangeWorkouts.reduce((acc, cur) => acc + (cur.activeCalories || 0), 0);
+  const totalCyclingKm = rangeWorkouts
+    .filter((w) => w.category === 'cycling')
+    .reduce((acc, cur) => acc + (cur.distanceKm || 0), 0)
+    .toFixed(1);
+  const totalDurationMinutes = rangeWorkouts.reduce((acc, cur) => acc + (cur.durationMinutes || 0), 0);
+  const totalElevationGain = rangeWorkouts.reduce((acc, cur) => acc + (cur.elevationGainM || 0), 0);
+  const avgHeartRate =
+    rangeWorkouts.filter((w) => w.avgHeartRate > 0).length > 0
+      ? Math.round(
+          rangeWorkouts.reduce((acc, cur) => acc + (cur.avgHeartRate || 0), 0) /
+            rangeWorkouts.filter((w) => w.avgHeartRate > 0).length
+        )
+      : 124;
+  const maxHeartRate =
+    rangeWorkouts.length > 0 ? Math.max(...rangeWorkouts.map((w) => w.maxHeartRate || 0)) : 172;
   const estimatedFatBurnedG = Math.round(totalKcal / 7.7);
+
+  const rangeConfig: Record<TimeRange, { label: string; workoutsCount: number }> = {
+    week: { label: '本周', workoutsCount: rangeWorkouts.length },
+    month: { label: '本月', workoutsCount: rangeWorkouts.length },
+    quarter: { label: '本季度', workoutsCount: rangeWorkouts.length },
+    year: { label: '年度', workoutsCount: rangeWorkouts.length },
+    all: { label: '全部', workoutsCount: rangeWorkouts.length },
+  };
 
   const getCategoryIcon = (category: WorkoutRecord['category']) => {
     switch (category) {
@@ -75,26 +96,6 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
         return Activity;
     }
   };
-
-  // SVG route path
-  const lats = gpxSamplePoints.map((p) => p.lat);
-  const lons = gpxSamplePoints.map((p) => p.lon);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-
-  const svgW = 500;
-  const svgH = 130;
-  const pad = 20;
-
-  const mapped = gpxSamplePoints.map((p) => {
-    const x = pad + ((p.lon - minLon) / Math.max(maxLon - minLon, 0.0001)) * (svgW - pad * 2);
-    const y = svgH - pad - ((p.lat - minLat) / Math.max(maxLat - minLat, 0.0001)) * (svgH - pad * 2);
-    return { x, y };
-  });
-
-  const gpxPathD = mapped.reduce((acc, pt, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`, '');
 
   return (
     <div className="space-y-5">
@@ -233,59 +234,6 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
         </div>
       </AppleCard>
 
-      {/* GPS Route Card - Parsed from user's GPX file */}
-      <AppleCard className="overflow-hidden">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-[#00F5D4]" />
-            <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
-              公路车户外实测 GPX 路线 (2026-10-11 巡航记录)
-            </h3>
-          </div>
-          <span className="text-xs text-neutral-400 font-mono">
-            828 个 GPS 采样点 · 速度 28.3 km/h
-          </span>
-        </div>
-
-        <div className="relative w-full h-[120px] bg-neutral-950/80 rounded-2xl overflow-hidden border border-white/5 flex items-center justify-center p-2">
-          <svg viewBox="0 0 500 130" className="w-full h-full overflow-visible">
-            <defs>
-              <linearGradient id="roadGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#00F5D4" />
-                <stop offset="50%" stopColor="#A1FF00" />
-                <stop offset="100%" stopColor="#FFD60A" />
-              </linearGradient>
-            </defs>
-
-            <path
-              d={gpxPathD}
-              fill="none"
-              stroke="#A1FF00"
-              strokeWidth="5"
-              strokeOpacity="0.2"
-              strokeLinecap="round"
-            />
-
-            <motion.path
-              d={gpxPathD}
-              fill="none"
-              stroke="url(#roadGlow)"
-              strokeWidth="3"
-              strokeLinecap="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 1.8, ease: 'easeInOut' }}
-            />
-
-            <circle cx={mapped[0].x} cy={mapped[0].y} r="4.5" fill="#00F5D4" stroke="#000" strokeWidth="2" />
-            <text x={mapped[0].x + 8} y={mapped[0].y - 6} fill="#00F5D4" className="text-[10px] font-bold font-sans">起点</text>
-
-            <circle cx={mapped[mapped.length - 1].x} cy={mapped[mapped.length - 1].y} r="4.5" fill="#FFD60A" stroke="#000" strokeWidth="2" />
-            <text x={mapped[mapped.length - 1].x + 8} y={mapped[mapped.length - 1].y + 12} fill="#FFD60A" className="text-[10px] font-bold font-sans">终点</text>
-          </svg>
-        </div>
-      </AppleCard>
-
       {/* Filter Tabs & Expandable Workouts List */}
       <AppleCard>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -293,7 +241,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
             <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
               运动记录清单 (鼠标悬停展开关键指标，点击查看完整报告)
             </h3>
-            <span className="text-[11px] text-neutral-400">已载入全部 16 场训练数据</span>
+            <span className="text-[11px] text-neutral-400">已载入全部 {allWorkouts.length} 场训练数据</span>
           </div>
 
           {/* Filter Segmented Control */}
@@ -358,7 +306,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {w.id.slice(2, 12)}
+                          {w.date || (w.id.startsWith('w-') ? w.id.slice(2, 12) : '')}
                         </span>
                         <span>•</span>
                         <span>{w.startTime}</span>
@@ -414,9 +362,17 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                           </span>
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">踏频 / 步频</span>
+                          <span className="text-neutral-400 block text-[10px]">
+                            {w.category === 'cycling' ? '平均踏频' : w.category === 'strength' ? '训练部位' : '步频 / 动作'}
+                          </span>
                           <span className="font-bold text-[#A1FF00] font-mono text-sm">
-                            {(w.cadenceAvg || (w.category === 'cycling' ? 84 : 168))} {w.category === 'cycling' ? 'rpm' : 'spm'}
+                            {w.cadenceAvg
+                              ? `${w.cadenceAvg} ${w.category === 'cycling' ? 'rpm' : 'spm'}`
+                              : w.category === 'cycling'
+                                ? '84 rpm'
+                                : w.category === 'strength'
+                                  ? '综合肌群'
+                                  : '-'}
                           </span>
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">

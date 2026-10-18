@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { DailySummary, ActivityRings } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
-import { Calendar as CalendarIcon, Sparkles } from 'lucide-react';
+import { Calendar as CalendarIcon, Sparkles, ChevronDown } from 'lucide-react';
+import { CalendarDatePickerModal } from '../ui/CalendarDatePickerModal';
 
 interface WeekStripProps {
   days: Record<string, DailySummary>;
@@ -88,31 +89,50 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
   selectedDate,
   onSelectDate,
 }) => {
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const allDates = Object.keys(days).sort();
-  // Focus on recent 7 days as requested by user
-  const recent7Dates = allDates.slice(-7);
+
+  // Center 7 days around selectedDate when selectedDate is in the past
+  const selectedIndex = allDates.indexOf(selectedDate);
+  let displayDates: string[] = [];
+  if (selectedIndex >= 0 && allDates.length > 7) {
+    const start = Math.max(0, Math.min(selectedIndex - 3, allDates.length - 7));
+    displayDates = allDates.slice(start, start + 7);
+  } else {
+    displayDates = allDates.slice(-7);
+  }
 
   return (
+    <>
     <AppleCard className="p-3 md:p-4 mb-6">
       <div className="flex items-center justify-between mb-2.5 px-1">
         <div className="flex items-center gap-2">
           <CalendarIcon className="w-4 h-4 text-neutral-400" />
           <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-            最近 7 日 · 三色健身圆环合盖记录
+            三色健身圆环合盖记录
           </span>
         </div>
-        <div className="flex items-center gap-3 text-xs text-neutral-400">
+        <div className="flex items-center gap-2.5 text-xs text-neutral-400">
           <div className="hidden sm:flex items-center gap-3">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#FA114F]" />动态能量</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#A1FF00]" />锻炼时间</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#00F5D4]" />站立时间</span>
           </div>
-          <span className="text-[11px] text-neutral-400">点击切换整屏数据</span>
+          <button
+            type="button"
+            onClick={() => setIsCalendarOpen(true)}
+            className="px-2.5 py-1 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-800 dark:text-white border border-black/5 dark:border-white/10 font-mono text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+            title="打开日历选择任意历史日期查看"
+          >
+            <CalendarIcon className="w-3.5 h-3.5 text-amber-500" />
+            <span>{selectedDate || '选择日期'}</span>
+            <ChevronDown className="w-3 h-3 text-neutral-400" />
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-7 gap-2 md:gap-3">
-        {recent7Dates.map((date) => {
+        {displayDates.map((date) => {
           const item = days[date];
           if (!item) return null;
           const isSelected = selectedDate === date;
@@ -175,5 +195,15 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
         })}
       </div>
     </AppleCard>
+
+    <CalendarDatePickerModal
+      isOpen={isCalendarOpen}
+      onClose={() => setIsCalendarOpen(false)}
+      selectedDate={selectedDate}
+      availableDates={allDates}
+      onSelectDate={onSelectDate}
+      title="综合看板 · 历史数据日期选择"
+    />
+    </>
   );
 };

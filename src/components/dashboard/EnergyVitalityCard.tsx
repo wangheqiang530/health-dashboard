@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import type { VitalityScore } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
@@ -15,12 +15,6 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
   currentHrv,
   restingHr,
 }) => {
-  const [animKey, setAnimKey] = useState(0);
-
-  useEffect(() => {
-    setAnimKey((prev) => prev + 1);
-  }, [vitality.score]);
-
   const getBadgeStyle = (label: VitalityScore['label']) => {
     switch (label) {
       case '优异':
@@ -61,7 +55,7 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
 
         <div className="flex flex-col md:flex-row gap-6 items-center">
           {/* Glow Circular Battery Indicator */}
-          <div className="relative flex-shrink-0 flex items-center justify-center w-36 h-36" key={`vitality-ring-${animKey}`}>
+          <div className="relative flex-shrink-0 flex items-center justify-center w-36 h-36" key={`vitality-ring-${vitality.score}`}>
             <svg className="w-full h-full rotate-[-90deg]" viewBox="0 0 100 100">
               <defs>
                 <linearGradient id="vitalityGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -131,9 +125,21 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span className="text-base font-bold text-neutral-900 dark:text-white">{currentHrv}</span>
                   <span className="text-[10px] text-neutral-400">ms</span>
                 </div>
-                <div className="flex items-center text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">
-                  <ArrowUpRight className="w-3 h-3" />
-                  <span>高于基线</span>
+                <div
+                  className={`flex items-center text-[10px] mt-0.5 ${
+                    vitality.hrvStatus === '高于基线'
+                      ? 'text-emerald-500 dark:text-emerald-400'
+                      : vitality.hrvStatus === '低于基线'
+                        ? 'text-rose-500'
+                        : 'text-neutral-400'
+                  }`}
+                >
+                  {vitality.hrvStatus === '高于基线' ? (
+                    <ArrowUpRight className="w-3 h-3" />
+                  ) : vitality.hrvStatus === '低于基线' ? (
+                    <ArrowDownRight className="w-3 h-3" />
+                  ) : null}
+                  <span>{vitality.hrvStatus}</span>
                 </div>
               </div>
 
@@ -147,8 +153,14 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span className="text-[10px] text-neutral-400">bpm</span>
                 </div>
                 <div className="flex items-center text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">
-                  <ArrowDownRight className="w-3 h-3" />
-                  <span>-3 vs 基线</span>
+                  {vitality.restingHrDiff <= 0 ? (
+                    <ArrowDownRight className="w-3 h-3" />
+                  ) : (
+                    <ArrowUpRight className="w-3 h-3 text-amber-500" />
+                  )}
+                  <span>
+                    {vitality.restingHrDiff > 0 ? `+${vitality.restingHrDiff}` : vitality.restingHrDiff} vs 基线
+                  </span>
                 </div>
               </div>
 

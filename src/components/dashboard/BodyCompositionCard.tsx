@@ -1,7 +1,7 @@
 import React from 'react';
 import type { BodyComposition } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
-import { Scale, TrendingDown, ShieldCheck, Activity, Sparkles, ChevronRight } from 'lucide-react';
+import { Scale, TrendingDown, TrendingUp, ShieldCheck, Activity, Sparkles, ChevronRight } from 'lucide-react';
 
 interface BodyCompositionCardProps {
   body: BodyComposition;
@@ -10,7 +10,7 @@ interface BodyCompositionCardProps {
 export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }) => {
   const leanPercent = Math.round((body.leanMassKg / Math.max(body.weightKg, 1)) * 100);
   const fatPercent = Math.round(body.bodyFatPercent);
-  const boneMassEst = 3.65; // Estimated bone mineral content (kg)
+  const boneMassEst = body.boneMassKg ?? 3.65; // Estimated bone mineral content (kg)
 
   const trendPoints = body.trend || [
     { date: '10-11', weight: 89.50, bodyFat: 22.5 },
@@ -21,6 +21,9 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
     { date: '10-16', weight: 89.65, bodyFat: 22.8 },
     { date: '10-17', weight: 89.84, bodyFat: 22.9 },
   ];
+  const startWeight = trendPoints[0]?.weight;
+  const weightDiff =
+    startWeight !== undefined ? Number((body.weightKg - startWeight).toFixed(1)) : -0.6;
 
   return (
     <AppleCard className="overflow-visible h-full flex flex-col justify-between relative">
@@ -50,8 +53,12 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
             <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
               <span>当前体重</span>
               <span className="flex items-center text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">
-                <TrendingDown className="w-3 h-3 mr-0.5" />
-                -0.6 kg vs 周初
+                {weightDiff <= 0 ? (
+                  <TrendingDown className="w-3 h-3 mr-0.5" />
+                ) : (
+                  <TrendingUp className="w-3 h-3 mr-0.5 text-amber-500" />
+                )}
+                {weightDiff > 0 ? `+${weightDiff}` : `${weightDiff}`} kg vs 周初
               </span>
             </div>
             <div className="flex items-baseline gap-1 mt-1">

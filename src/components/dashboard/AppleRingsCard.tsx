@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import type { ActivityRings } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
@@ -14,12 +14,6 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
   const size = 200;
   const center = size / 2;
   const strokeWidth = 14;
-  const [animKey, setAnimKey] = useState(0);
-
-  // Trigger smooth 0->100% spin on mount and whenever ring numbers change
-  useEffect(() => {
-    setAnimKey((prev) => prev + 1);
-  }, [rings.move.current, rings.exercise.current, rings.stand.current]);
 
   const ringConfigs = [
     {
@@ -95,7 +89,10 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
           {/* Tri-Rings Graphic with animated key */}
-          <div className="md:col-span-5 flex justify-center py-2 relative" key={`rings-canvas-${animKey}`}>
+          <div
+            className="md:col-span-5 flex justify-center py-2 relative"
+            key={`rings-canvas-${rings.move.current}-${rings.exercise.current}-${rings.stand.current}`}
+          >
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
               <defs>
                 <linearGradient id="moveGrad" x1="0%" y1="0%" x2="100%" y2="100%">

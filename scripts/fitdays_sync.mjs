@@ -16,7 +16,7 @@ import path from 'node:path';
 export const FITDAYS_CONFIG = {
   account: process.env.FITDAYS_ACCOUNT ?? '',
   password: process.env.FITDAYS_PASSWORD ?? '',
-  // 主号档案 SUID: 王贺强 (UID: 36152895, SUID: 36152905)
+  // 主号档案 SUID (若多用户请指定目标档案 SUID，留空则自动识别活跃档案)
   targetSuid: process.env.FITDAYS_TARGET_SUID
     ? Number(process.env.FITDAYS_TARGET_SUID)
     : null,

@@ -102,7 +102,7 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                   <span className="font-semibold">Apple Watch 真实 GPS 运动轨迹</span>
                 </div>
                 <span className="text-[10px] text-neutral-400 font-mono">
-                  {workout.routeGpxPoints.length} 个轨迹锚点 · 6.6 km
+                  {workout.routeGpxPoints.length} 个轨迹锚点{workout.distanceKm ? ` · ${workout.distanceKm} km` : ''}
                 </span>
               </div>
 
@@ -201,7 +201,7 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               </div>
             )}
 
-            {workout.paceAvg && (
+            {(workout.paceAvg || workout.category === 'cycling' || workout.distanceKm) && (
               <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
                 <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
                   <Gauge className="w-4 h-4 text-[#A1FF00]" />
@@ -209,7 +209,11 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-extrabold text-white">
-                    {workout.category === 'cycling' ? `${((workout.distanceKm || 1) / (workout.durationMinutes / 60)).toFixed(1)} km/h` : workout.paceAvg}
+                    {workout.category === 'cycling'
+                      ? workout.paceAvg || (workout.distanceKm && workout.durationMinutes > 0
+                          ? `${(workout.distanceKm / (workout.durationMinutes / 60)).toFixed(1)} km/h`
+                          : '-')
+                      : workout.paceAvg || '-'}
                   </span>
                 </div>
               </div>

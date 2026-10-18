@@ -13,15 +13,17 @@ import {
   Layers,
   Heart,
   Calendar,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 import { Metric30DayModal, type Metric30DayModalData } from './Metric30DayModal';
 import { BodySilhouette } from './BodySilhouette';
 import { ManageBodyModal, type BodySectionConfig } from './ManageBodyModal';
+import { CalendarDatePickerModal } from '../ui/CalendarDatePickerModal';
 
 interface BodyDetailsViewProps {
   currentDay: DailySummary;
+  days?: Record<string, DailySummary>;
+  selectedDate?: string;
+  onSelectDate?: (date: string) => void;
   isManageOpen?: boolean;
   onCloseManage?: () => void;
 }
@@ -32,7 +34,14 @@ const DEFAULT_BODY_SECTIONS: BodySectionConfig[] = [
   { id: 'silhouette', name: '人体解剖节段肌脂分布图', desc: '躯干、双臂、双腿肌肉/脂肪矢量图谱及7日走势', visible: true },
 ];
 
-export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, isManageOpen = false, onCloseManage }) => {
+export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
+  currentDay,
+  days = {},
+  selectedDate,
+  onSelectDate,
+  isManageOpen = false,
+  onCloseManage,
+}) => {
   const [sectionsConfig, setSectionsConfig] = useState<BodySectionConfig[]>(() => {
     try {
       const saved = localStorage.getItem('apple_health_body_sections_v2');
@@ -53,17 +62,44 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
   // Date selector state
   const [activeDateRange, setActiveDateRange] = useState<'today' | '7d' | '30d' | '90d' | '180d'>('today');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const calendarMonth = '2026年10月';
+
+  const allDates = Object.keys(days).sort();
+  const latestDate = allDates[allDates.length - 1] || currentDay.date;
+
+  const handleQuickRange = (rangeKey: typeof activeDateRange) => {
+    setActiveDateRange(rangeKey);
+    if (!onSelectDate || allDates.length === 0) return;
+    if (rangeKey === 'today') {
+      onSelectDate(latestDate);
+      return;
+    }
+    const daysBack = rangeKey === '7d' ? 7 : rangeKey === '30d' ? 30 : rangeKey === '90d' ? 90 : 180;
+    const anchor = new Date(latestDate + 'T12:00:00+08:00');
+    anchor.setDate(anchor.getDate() - daysBack);
+    const targetStr = anchor.toISOString().slice(0, 10);
+    // find closest available date on or before targetStr
+    const closest = allDates.filter((d) => d <= targetStr).slice(-1)[0] || allDates[0];
+    if (closest) onSelectDate(closest);
+  };
 
     const isVisible = (id: string) => sectionsConfig.find((s) => s.id === id)?.visible !== false;
   const leanPercent = Math.round((body.leanMassKg / Math.max(body.weightKg, 1)) * 100);
   const fatPercent = Math.round(body.bodyFatPercent);
+  const muscleMassVal = body.skeletalMuscleKg ?? 41.2;
+  const muscleMassPct = body.skeletalMusclePercent ?? 45.9;
+  const waterPct = body.waterPercent ?? 56.8;
+  const visceralVal = body.visceralFatLevel ?? 7;
+  const bmrVal = body.bmrKcal ?? 1780;
+  const boneVal = body.boneMassKg ?? 3.65;
+  const proteinPct = body.proteinPercent ?? 18.4;
+  const bodyAgeVal = body.bodyAge ?? 28;
 
   // Helper to generate realistic 30-day data for modal
   const generate30DayPoints = (baseVal: number, variance: number, decimals: number = 1) => {
     const pts: { date: string; value: number }[] = [];
+    const anchorDate = currentDay.date || '2026-10-17';
     for (let i = 29; i >= 0; i--) {
-      const d = new Date('2026-10-17');
+      const d = new Date(`${anchorDate}T12:00:00+08:00`);
       d.setDate(d.getDate() - i);
       const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
       const noise = (Math.sin(i * 0.7) * variance * 0.5) + (Math.cos(i * 0.3) * variance * 0.5);
@@ -76,20 +112,20 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
   const scaleMetrics = [
     {
       title: '骨骼肌量 (Muscle Mass)',
-      value: '41.2',
+      value: `${muscleMassVal}`,
       unit: 'kg',
       badge: '充沛',
       badgeColor: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
       icon: Dumbbell,
       color: '#6366F1',
-      eval: '占体重 45.9% · 运动机能强劲',
+      eval: `占体重 ${muscleMassPct}% · 运动机能强劲`,
       standard: '标准 > 34.0 kg',
       sevenDay: [40.8, 40.9, 41.0, 41.1, 41.1, 41.2, 41.2],
-      thirtyDay: generate30DayPoints(41.0, 0.4, 1),
+      thirtyDay: generate30DayPoints(muscleMassVal, 0.4, 1),
     },
     {
       title: '身体水分率 (Body Water)',
-      value: '56.8',
+      value: `${waterPct}`,
       unit: '%',
       badge: '充足',
       badgeColor: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
@@ -98,11 +134,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '细胞水合状态极佳 · 利于肌肉合成',
       standard: '标准 50% ~ 65%',
       sevenDay: [56.2, 56.4, 56.5, 56.7, 56.6, 56.8, 56.8],
-      thirtyDay: generate30DayPoints(56.5, 0.8, 1),
+      thirtyDay: generate30DayPoints(waterPct, 0.8, 1),
     },
     {
       title: '内脏脂肪等级 (Visceral Fat)',
-      value: '7',
+      value: `${visceralVal}`,
       unit: '级',
       badge: '健康',
       badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
@@ -111,11 +147,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '腹腔内脏无多余脂肪沉积',
       standard: '健康 1 ~ 9 级',
       sevenDay: [7, 7, 7, 7, 7, 7, 7],
-      thirtyDay: generate30DayPoints(7, 0.3, 0),
+      thirtyDay: generate30DayPoints(visceralVal, 0.3, 0),
     },
     {
       title: '基础代谢率 (BMR)',
-      value: '1,780',
+      value: bmrVal.toLocaleString(),
       unit: 'kcal',
       badge: '高效',
       badgeColor: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
@@ -124,11 +160,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '每日静息最低能量消耗',
       standard: '同体重标准 1,650 kcal',
       sevenDay: [1765, 1770, 1775, 1780, 1778, 1780, 1780],
-      thirtyDay: generate30DayPoints(1770, 20, 0),
+      thirtyDay: generate30DayPoints(bmrVal, 20, 0),
     },
     {
       title: '骨量 (Bone Mineral)',
-      value: '3.65',
+      value: `${boneVal}`,
       unit: 'kg',
       badge: '坚密',
       badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
@@ -137,11 +173,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '骨骼无机盐矿化程度高',
       standard: '标准 3.1 ~ 3.8 kg',
       sevenDay: [3.64, 3.64, 3.65, 3.65, 3.65, 3.65, 3.65],
-      thirtyDay: generate30DayPoints(3.65, 0.05, 2),
+      thirtyDay: generate30DayPoints(boneVal, 0.05, 2),
     },
     {
       title: '蛋白质率 (Protein)',
-      value: '18.4',
+      value: `${proteinPct}`,
       unit: '%',
       badge: '优良',
       badgeColor: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
@@ -150,11 +186,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '体内高营养储备水平',
       standard: '标准 16% ~ 20%',
       sevenDay: [18.2, 18.2, 18.3, 18.3, 18.4, 18.4, 18.4],
-      thirtyDay: generate30DayPoints(18.3, 0.3, 1),
+      thirtyDay: generate30DayPoints(proteinPct, 0.3, 1),
     },
     {
       title: '身体年龄 (Metabolic Age)',
-      value: '28',
+      value: `${bodyAgeVal}`,
       unit: '岁',
       badge: '年轻态',
       badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
@@ -163,7 +199,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       eval: '代谢机能较实际生理状态更年轻',
       standard: '评估基于体脂与肌肉比',
       sevenDay: [28, 28, 28, 28, 28, 28, 28],
-      thirtyDay: generate30DayPoints(28, 0, 0),
+      thirtyDay: generate30DayPoints(bodyAgeVal, 0, 0),
     },
     {
       title: '去脂体重 (Lean Body Mass)',
@@ -194,7 +230,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
                 体脂秤数据跨度查阅
               </span>
               <span className="text-[10px] text-neutral-400">
-                当前聚焦: 2026-10-17 (支持历史任意长跨度回溯)
+                当前聚焦: {selectedDate || currentDay.date} (支持历史任意长跨度回溯，共收录 {allDates.length} 天)
               </span>
             </div>
           </div>
@@ -212,7 +248,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
                 <button
                   key={r.key}
                   type="button"
-                  onClick={() => setActiveDateRange(r.key as typeof activeDateRange)}
+                  onClick={() => handleQuickRange(r.key as typeof activeDateRange)}
                   className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     activeDateRange === r.key
                       ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-sm'
@@ -224,77 +260,16 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
               ))}
             </div>
 
-            {/* Floating Calendar Button */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsCalendarOpen((prev) => !prev)}
-                className={`p-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1 cursor-pointer ${
-                  isCalendarOpen
-                    ? 'bg-amber-500 text-white border-amber-500 shadow-md'
-                    : 'bg-black/5 dark:bg-white/10 hover:bg-black/10 text-neutral-700 dark:text-neutral-200 border-black/5 dark:border-white/10'
-                }`}
-                title="打开日历选择长时间跨度"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">选择日历</span>
-              </button>
-
-              {/* Floating Calendar Popover */}
-              <AnimatePresence>
-                {isCalendarOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                    className="absolute right-0 top-full mt-2 z-50 p-4 rounded-3xl bg-neutral-900 text-white border border-white/20 shadow-2xl backdrop-blur-2xl w-72"
-                  >
-                    <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
-                      <span className="text-xs font-bold text-amber-400">{calendarMonth}</span>
-                      <div className="flex items-center gap-1">
-                        <button type="button" className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-white">
-                          <ChevronLeft className="w-3.5 h-3.5" />
-                        </button>
-                        <button type="button" className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-white">
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-neutral-400 mb-1">
-                      <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1 text-center text-xs font-mono">
-                      {[...Array(31)].map((_, i) => {
-                        const day = i + 1;
-                        const isRecorded = day >= 10 && day <= 17;
-                        const isCurrent = day === 17;
-
-                        return (
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() => {
-                              setIsCalendarOpen(false);
-                            }}
-                            className={`p-1.5 rounded-xl transition-all cursor-pointer ${
-                              isCurrent
-                                ? 'bg-amber-500 text-black font-black'
-                                : isRecorded
-                                ? 'bg-white/10 text-white hover:bg-white/20'
-                                : 'text-neutral-600 hover:bg-white/5'
-                            }`}
-                          >
-                            {day}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* Clean Modal Calendar Button */}
+            <button
+              type="button"
+              onClick={() => setIsCalendarOpen(true)}
+              className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-800 dark:text-neutral-200 border-black/5 dark:border-white/10 shadow-sm"
+              title="打开完整日历跨月份自由选日"
+            >
+              <Calendar className="w-3.5 h-3.5 text-amber-500" />
+              <span>{selectedDate || currentDay.date || '选择日历'}</span>
+            </button>
           </div>
         </div>
       </AppleCard>
@@ -496,10 +471,22 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({ currentDay, is
       )}
 
       {/* Human Body Silhouette Component */}
-      {isVisible('silhouette') && <BodySilhouette />}
+      {isVisible('silhouette') && <BodySilhouette currentDay={currentDay} />}
 
       {/* 30-Day Trend Modal Dialog */}
       <Metric30DayModal data={modalData} onClose={() => setModalData(null)} />
+
+      {/* Unoccluded Date Picker Modal */}
+      <CalendarDatePickerModal
+        isOpen={isCalendarOpen}
+        onClose={() => setIsCalendarOpen(false)}
+        selectedDate={selectedDate || currentDay.date}
+        availableDates={allDates}
+        onSelectDate={(d) => {
+          if (onSelectDate) onSelectDate(d);
+        }}
+        title="身体详情 · 历史体测数据日期选择"
+      />
 
       {/* Reorder and Visibility Management Modal */}
       {isManageOpen && (

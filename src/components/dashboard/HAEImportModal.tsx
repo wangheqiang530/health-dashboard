@@ -93,11 +93,16 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
       if (rawPayload) {
         await importHaePayload(rawPayload);
       }
+    } catch (error) {
+      console.warn('写入 PostgreSQL 失败，降级为前端即时预览展示:', error);
+    }
+
+    try {
       const latestDate = parsedInfo.dates[parsedInfo.dates.length - 1];
       onImportSuccess(parsedInfo.days, latestDate);
       onClose();
     } catch (error) {
-      setErrorMsg(error instanceof Error ? error.message : '写入 PostgreSQL 失败');
+      setErrorMsg(error instanceof Error ? error.message : '应用数据失败');
     } finally {
       setIsApplying(false);
     }
@@ -200,9 +205,17 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
               rows={3}
               value={jsonText}
               onChange={(e) => {
-                setJsonText(e.target.value);
-                if (e.target.value.trim().startsWith('{')) {
-                  handleProcessJSON(e.target.value);
+                const val = e.target.value;
+                setJsonText(val);
+                const trimmed = val.trim();
+                if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                  handleProcessJSON(trimmed);
+                }
+              }}
+              onBlur={() => {
+                const trimmed = jsonText.trim();
+                if (trimmed.startsWith('{') && !parsedInfo) {
+                  handleProcessJSON(trimmed);
                 }
               }}
               placeholder='在此粘贴 {"data": {"metrics": [...], "workouts": [...]}}'

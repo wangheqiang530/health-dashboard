@@ -122,7 +122,7 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
-          ≈ 42 米海拔升降
+          ≈ {Math.round((steps.flightsClimbed || 0) * 3)} 米海拔升降
         </div>
       </AppleCard>
 

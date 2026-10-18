@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DailySummary } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { ManageTrendsModal, type TrendMetricItemConfig } from './ManageTrendsModal';
+import { CalendarDatePickerModal } from '../ui/CalendarDatePickerModal';
 import {
   TrendingUp,
   Flame,
@@ -13,11 +14,15 @@ import {
   Footprints,
   Wind,
   Sparkles,
+  Calendar,
+  ChevronDown,
 } from 'lucide-react';
 
 interface TrendsViewProps {
   days: Record<string, DailySummary>;
   currentDay: DailySummary;
+  selectedDate?: string;
+  onSelectDate?: (date: string) => void;
   isManageOpen?: boolean;
   onCloseManage?: () => void;
 }
@@ -50,7 +55,14 @@ const DEFAULT_TREND_CONFIG: TrendMetricItemConfig[] = [
   { id: 'breathing', name: '睡眠呼吸扰动指数', visible: true, chartType: 'line' },
 ];
 
-export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isManageOpen = false, onCloseManage }) => {
+export const TrendsView: React.FC<TrendsViewProps> = ({
+  days,
+  currentDay,
+  selectedDate,
+  onSelectDate,
+  isManageOpen = false,
+  onCloseManage,
+}) => {
   const [trendsConfig, setTrendsConfig] = useState<TrendMetricItemConfig[]>(() => {
     try {
       const saved = localStorage.getItem('apple_health_trends_v2');
@@ -65,6 +77,41 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
     } catch {}
   }, [trendsConfig]);
   const dates = Object.keys(days).sort();
+  const recentDates = dates.length > 21 ? dates.slice(-21) : dates;
+
+  const groupByWeek = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
+    const weeks: Record<string, number[]> = {};
+    for (const d of dates) {
+      const dateObj = new Date(d + 'T12:00:00+08:00');
+      const month = dateObj.getMonth() + 1;
+      const dayOfMonth = dateObj.getDate();
+      const weekNum = Math.ceil(dayOfMonth / 7);
+      const key = `${month}月第${weekNum}周`;
+      if (!weeks[key]) weeks[key] = [];
+      const val = getter(days[d]);
+      if (val !== undefined && !isNaN(val)) weeks[key].push(val);
+    }
+    const res = Object.entries(weeks).slice(-6).map(([label, vals]) => ({
+      label,
+      value: mode === 'sum' ? Math.round(vals.reduce((a, b) => a + b, 0)) : parseFloat((vals.reduce((a, b) => a + b, 0) / (vals.length || 1)).toFixed(1)),
+    }));
+    return res.length > 0 ? res : [{ label: '本周', value: 0 }];
+  };
+
+  const groupByMonth = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
+    const months: Record<string, number[]> = {};
+    for (const d of dates) {
+      const monthStr = `${parseInt(d.slice(5, 7), 10)}月`;
+      if (!months[monthStr]) months[monthStr] = [];
+      const val = getter(days[d]);
+      if (val !== undefined && !isNaN(val)) months[monthStr].push(val);
+    }
+    const res = Object.entries(months).map(([label, vals]) => ({
+      label,
+      value: mode === 'sum' ? Math.round(vals.reduce((a, b) => a + b, 0)) : parseFloat((vals.reduce((a, b) => a + b, 0) / (vals.length || 1)).toFixed(1)),
+    }));
+    return res.length > 0 ? res : [{ label: '10月', value: 0 }];
+  };
 
   // Independent granularity state for each metric card
   const [granularities, setGranularities] = useState<Record<string, Granularity>>({
@@ -78,7 +125,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
     breathing: 'day',
   });
 
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [hoveredPoints, setHoveredPoints] = useState<Record<string, { label: string; value: number; x: number; y: number } | null>>({});
+  const svgRefs = useRef<Record<string, SVGSVGElement | null>>({});
 
   const setCardGranularity = (metricId: string, gran: Granularity) => {
     setGranularities((prev) => ({ ...prev, [metricId]: gran }));
@@ -86,15 +135,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
   };
 
   // Build real daily values from days
-  const dailyMove = dates.map((d) => ({
+  const dailyMove = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].rings.move.current,
   }));
-  const dailyRestingHr = dates.map((d) => ({
+  const dailyRestingHr = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].vitals.restingHr,
   }));
-  const dailySleep = dates.map((d) => ({
+  const dailySleep = recentDates.map((d) => ({
     label: d.slice(5),
     value: parseFloat((days[d].sleep.totalMinutes / 60).toFixed(1)),
   }));
@@ -102,15 +151,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
     label: t.date,
     value: t.weight,
   }));
-  const dailyHrv = dates.map((d) => ({
+  const dailyHrv = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].vitals.hrvCurrent,
   }));
-  const dailySteps = dates.map((d) => ({
+  const dailySteps = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].steps.count,
   }));
-  const dailyBreathing = dates.map((d) => ({
+  const dailyBreathing = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].sleep.breathingDisturbances || 0.78,
   }));
@@ -129,18 +178,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       targetLabel: '目标 600',
       data: {
         day: dailyMove,
-        week: [
-          { label: '第37周', value: 3820 },
-          { label: '第38周', value: 4150 },
-          { label: '第39周', value: 4280 },
-          { label: '本周', value: 4876 },
-        ],
-        month: [
-          { label: '7月', value: 16800 },
-          { label: '8月', value: 17400 },
-          { label: '9月', value: 18200 },
-          { label: '10月', value: 19100 },
-        ],
+        week: groupByWeek((d) => d.rings.move.current, 'sum'),
+        month: groupByMonth((d) => d.rings.move.current, 'sum'),
         year: [
           { label: '2023年', value: 185000 },
           { label: '2024年', value: 212000 },
@@ -161,18 +200,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       optimalBand: { min: 45, max: 55, label: '黄金区间' },
       data: {
         day: dailyRestingHr,
-        week: [
-          { label: '第37周', value: 51 },
-          { label: '第38周', value: 50 },
-          { label: '第39周', value: 49 },
-          { label: '本周', value: 48 },
-        ],
-        month: [
-          { label: '7月', value: 52 },
-          { label: '8月', value: 51 },
-          { label: '9月', value: 49 },
-          { label: '10月', value: 48 },
-        ],
+        week: groupByWeek((d) => d.vitals.restingHr, 'avg'),
+        month: groupByMonth((d) => d.vitals.restingHr, 'avg'),
         year: [
           { label: '2023年', value: 55 },
           { label: '2024年', value: 53 },
@@ -194,18 +223,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       targetLabel: '推荐 7.5h',
       data: {
         day: dailySleep,
-        week: [
-          { label: '第37周', value: 7.1 },
-          { label: '第38周', value: 7.3 },
-          { label: '第39周', value: 7.5 },
-          { label: '本周', value: 7.6 },
-        ],
-        month: [
-          { label: '7月', value: 7.0 },
-          { label: '8月', value: 7.2 },
-          { label: '9月', value: 7.4 },
-          { label: '10月', value: 7.6 },
-        ],
+        week: groupByWeek((d) => parseFloat((d.sleep.totalMinutes / 60).toFixed(1)), 'avg'),
+        month: groupByMonth((d) => parseFloat((d.sleep.totalMinutes / 60).toFixed(1)), 'avg'),
         year: [
           { label: '2023年', value: 6.8 },
           { label: '2024年', value: 7.1 },
@@ -258,18 +277,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       targetLabel: '基线 62ms',
       data: {
         day: dailyHrv,
-        week: [
-          { label: '第37周', value: 64 },
-          { label: '第38周', value: 66 },
-          { label: '第39周', value: 69 },
-          { label: '本周', value: 72 },
-        ],
-        month: [
-          { label: '7月', value: 58 },
-          { label: '8月', value: 61 },
-          { label: '9月', value: 67 },
-          { label: '10月', value: 72 },
-        ],
+        week: groupByWeek((d) => d.vitals.hrvCurrent, 'avg'),
+        month: groupByMonth((d) => d.vitals.hrvCurrent, 'avg'),
         year: [
           { label: '2023年', value: 54 },
           { label: '2024年', value: 59 },
@@ -291,18 +300,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       targetLabel: '目标 10k',
       data: {
         day: dailySteps,
-        week: [
-          { label: '第37周', value: 68400 },
-          { label: '第38周', value: 72100 },
-          { label: '第39周', value: 74500 },
-          { label: '本周', value: 76800 },
-        ],
-        month: [
-          { label: '7月', value: 295000 },
-          { label: '8月', value: 310000 },
-          { label: '9月', value: 325000 },
-          { label: '10月', value: 340000 },
-        ],
+        week: groupByWeek((d) => d.steps.count, 'sum'),
+        month: groupByMonth((d) => d.steps.count, 'sum'),
         year: [
           { label: '2023年', value: 3200000 },
           { label: '2024年', value: 3600000 },
@@ -317,7 +316,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       category: '心肺耐力',
       icon: Wind,
       color: '#06B6D4',
-      currentValue: '48.6',
+      currentValue: `${currentDay.vitals.vo2Max || 48.6}`,
       unit: 'ml/kg/min',
       statusText: '同年龄段前 15% 优异体能评级',
       optimalBand: { min: 45, max: 55, label: '优秀段' },
@@ -354,7 +353,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
       category: '夜间呼吸',
       icon: Sparkles,
       color: '#14B8A6',
-      currentValue: '0.78',
+      currentValue: `${currentDay.sleep.breathingDisturbances ?? 0.78}`,
       unit: '次/小时',
       statusText: '全周未检测到升高 · 气道极通畅 (< 5次正常)',
       targetLine: 5,
@@ -387,18 +386,31 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
     <div className="space-y-5">
       {/* Trends Hero Header */}
       <AppleCard>
-        <div className="flex items-center gap-2.5 mb-2">
-          <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex-shrink-0">
-            <TrendingUp className="w-5 h-5" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex-shrink-0">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white m-0">
+                健康趋势 · 连续折线平滑与多级跨度
+              </h2>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                各生理指标支持「日、周、月、年」独立时间跨度平滑折线图，包含极值高光、悬停探针与参考基线。
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white m-0">
-              健康趋势 · 连续折线平滑与多级跨度
-            </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              各生理指标支持「日、周、月、年」独立时间跨度平滑折线图，包含极值高光、悬停探针与参考基线。
-            </p>
-          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsCalendarOpen(true)}
+            className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-800 dark:text-white border-black/5 dark:border-white/10 shadow-sm"
+            title="打开日历选择任意历史日期查看并联动全页"
+          >
+            <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="font-mono">{selectedDate || currentDay.date || '选择日期'}</span>
+            <ChevronDown className="w-3 h-3 text-neutral-400" />
+          </button>
         </div>
       </AppleCard>
 
@@ -520,7 +532,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
                 </div>
 
                 {/* Interactive Smooth Curve SVG Chart */}
-                <div className="relative h-[135px] w-full bg-black/[0.02] dark:bg-white/[0.02] rounded-2xl p-2 border border-black/[0.04] dark:border-white/[0.03] overflow-visible">
+                <div className="relative min-h-[145px] w-full bg-black/[0.02] dark:bg-white/[0.02] rounded-2xl p-2 border border-black/[0.04] dark:border-white/[0.03] flex flex-col justify-between">
                   {currentChartType === 'bar' ? (
                     <div className="w-full h-full flex items-end justify-between gap-2 px-1">
                       {pointsData.map((p, idx) => {
@@ -552,10 +564,41 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
                       })}
                     </div>
                   ) : (
-                  <><svg
+                  <><div
+                    className="relative w-full h-[105px]"
+                    onMouseLeave={() =>
+                      setHoveredPoints((prev) => ({
+                        ...prev,
+                        [m.id]: null,
+                      }))
+                    }
+                  >
+                  <svg
+                    ref={(el) => {
+                      svgRefs.current[m.id] = el;
+                    }}
                     viewBox={`0 0 ${svgW} ${svgH}`}
-                    className="w-full h-full overflow-visible"
+                    className="w-full h-full overflow-visible cursor-crosshair"
                     preserveAspectRatio="none"
+                    onMouseMove={(e) => {
+                      const svgEl = svgRefs.current[m.id];
+                      if (!svgEl || coords.length === 0) return;
+                      const rect = svgEl.getBoundingClientRect();
+                      const mouseX = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * svgW;
+                      let closest = coords[0];
+                      let minDist = Infinity;
+                      for (const c of coords) {
+                        const dist = Math.abs(c.x - mouseX);
+                        if (dist < minDist) {
+                          minDist = dist;
+                          closest = c;
+                        }
+                      }
+                      setHoveredPoints((prev) => ({
+                        ...prev,
+                        [m.id]: { label: closest.pt.label, value: closest.pt.value, x: closest.x, y: closest.y },
+                      }));
+                    }}
                   >
                     <defs>
                       <linearGradient id={`gradient-${m.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
@@ -615,6 +658,31 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
                       />
                     </AnimatePresence>
 
+                    {/* Interactive Vertical Crosshair Line (竖线与高光锚点) */}
+                    {activeHover && (
+                      <g>
+                        <line
+                          x1={activeHover.x}
+                          y1={0}
+                          x2={activeHover.x}
+                          y2={svgH}
+                          stroke={m.color}
+                          strokeWidth="1.6"
+                          strokeDasharray="4 3"
+                          opacity="0.9"
+                        />
+                        <circle
+                          cx={activeHover.x}
+                          cy={activeHover.y}
+                          r="6.5"
+                          fill="#FFF"
+                          stroke={m.color}
+                          strokeWidth="3"
+                          filter={`url(#glow-${m.id})`}
+                        />
+                      </g>
+                    )}
+
                     {/* Data Points on curve with hover trigger */}
                     {coords.map((c, idx) => {
                       const isHovered = activeHover && activeHover.label === c.pt.label;
@@ -630,38 +698,27 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
                             stroke={m.color}
                             strokeWidth="2"
                             className="cursor-pointer transition-all duration-150"
-                            onMouseEnter={() =>
-                              setHoveredPoints((prev) => ({
-                                ...prev,
-                                [m.id]: { label: c.pt.label, value: c.pt.value, x: c.x, y: c.y },
-                              }))
-                            }
-                            onMouseLeave={() =>
-                              setHoveredPoints((prev) => ({
-                                ...prev,
-                                [m.id]: null,
-                              }))
-                            }
                           />
                         </g>
                       );
                     })}
                   </svg>
+                  </div>
 
-                  {/* Floating Scrubber Tooltip */}
+                  {/* Floating Scrubber Tooltip (悬停竖线伴随数据标注与日期) */}
                   {activeHover && (
                     <motion.div
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="absolute z-20 px-2.5 py-1 rounded-xl bg-neutral-950/90 text-white text-[11px] border border-white/20 shadow-xl backdrop-blur-md pointer-events-none flex items-center gap-1.5"
+                      initial={{ opacity: 0, y: 3, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      className="absolute z-30 px-3 py-1.5 rounded-2xl bg-neutral-950/95 text-white border border-white/25 shadow-2xl backdrop-blur-md pointer-events-none flex flex-col items-center gap-0.5"
                       style={{
-                        left: `${Math.min(Math.max((activeHover.x / svgW) * 100, 15), 85)}%`,
-                        top: '8px',
+                        left: `${Math.min(Math.max((activeHover.x / svgW) * 100, 16), 84)}%`,
+                        top: '-8px',
                         transform: 'translateX(-50%)',
                       }}
                     >
-                      <span className="text-neutral-400 font-mono">{activeHover.label}</span>
-                      <span className="font-bold font-mono" style={{ color: m.color }}>
+                      <span className="text-[10px] text-neutral-400 font-mono font-medium">{activeHover.label}</span>
+                      <span className="font-black font-mono text-xs leading-none" style={{ color: m.color }}>
                         {activeHover.value} {m.unit}
                       </span>
                     </motion.div>
@@ -669,11 +726,24 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
 
                   {/* Horizontal X-Axis Labels */}
                   <div className="flex justify-between items-center text-[10px] text-neutral-400 font-mono px-3 mt-1">
-                    {pointsData.map((p, i) => (
-                      <span key={i} className="truncate">
-                        {p.label}
-                      </span>
-                    ))}
+                    {(() => {
+                      const total = pointsData.length;
+                      if (total <= 7) {
+                        return pointsData.map((p, i) => (
+                          <span key={i} className="truncate">
+                            {p.label}
+                          </span>
+                        ));
+                      }
+                      const step = Math.ceil(total / 6);
+                      return pointsData
+                        .filter((_, i) => i === 0 || i === total - 1 || i % step === 0)
+                        .map((p, i) => (
+                          <span key={i} className="truncate">
+                            {p.label}
+                          </span>
+                        ));
+                    })()}
                   </div>
                   </>
                   )}
@@ -710,6 +780,18 @@ export const TrendsView: React.FC<TrendsViewProps> = ({ days, currentDay, isMana
           onReset={() => setTrendsConfig(DEFAULT_TREND_CONFIG)}
         />
       )}
+
+      {/* Unoccluded Date Picker Modal */}
+      <CalendarDatePickerModal
+        isOpen={isCalendarOpen}
+        onClose={() => setIsCalendarOpen(false)}
+        selectedDate={selectedDate || currentDay.date}
+        availableDates={dates}
+        onSelectDate={(d) => {
+          if (onSelectDate) onSelectDate(d);
+        }}
+        title="健康趋势 · 历史日期切换与全页联动"
+      />
     </div>
   );
 };

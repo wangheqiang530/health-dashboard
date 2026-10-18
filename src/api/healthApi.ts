@@ -202,3 +202,33 @@ export async function importHaePayload(payload: unknown): Promise<{
   });
   return parseResponse(response);
 }
+
+export async function importAppleHealthZip(file: File): Promise<{
+  ok: true;
+  importedDays: number;
+  earliestDate: string;
+  latestDate: string;
+  totalWorkouts: number;
+  archivePath: string;
+  archiveSizeBytes: number;
+}> {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+
+  const response = await fetch('/api/v1/config/import/apple-health-zip', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+    body: formData,
+  });
+  return parseResponse(response);
+}
+
+export async function deleteArchiveFile(archiveId: string): Promise<{ ok: true; deletedArchiveId: string }> {
+  const response = await fetch(`/api/v1/config/archives/${archiveId}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}

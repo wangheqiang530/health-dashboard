@@ -22,10 +22,10 @@ export const config = {
   timezone: process.env.TZ ?? 'Asia/Shanghai',
   dataDir: path.resolve(process.env.DATA_DIR ?? './data'),
   haeApiKey: process.env.HAE_API_KEY?.trim() || null,
-  maxHaeBytes: toPositiveInt(process.env.MAX_HAE_BYTES, 64 * 1024 * 1024),
+  maxHaeBytes: toPositiveInt(process.env.MAX_HAE_BYTES, 256 * 1024 * 1024),
   archiveRetentionDays: toPositiveInt(
     process.env.BACKUP_RETENTION_DAYS ?? process.env.HAE_RETENTION_DAYS,
-    30
+    365
   ),
   publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') || null,
   logLevel: process.env.LOG_LEVEL ?? 'info',

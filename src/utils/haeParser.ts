@@ -74,6 +74,12 @@ interface HAEPayload {
 
 function parseDateStr(str?: string): string {
   if (!str) return '';
+  if (str.includes('T') || (str.includes('Z') && !str.includes('+'))) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(d);
+    }
+  }
   const match = str.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
   if (match) return `${match[1]}-${match[2]}-${match[3]}`;
   return '';
@@ -518,6 +524,7 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
           id: `w-${dateStr}-${wIdx}`,
           name: w.name || '体能训练',
           category,
+          date: dateStr,
           startTime,
           durationMinutes: durationMins,
           activeCalories: activeKcal,
@@ -574,7 +581,7 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
       heartRateTimeline: hrPoints,
       workouts: dayWorkouts,
       steps: {
-        count: stepCount || 10420,
+        count: stepCount,
         goal: 10000,
         distanceKm,
         flightsClimbed,

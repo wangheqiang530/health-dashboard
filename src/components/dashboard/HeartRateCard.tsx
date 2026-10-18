@@ -65,6 +65,8 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
 
   const sleepingHrValue = vitals.sleepingHr || 50;
   const walkingHrValue = vitals.walkingHrAvg || 78;
+  const peakHr = timeline.length > 0 ? Math.max(...timeline.map((p) => p.hr)) : 140;
+  const peakZoneLabel = peakHr >= 165 ? '极限无氧区' : peakHr >= 140 ? '有氧耐力区' : '日常燃脂区';
 
   return (
     <AppleCard className="overflow-hidden h-full flex flex-col justify-between">
@@ -200,11 +202,11 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-amber-500 tracking-tight">
-                140
+                {peakHr}
               </span>
               <span className="text-[10px] text-neutral-400">BPM</span>
             </div>
-            <span className="text-[9px] text-amber-500 mt-0.5 block">有氧耐力区</span>
+            <span className="text-[9px] text-amber-500 mt-0.5 block">{peakZoneLabel}</span>
           </div>
         </div>
       </div>

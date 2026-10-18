@@ -101,21 +101,34 @@ export async function loginIgpsport(account: string, password: string): Promise<
 
 export async function getRideList(
   token: string,
-  pageSize: number
+  limit: number
 ): Promise<{ rows: Array<Record<string, unknown>>; totalRows: number }> {
-  const json = await requestJson<RideListResponse>(
-    `${BASE_URL}/web-gateway/web-analyze/activity/queryMyActivity?pageNo=1&pageSize=${pageSize}&reqType=0&sort=1`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      },
+  let pageNo = 1;
+  const allRows: Array<Record<string, unknown>> = [];
+  let totalRows = 0;
+
+  while (allRows.length < limit) {
+    const json = await requestJson<RideListResponse>(
+      `${BASE_URL}/web-gateway/web-analyze/activity/queryMyActivity?pageNo=${pageNo}&pageSize=20&reqType=0&sort=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+      }
+    );
+    if (json.code !== 0) {
+      throw new Error(`获取 iGPSPORT 活动列表失败: ${json.message || json.code}`);
     }
-  );
-  if (json.code !== 0) {
-    throw new Error(`获取 iGPSPORT 活动列表失败: ${json.message || json.code}`);
+    const rows = json.data?.rows || [];
+    totalRows = json.data?.totalRows || 0;
+    if (rows.length === 0) break;
+    allRows.push(...rows);
+    if (allRows.length >= totalRows || rows.length < 20) break;
+    pageNo += 1;
   }
-  return { rows: json.data?.rows || [], totalRows: json.data?.totalRows || 0 };
+
+  return { rows: allRows.slice(0, limit), totalRows };
 }
 
 async function getRideDetail(token: string, rideId: string): Promise<Record<string, unknown>> {
@@ -172,6 +185,14 @@ async function downloadFitFile(
 const toFitFileName = (startTime: string): string =>
   `${startTime.replace(/[^\d]/g, '-').replace(/-+$/g, '')}.fit`;
 
+const parseIgpsportDate = (timeStr: string): Date => {
+  const trimmed = timeStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+    return new Date(trimmed.replace(' ', 'T') + '+08:00');
+  }
+  return new Date(trimmed);
+};
+
 export async function syncRecentRides(
   credentials: IgpsportCredentials
 ): Promise<{ rides: IgpsportRide[]; totalAccountRides: number; outputDirectory: string }> {
@@ -189,14 +210,25 @@ export async function syncRecentRides(
     const startTime = stringValue(detail.startTime, stringValue(row.startTime));
     if (!startTime) continue;
     const endTime = stringValue(detail.endTime) || null;
-    const startDate = new Date(startTime);
+    const startDate = parseIgpsportDate(startTime);
     if (Number.isNaN(startDate.getTime())) {
       throw new Error(`iGPSPORT 活动 ${rideId} 的开始时间无效: ${startTime}`);
     }
+    const parsedEndDate = endTime ? parseIgpsportDate(endTime) : null;
 
     const fitFileName = toFitFileName(startTime);
     const fitFilePath = path.join(outputDirectory, fitFileName);
-    const file = await downloadFitFile(token, rideId, fitFilePath);
+    let fileSizeBytes = 0;
+    let savedFitFilePath: string | null = fitFilePath;
+    let savedFitFileName: string | null = fitFileName;
+    try {
+      const file = await downloadFitFile(token, rideId, fitFilePath);
+      fileSizeBytes = file.size;
+    } catch (fitError) {
+      console.warn(`[igpsport] 下载 FIT 文件失败 (${rideId})，保留活动基础数据:`, fitError);
+      savedFitFilePath = null;
+      savedFitFileName = null;
+    }
     const deviceInfo = detail.deviceInfo as Record<string, unknown> | undefined;
 
     rides.push({
@@ -204,7 +236,7 @@ export async function syncRecentRides(
       title: stringValue(detail.title, stringValue(row.title, '骑行活动')),
       device: stringValue(deviceInfo?.deviceName, stringValue(row.productName, 'iGPSPORT')),
       startedAt: startDate.toISOString(),
-      endedAt: endTime ? new Date(endTime).toISOString() : null,
+      endedAt: parsedEndDate && !Number.isNaN(parsedEndDate.getTime()) ? parsedEndDate.toISOString() : null,
       localDate: dateInTimeZone(startDate, config.timezone),
       localStartTime: timeInTimeZone(startDate, config.timezone),
       movingTimeSec: integerOrNull(detail.totalMovingTime),
@@ -229,9 +261,9 @@ export async function syncRecentRides(
       tss: finiteNumber(detail.pwrTSS),
       ascentM: finiteNumber(detail.totalAscent),
       calories: finiteNumber(detail.calorie),
-      fitFilePath,
-      fitFileName,
-      fileSizeBytes: file.size,
+      fitFilePath: savedFitFilePath,
+      fitFileName: savedFitFileName,
+      fileSizeBytes,
       rawRecord: detail,
     });
   }

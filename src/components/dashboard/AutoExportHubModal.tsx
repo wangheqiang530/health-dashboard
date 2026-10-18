@@ -1,8 +1,50 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { AutoExportSyncInfo } from '../../types/health';
-import { rawHealthAutoExportSample } from '../../data/mockHealthData';
 import { X, Server, Smartphone, Watch, ArrowRight, CheckCircle2, Copy, Check, RefreshCw } from 'lucide-react';
+
+const sampleHaePayload = {
+  data: {
+    metrics: [
+      {
+        name: 'active_energy',
+        units: 'kcal',
+        data: [{ qty: 586.4, date: '2026-10-17 17:25:00 +0800' }],
+      },
+      {
+        name: 'apple_exercise_time',
+        units: 'min',
+        data: [{ qty: 42, date: '2026-10-17 17:25:00 +0800' }],
+      },
+      {
+        name: 'step_count',
+        units: 'count',
+        data: [{ qty: 11840, date: '2026-10-17 17:25:00 +0800' }],
+      },
+      {
+        name: 'resting_heart_rate',
+        units: 'bpm',
+        data: [{ qty: 52, date: '2026-10-17 07:15:00 +0800' }],
+      },
+      {
+        name: 'heart_rate_variability_sdnn',
+        units: 'ms',
+        data: [{ qty: 71.2, date: '2026-10-17 07:18:00 +0800' }],
+      },
+    ],
+    workouts: [
+      {
+        name: '户外骑行',
+        start: '2026-10-16 21:31:08 +0800',
+        end: '2026-10-16 22:27:28 +0800',
+        duration: 2249,
+        activeEnergy: { qty: 407, units: 'kcal' },
+        cyclingDistance: { qty: 18208, units: 'm' },
+        avgHeartRate: { qty: 137, units: 'bpm' },
+      },
+    ],
+  },
+};
 
 interface AutoExportHubModalProps {
   isOpen: boolean;
@@ -23,7 +65,7 @@ export const AutoExportHubModal: React.FC<AutoExportHubModalProps> = ({
   if (!isOpen) return null;
 
   const copyPayload = () => {
-    navigator.clipboard.writeText(JSON.stringify(rawHealthAutoExportSample, null, 2));
+    navigator.clipboard.writeText(JSON.stringify(sampleHaePayload, null, 2));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -180,7 +222,7 @@ volumes:
               </div>
 
               <pre className="p-4 rounded-2xl bg-black/60 border border-white/10 text-xs font-mono text-emerald-300 overflow-x-auto max-h-64 scrollbar-thin">
-                {JSON.stringify(rawHealthAutoExportSample, null, 2)}
+                {JSON.stringify(sampleHaePayload, null, 2)}
               </pre>
             </div>
           )}

@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import { z } from 'zod';
 import {
   cleanupExpiredArchives,
+  deleteArchive,
   getArchiveStats,
   getArchiveStream,
   listArchives,
@@ -11,6 +12,7 @@ import {
 import { config } from '../config.ts';
 import { decryptSecret, encryptSecret } from '../crypto.ts';
 import { pool } from '../db.ts';
+import { importAppleHealthZip } from '../appleHealthXml.ts';
 import {
   ensureHaeApiKey,
   getArchiveRetentionDays,
@@ -394,8 +396,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       }
       try {
         const archive = await getArchiveStream(params.data.archiveId);
+        const contentType = archive.isZip ? 'application/zip' : 'application/gzip';
         return reply
-          .type('application/gzip')
+          .type(contentType)
           .header('Content-Disposition', `attachment; filename="${archive.fileName}"`)
           .send(archive.stream);
       } catch (error) {
@@ -405,4 +408,57 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  app.delete<{ Params: { archiveId: string } }>(
+    '/api/v1/config/archives/:archiveId',
+    async (request, reply) => {
+      const params = z.object({ archiveId: z.string().uuid() }).safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '备份 ID 无效。' });
+      }
+      try {
+        await deleteArchive(params.data.archiveId);
+        return { ok: true, deletedArchiveId: params.data.archiveId };
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : '删除备份文件失败。',
+        });
+      }
+    }
+  );
+
+  app.post('/api/v1/config/import/apple-health-zip', async (request, reply) => {
+    try {
+      let buffer: Buffer | null = null;
+      let filename = 'export.zip';
+
+      if (request.isMultipart()) {
+        const part = await request.file();
+        if (!part) {
+          return reply.code(400).send({ error: '未接收到上传的 ZIP 文件。' });
+        }
+        buffer = await part.toBuffer();
+        filename = part.filename || 'export.zip';
+      } else if (Buffer.isBuffer(request.body)) {
+        buffer = request.body;
+      } else if (typeof request.body === 'object' && request.body !== null && 'filePath' in request.body) {
+        const fs = await import('node:fs/promises');
+        const p = String((request.body as { filePath: string }).filePath);
+        buffer = await fs.readFile(p);
+        filename = p.split(/[/\\]/).pop() || 'export.zip';
+      }
+
+      if (!buffer || buffer.length === 0) {
+        return reply.code(400).send({ error: '上传内容为空，请选择有效的 Apple Health 导出 ZIP 文件。' });
+      }
+
+      const result = await importAppleHealthZip(buffer, filename);
+      return result;
+    } catch (error) {
+      request.log.error(error, '导入 Apple Health ZIP 失败');
+      return reply.code(500).send({
+        error: error instanceof Error ? error.message : '解析或导入 Apple Health ZIP 失败',
+      });
+    }
+  });
 }

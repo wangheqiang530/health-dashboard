@@ -100,6 +100,7 @@ export interface WorkoutRecord {
   id: string;
   name: string;
   category: 'running' | 'cycling' | 'strength' | 'hiit' | 'walking' | 'swimming';
+  date?: string;
   startTime: string;
   durationMinutes: number;
   activeCalories: number;
@@ -129,6 +130,15 @@ export interface BodyComposition {
   fatMassKg: number;
   statusLabel: string;
   trend: { date: string; weight: number; bodyFat: number }[];
+  skeletalMuscleKg?: number;
+  skeletalMusclePercent?: number;
+  waterPercent?: number;
+  visceralFatLevel?: number;
+  bmrKcal?: number;
+  boneMassKg?: number;
+  proteinPercent?: number;
+  bodyAge?: number;
+  bodyScore?: number;
 }
 
 export interface MobilityAndGait {
