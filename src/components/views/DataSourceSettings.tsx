@@ -6,6 +6,7 @@ import {
   Bike,
   Check,
   Clock3,
+  CloudDownload,
   Copy,
   Database,
   Download,
@@ -96,6 +97,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<SourceId | null>(null);
   const [syncingId, setSyncingId] = useState<SourceId | null>(null);
+  const [confirmFullSyncSource, setConfirmFullSyncSource] = useState<SourceId | null>(null);
   const [showPassword, setShowPassword] = useState<Record<SourceId, boolean>>({
     fitdays: false,
     igpsport: false,
@@ -198,12 +200,17 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     }
   };
 
-  const syncNow = async (sourceId: SourceId) => {
+  const syncNow = async (sourceId: SourceId, full = false) => {
     setSyncingId(sourceId);
     setMessage(null);
     try {
-      await triggerSourceSync(sourceId);
-      setMessage({ type: 'success', text: '同步任务已启动，完成后会自动刷新看板。' });
+      await triggerSourceSync(sourceId, full);
+      setMessage({
+        type: 'success',
+        text: full
+          ? `已成功下发 ${sourceId === 'fitdays' ? 'Fitdays 体脂秤' : 'iGPSPORT 码表'} 的全量历史同步任务，后台正在抓取完整数据，完成后会自动刷新看板。`
+          : '同步任务已启动，完成后会自动刷新看板。',
+      });
       window.setTimeout(() => {
         void loadConfig(false);
         onDataChanged();
@@ -215,6 +222,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
       });
     } finally {
       setSyncingId(null);
+      setConfirmFullSyncSource(null);
     }
   };
 
@@ -478,6 +486,16 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
             >
               {isSyncing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               <span>{isSyncing ? '同步中' : '立即同步'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmFullSyncSource(sourceId)}
+              disabled={isSyncing || !source.passwordConfigured}
+              className="h-9 px-3 rounded-xl text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/20 hover:bg-amber-500/15 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              title="全量拉取账号历史所有数据（需二次确认，防止频繁调用触发官方风控）"
+            >
+              <CloudDownload className="w-3.5 h-3.5" />
+              <span>全量同步</span>
             </button>
           </div>
         </div>
@@ -762,6 +780,72 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
             >
               关闭
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Secondary Confirmation Modal for Full Sync */}
+      {confirmFullSyncSource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+          <div className="relative w-full max-w-md p-6 bg-white dark:bg-[#16181d] rounded-3xl border border-black/10 dark:border-white/10 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-black/5 dark:border-white/10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/15 text-amber-500">
+                  <CloudDownload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                    全量同步历史数据二次确认
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">
+                    目标源：{confirmFullSyncSource === 'fitdays' ? 'Fitdays 智能体脂秤' : 'iGPSPORT 骑行码表'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmFullSyncSource(null)}
+                className="p-1 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed bg-amber-500/[0.06] p-3.5 rounded-2xl border border-amber-500/20">
+              <p className="font-semibold text-amber-700 dark:text-amber-400">
+                ⚠️ 为什么要二次确认并注意风控？
+              </p>
+              <ul className="list-disc list-inside space-y-1.5 text-[11px] text-neutral-600 dark:text-neutral-300">
+                <li>
+                  {confirmFullSyncSource === 'fitdays'
+                    ? '全量同步将向 Fitdays 官方云端请求长达 10 年的所有历史体测数据。'
+                    : '全量同步将向 iGPSPORT 迹驰网关分页请求历史全部骑行记录，并批量逐一下载原生 FIT 运动轨迹文件。'}
+                </li>
+                <li>
+                  因包含历史大量数据包与文件下载，该过程通常需要 <strong>1 ~ 3 分钟</strong>，后台会自动处理并落盘。
+                </li>
+                <li>
+                  <strong className="text-amber-600 dark:text-amber-400">严禁在短时间内高频重复点击全量同步</strong>，否则官方云端可能会对您的账号或 IP 触发频率风控、临时封禁或接口限制。
+                </li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmFullSyncSource(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void syncNow(confirmFullSyncSource, true)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+              >
+                确认开始全量拉取
+              </button>
+            </div>
           </div>
         </div>
       )}

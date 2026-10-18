@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.4)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.5)
 
 ## 1. 核心模块与实现状态
 
@@ -37,6 +37,6 @@
 - **构建验证**：前端 `pnpm build` 与服务端 `tsc` 校验 100% 通过，类型检查无错误。
 - **代码规范**：通过 `oxlint` 快速代码质量扫描。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.4`（多平台构建，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.5`（多平台构建，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

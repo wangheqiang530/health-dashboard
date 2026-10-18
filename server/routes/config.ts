@@ -245,8 +245,12 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: '未知数据源' });
       }
 
+      const body = (request.body as { full?: boolean } | null) || {};
+      const query = (request.query as { full?: string } | null) || {};
+      const isFull = Boolean(body.full || query.full === 'true');
+
       try {
-        const run = await queueSourceSync(params.data.sourceId, 'manual');
+        const run = await queueSourceSync(params.data.sourceId, 'manual', { full: isFull });
         return reply.code(202).send(run);
       } catch (error) {
         return reply.code(409).send({

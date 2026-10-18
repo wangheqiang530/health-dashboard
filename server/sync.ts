@@ -207,7 +207,11 @@ async function persistRides(
   }
 }
 
-async function executeSourceSync(sourceId: SyncSourceId, runId: string): Promise<void> {
+async function executeSourceSync(
+  sourceId: SyncSourceId,
+  runId: string,
+  options?: { full?: boolean }
+): Promise<void> {
   const source = await getSource(sourceId);
   if (!source) throw new Error(`未知数据源: ${sourceId}`);
   if (!source.account || !source.encrypted_password) {
@@ -217,24 +221,28 @@ async function executeSourceSync(sourceId: SyncSourceId, runId: string): Promise
   const password = decryptSecret(source.encrypted_password);
   let count = 0;
   let details: Record<string, unknown> = {};
+  const isFull = Boolean(options?.full);
 
   if (sourceId === 'fitdays') {
+    const syncDays = isFull ? 3650 : clampInteger(source.config.syncDays, 30, 1, 3650);
     const result = await fetchFitdaysRecords({
       account: source.account,
       password,
       targetSuid: source.config.targetSuid || null,
-      syncDays: clampInteger(source.config.syncDays, 1095, 1, 3650),
+      syncDays,
     });
-    const archive = await archiveJson('fitdays', 'fitdays-cloud-sync', {
+    const archive = await archiveJson('fitdays', isFull ? 'fitdays-full-sync' : 'fitdays-cloud-sync', {
       activeSuid: result.activeSuid,
       users: result.users,
       devices: result.devices,
       records: result.records,
+      isFullSync: isFull,
     });
     await persistFitdays(result.records, archive, {
       activeSuid: result.activeSuid,
       profileCount: result.users.length,
       deviceCount: result.devices.length,
+      isFullSync: isFull,
     });
     count = result.records.length;
     details = {
@@ -242,27 +250,32 @@ async function executeSourceSync(sourceId: SyncSourceId, runId: string): Promise
       profileCount: result.users.length,
       deviceCount: result.devices.length,
       archivePath: archive.relativePath,
+      isFullSync: isFull,
     };
   } else {
+    const syncLimit = isFull ? 500 : clampInteger(source.config.syncLimit, 20, 1, 100);
     const result = await syncRecentRides({
       account: source.account,
       password,
-      syncLimit: clampInteger(source.config.syncLimit, 20, 1, 100),
+      syncLimit,
     });
-    const archive = await archiveJson('igpsport', 'igpsport-rides', {
+    const archive = await archiveJson('igpsport', isFull ? 'igpsport-full-rides' : 'igpsport-rides', {
       totalAccountRides: result.totalAccountRides,
       outputDirectory: result.outputDirectory,
       rides: result.rides,
+      isFullSync: isFull,
     });
     await persistRides(result.rides, archive, {
       totalAccountRides: result.totalAccountRides,
       outputDirectory: result.outputDirectory,
+      isFullSync: isFull,
     });
     count = result.rides.length;
     details = {
       totalAccountRides: result.totalAccountRides,
       outputDirectory: result.outputDirectory,
       archivePath: archive.relativePath,
+      isFullSync: isFull,
     };
   }
 
@@ -282,7 +295,8 @@ async function executeSourceSync(sourceId: SyncSourceId, runId: string): Promise
 
 export async function queueSourceSync(
   sourceId: SyncSourceId,
-  triggerType: 'manual' | 'cron'
+  triggerType: 'manual' | 'cron',
+  options?: { full?: boolean }
 ): Promise<{ runId: string; status: 'running' }> {
   if (runningSources.has(sourceId)) {
     throw new Error('该数据源正在同步，请等待当前任务结束。');
@@ -303,7 +317,7 @@ export async function queueSourceSync(
   const runId = run.rows[0].id;
   runningSources.add(sourceId);
 
-  void executeSourceSync(sourceId, runId)
+  void executeSourceSync(sourceId, runId, options)
     .catch(async (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[sync:${sourceId}]`, error);

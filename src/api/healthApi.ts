@@ -71,13 +71,40 @@ export interface SourceTestResult {
   details: Record<string, unknown>;
 }
 
+export interface SystemStatus {
+  nodeVersion: string;
+  uptimeSeconds: number;
+  memory: {
+    rssMb: number;
+    heapUsedMb: number;
+    heapTotalMb: number;
+  };
+  storage: {
+    dataDir: string;
+    archiveCount: number;
+    archiveSizeBytes: number;
+    archiveSizeFormatted: string;
+  };
+  database: {
+    connected: boolean;
+    dailySummaries: number;
+    metricPoints: number;
+    workouts: number;
+    bodyMeasurements: number;
+    cyclingActivities: number;
+  };
+  backendStatus: 'healthy' | 'degraded';
+}
+
 export interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
   releaseUrl: string;
+  repoUrl?: string;
   dockerImage: string;
   checkedAt: string;
+  system?: SystemStatus;
 }
 
 export interface DashboardResponse {
@@ -135,13 +162,51 @@ export async function updateDataSource(
 }
 
 export async function triggerSourceSync(
-  sourceId: 'fitdays' | 'igpsport'
+  sourceId: 'fitdays' | 'igpsport',
+  full = false
 ): Promise<{ runId: string; status: 'running' }> {
   const response = await fetch(`/api/v1/config/sources/${sourceId}/sync`, {
     method: 'POST',
-    headers: { Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ full }),
   });
   return parseResponse<{ runId: string; status: 'running' }>(response);
+}
+
+export async function triggerSyncAllDevices(): Promise<{
+  syncedSources: Array<'fitdays' | 'igpsport'>;
+  errors: string[];
+}> {
+  const config = await fetchBackendConfig().catch(() => null);
+  const syncedSources: Array<'fitdays' | 'igpsport'> = [];
+  const errors: string[] = [];
+
+  const sourcesToSync: Array<'fitdays' | 'igpsport'> = [];
+  const fitdays = config?.sources.find((s) => s.id === 'fitdays');
+  if (fitdays && (fitdays.passwordConfigured || fitdays.enabled)) {
+    sourcesToSync.push('fitdays');
+  }
+  const igp = config?.sources.find((s) => s.id === 'igpsport');
+  if (igp && (igp.passwordConfigured || igp.enabled)) {
+    sourcesToSync.push('igpsport');
+  }
+
+  // If neither has configured credentials yet, try triggering both or return informative note
+  const targets = sourcesToSync.length > 0 ? sourcesToSync : (['fitdays', 'igpsport'] as const);
+
+  for (const src of targets) {
+    try {
+      await triggerSourceSync(src, false);
+      syncedSources.push(src);
+    } catch (err) {
+      errors.push(`${src}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { syncedSources, errors };
 }
 
 export async function testDataSource(

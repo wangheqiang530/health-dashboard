@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DailySummary } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
-import { Dumbbell, Activity } from 'lucide-react';
+import { Dumbbell, Activity, Zap } from 'lucide-react';
 
 type BodyPartKey = 'trunk' | 'leftArm' | 'rightArm' | 'leftLeg' | 'rightLeg';
+type BodyMode = 'muscle' | 'fat' | 'impedance';
 
 interface SegmentHistoryPoint {
   date: string;
@@ -17,7 +18,7 @@ interface BodySilhouetteProps {
 }
 
 export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) => {
-  const [selectedBodyMode, setSelectedBodyMode] = useState<'muscle' | 'fat'>('muscle');
+  const [selectedBodyMode, setSelectedBodyMode] = useState<BodyMode>('muscle');
   const [hoveredPart, setHoveredPart] = useState<BodyPartKey>('trunk');
 
   const totalMuscle = currentDay?.body?.skeletalMuscleKg || 39.36;
@@ -47,6 +48,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: string;
       musclePct: number;
       eval: string;
+      imp20kHz: number;
+      imp100kHz: number;
       history: SegmentHistoryPoint[];
     }
   > = {
@@ -59,6 +62,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: '-0.3 kg',
       musclePct: 73.6,
       eval: '核心肌群力量极充沛，腰腹深层肌肉紧致，利于骑行耐力抗疲劳。',
+      imp20kHz: 23.7,
+      imp100kHz: 17.2,
       history: [
         { date: '10-11', muscle: Number((trunkM - 0.2).toFixed(2)), fat: Number((trunkF + 0.3).toFixed(2)) },
         { date: '10-12', muscle: Number((trunkM - 0.2).toFixed(2)), fat: Number((trunkF + 0.2).toFixed(2)) },
@@ -78,6 +83,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: '持平',
       musclePct: 77.4,
       eval: '左臂肌群机能充沛，抓握耐力高，左右上肢平衡评级为 1 级（均衡无代偿）。',
+      imp20kHz: 325.3,
+      imp100kHz: 297.4,
       history: [
         { date: '10-11', muscle: Number((leftArmM - 0.05).toFixed(2)), fat: leftArmF },
         { date: '10-12', muscle: Number((leftArmM - 0.05).toFixed(2)), fat: leftArmF },
@@ -97,6 +104,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: '持平',
       musclePct: 77.4,
       eval: '右臂肌力与左臂高度对称（上肢平衡指数 99.4%），公路车弯把操控支撑稳定。',
+      imp20kHz: 309.6,
+      imp100kHz: 277.9,
       history: [
         { date: '10-11', muscle: Number((rightArmM - 0.05).toFixed(2)), fat: rightArmF },
         { date: '10-12', muscle: Number((rightArmM - 0.05).toFixed(2)), fat: rightArmF },
@@ -116,6 +125,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: '-0.1 kg',
       musclePct: 79.8,
       eval: '左腿去脂肌肉占比接近 80%，下肢力量充沛，踏频踩踏发力对称。',
+      imp20kHz: 245.6,
+      imp100kHz: 216.5,
       history: [
         { date: '10-11', muscle: Number((leftLegM - 0.15).toFixed(2)), fat: Number((leftLegF + 0.1).toFixed(2)) },
         { date: '10-12', muscle: Number((leftLegM - 0.12).toFixed(2)), fat: Number((leftLegF + 0.1).toFixed(2)) },
@@ -135,6 +146,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
       fatTrend: '-0.1 kg',
       musclePct: 79.8,
       eval: '右腿肌力强劲，左右下肢平衡评级为 1 级（均衡），极具公路车爬坡与巡航爆发力。',
+      imp20kHz: 252.8,
+      imp100kHz: 222.8,
       history: [
         { date: '10-11', muscle: Number((rightLegM - 0.15).toFixed(2)), fat: Number((rightLegF + 0.1).toFixed(2)) },
         { date: '10-12', muscle: Number((rightLegM - 0.12).toFixed(2)), fat: Number((rightLegF + 0.1).toFixed(2)) },
@@ -209,6 +222,17 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
           >
             🧈 脂肪分布视图
           </button>
+          <button
+            type="button"
+            onClick={() => setSelectedBodyMode('impedance')}
+            className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              selectedBodyMode === 'impedance'
+                ? 'bg-cyan-500 text-black shadow-sm font-bold'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            ⚡ 生物电阻抗 (20k/100k)
+          </button>
         </div>
       </div>
 
@@ -229,7 +253,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               hoveredPart === seg.key
                 ? selectedBodyMode === 'muscle'
                   ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-amber-500 text-black shadow-sm font-bold'
+                  : selectedBodyMode === 'fat'
+                    ? 'bg-amber-500 text-black shadow-sm font-bold'
+                    : 'bg-cyan-500 text-black shadow-sm font-bold'
                 : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
             }`}
           >
@@ -256,6 +282,10 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
                   <stop offset="0%" stopColor="#FBBF24" />
                   <stop offset="100%" stopColor="#D97706" />
                 </linearGradient>
+                <linearGradient id="impActiveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#38BDF8" />
+                  <stop offset="100%" stopColor="#06B6D4" />
+                </linearGradient>
               </defs>
 
               {/* Head / Face */}
@@ -271,9 +301,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               >
                 <path
                   d="M 72 63 C 78 61, 122 61, 128 63 C 136 78, 134 115, 128 142 L 72 142 C 66 115, 64 78, 72 63 Z"
-                  fill={hoveredPart === 'trunk' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : 'url(#fatActiveGrad)') : 'currentColor'}
+                  fill={hoveredPart === 'trunk' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : selectedBodyMode === 'fat' ? 'url(#fatActiveGrad)' : 'url(#impActiveGrad)') : 'currentColor'}
                   fillOpacity={hoveredPart === 'trunk' ? 0.9 : 0.25}
-                  stroke={hoveredPart === 'trunk' ? (selectedBodyMode === 'muscle' ? '#818CF8' : '#F59E0B') : 'currentColor'}
+                  stroke={hoveredPart === 'trunk' ? (selectedBodyMode === 'muscle' ? '#818CF8' : selectedBodyMode === 'fat' ? '#F59E0B' : '#06B6D4') : 'currentColor'}
                   strokeWidth={hoveredPart === 'trunk' ? 2 : 1}
                   filter={hoveredPart === 'trunk' ? 'url(#partGlow)' : undefined}
                   className="transition-all duration-300 text-neutral-400"
@@ -295,9 +325,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               >
                 <path
                   d="M 69 66 C 54 85, 48 115, 42 148 C 38 168, 44 174, 50 160 C 56 128, 62 98, 74 76 Z"
-                  fill={hoveredPart === 'leftArm' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : 'url(#fatActiveGrad)') : 'currentColor'}
+                  fill={hoveredPart === 'leftArm' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : selectedBodyMode === 'fat' ? 'url(#fatActiveGrad)' : 'url(#impActiveGrad)') : 'currentColor'}
                   fillOpacity={hoveredPart === 'leftArm' ? 0.9 : 0.25}
-                  stroke={hoveredPart === 'leftArm' ? (selectedBodyMode === 'muscle' ? '#818CF8' : '#F59E0B') : 'currentColor'}
+                  stroke={hoveredPart === 'leftArm' ? (selectedBodyMode === 'muscle' ? '#818CF8' : selectedBodyMode === 'fat' ? '#F59E0B' : '#06B6D4') : 'currentColor'}
                   strokeWidth={hoveredPart === 'leftArm' ? 2 : 1}
                   filter={hoveredPart === 'leftArm' ? 'url(#partGlow)' : undefined}
                   className="transition-all duration-300 text-neutral-400"
@@ -312,9 +342,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               >
                 <path
                   d="M 131 66 C 146 85, 152 115, 158 148 C 162 168, 156 174, 150 160 C 144 128, 138 98, 126 76 Z"
-                  fill={hoveredPart === 'rightArm' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : 'url(#fatActiveGrad)') : 'currentColor'}
+                  fill={hoveredPart === 'rightArm' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : selectedBodyMode === 'fat' ? 'url(#fatActiveGrad)' : 'url(#impActiveGrad)') : 'currentColor'}
                   fillOpacity={hoveredPart === 'rightArm' ? 0.9 : 0.25}
-                  stroke={hoveredPart === 'rightArm' ? (selectedBodyMode === 'muscle' ? '#818CF8' : '#F59E0B') : 'currentColor'}
+                  stroke={hoveredPart === 'rightArm' ? (selectedBodyMode === 'muscle' ? '#818CF8' : selectedBodyMode === 'fat' ? '#F59E0B' : '#06B6D4') : 'currentColor'}
                   strokeWidth={hoveredPart === 'rightArm' ? 2 : 1}
                   filter={hoveredPart === 'rightArm' ? 'url(#partGlow)' : undefined}
                   className="transition-all duration-300 text-neutral-400"
@@ -329,9 +359,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               >
                 <path
                   d="M 78 166 C 74 205, 72 245, 68 285 C 65 296, 76 298, 80 286 C 86 248, 90 208, 94 166 Z"
-                  fill={hoveredPart === 'leftLeg' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : 'url(#fatActiveGrad)') : 'currentColor'}
+                  fill={hoveredPart === 'leftLeg' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : selectedBodyMode === 'fat' ? 'url(#fatActiveGrad)' : 'url(#impActiveGrad)') : 'currentColor'}
                   fillOpacity={hoveredPart === 'leftLeg' ? 0.9 : 0.25}
-                  stroke={hoveredPart === 'leftLeg' ? (selectedBodyMode === 'muscle' ? '#818CF8' : '#F59E0B') : 'currentColor'}
+                  stroke={hoveredPart === 'leftLeg' ? (selectedBodyMode === 'muscle' ? '#818CF8' : selectedBodyMode === 'fat' ? '#F59E0B' : '#06B6D4') : 'currentColor'}
                   strokeWidth={hoveredPart === 'leftLeg' ? 2 : 1}
                   filter={hoveredPart === 'leftLeg' ? 'url(#partGlow)' : undefined}
                   className="transition-all duration-300 text-neutral-400"
@@ -346,9 +376,9 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               >
                 <path
                   d="M 122 166 C 126 205, 128 245, 132 285 C 135 296, 124 298, 120 286 C 114 248, 110 208, 106 166 Z"
-                  fill={hoveredPart === 'rightLeg' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : 'url(#fatActiveGrad)') : 'currentColor'}
+                  fill={hoveredPart === 'rightLeg' ? (selectedBodyMode === 'muscle' ? 'url(#muscleActiveGrad)' : selectedBodyMode === 'fat' ? 'url(#fatActiveGrad)' : 'url(#impActiveGrad)') : 'currentColor'}
                   fillOpacity={hoveredPart === 'rightLeg' ? 0.9 : 0.25}
-                  stroke={hoveredPart === 'rightLeg' ? (selectedBodyMode === 'muscle' ? '#818CF8' : '#F59E0B') : 'currentColor'}
+                  stroke={hoveredPart === 'rightLeg' ? (selectedBodyMode === 'muscle' ? '#818CF8' : selectedBodyMode === 'fat' ? '#F59E0B' : '#06B6D4') : 'currentColor'}
                   strokeWidth={hoveredPart === 'rightLeg' ? 2 : 1}
                   filter={hoveredPart === 'rightLeg' ? 'url(#partGlow)' : undefined}
                   className="transition-all duration-300 text-neutral-400"
@@ -362,11 +392,13 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               onClick={() => setHoveredPart('trunk')}
               className={`absolute top-24 px-2.5 py-1 rounded-xl text-[10px] font-mono shadow-md cursor-pointer transition-all ${
                 hoveredPart === 'trunk'
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
+                  ? selectedBodyMode === 'impedance'
+                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400 scale-105'
+                    : 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
                   : 'bg-neutral-900/80 text-neutral-200 border border-white/20'
               }`}
             >
-              {selectedBodyMode === 'muscle' ? `躯干 ${trunkM}kg` : `脂肪 ${trunkF}kg`}
+              {selectedBodyMode === 'muscle' ? `躯干 ${trunkM}kg` : selectedBodyMode === 'fat' ? `脂肪 ${trunkF}kg` : `20k: 23.7Ω · 100k: 17.2Ω`}
             </div>
 
             <div
@@ -374,11 +406,13 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               onClick={() => setHoveredPart('leftArm')}
               className={`absolute top-20 -left-1 px-2 py-0.5 rounded-xl text-[10px] font-mono shadow-md cursor-pointer transition-all ${
                 hoveredPart === 'leftArm'
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
+                  ? selectedBodyMode === 'impedance'
+                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400 scale-105'
+                    : 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
                   : 'bg-neutral-900/80 text-neutral-200 border border-white/20'
               }`}
             >
-              {selectedBodyMode === 'muscle' ? `左臂 ${leftArmM}kg` : `脂肪 ${leftArmF}kg`}
+              {selectedBodyMode === 'muscle' ? `左臂 ${leftArmM}kg` : selectedBodyMode === 'fat' ? `脂肪 ${leftArmF}kg` : `20k: 325Ω · 100k: 297Ω`}
             </div>
 
             <div
@@ -386,11 +420,13 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               onClick={() => setHoveredPart('rightArm')}
               className={`absolute top-20 -right-1 px-2 py-0.5 rounded-xl text-[10px] font-mono shadow-md cursor-pointer transition-all ${
                 hoveredPart === 'rightArm'
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
+                  ? selectedBodyMode === 'impedance'
+                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400 scale-105'
+                    : 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
                   : 'bg-neutral-900/80 text-neutral-200 border border-white/20'
               }`}
             >
-              {selectedBodyMode === 'muscle' ? `右臂 ${rightArmM}kg` : `脂肪 ${rightArmF}kg`}
+              {selectedBodyMode === 'muscle' ? `右臂 ${rightArmM}kg` : selectedBodyMode === 'fat' ? `脂肪 ${rightArmF}kg` : `20k: 310Ω · 100k: 278Ω`}
             </div>
 
             <div
@@ -398,11 +434,13 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               onClick={() => setHoveredPart('leftLeg')}
               className={`absolute bottom-12 left-3 px-2 py-0.5 rounded-xl text-[10px] font-mono shadow-md cursor-pointer transition-all ${
                 hoveredPart === 'leftLeg'
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
+                  ? selectedBodyMode === 'impedance'
+                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400 scale-105'
+                    : 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
                   : 'bg-neutral-900/80 text-neutral-200 border border-white/20'
               }`}
             >
-              {selectedBodyMode === 'muscle' ? `左腿 ${leftLegM}kg` : `脂肪 ${leftLegF}kg`}
+              {selectedBodyMode === 'muscle' ? `左腿 ${leftLegM}kg` : selectedBodyMode === 'fat' ? `脂肪 ${leftLegF}kg` : `20k: 246Ω · 100k: 217Ω`}
             </div>
 
             <div
@@ -410,11 +448,13 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               onClick={() => setHoveredPart('rightLeg')}
               className={`absolute bottom-12 right-3 px-2 py-0.5 rounded-xl text-[10px] font-mono shadow-md cursor-pointer transition-all ${
                 hoveredPart === 'rightLeg'
-                  ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
+                  ? selectedBodyMode === 'impedance'
+                    ? 'bg-cyan-600 text-white ring-2 ring-cyan-400 scale-105'
+                    : 'bg-indigo-600 text-white ring-2 ring-indigo-400 scale-105'
                   : 'bg-neutral-900/80 text-neutral-200 border border-white/20'
               }`}
             >
-              {selectedBodyMode === 'muscle' ? `右腿 ${rightLegM}kg` : `脂肪 ${rightLegF}kg`}
+              {selectedBodyMode === 'muscle' ? `右腿 ${rightLegM}kg` : selectedBodyMode === 'fat' ? `脂肪 ${rightLegF}kg` : `20k: 253Ω · 100k: 223Ω`}
             </div>
           </div>
         </div>
@@ -446,7 +486,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               </div>
 
               {/* Current Values & Micro-Trends */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
                   <div className="flex justify-between items-center text-[11px] text-neutral-400 mb-1">
                     <span>骨骼肌含量</span>
@@ -467,6 +507,33 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
                     {currentInfo.fatVal}
                   </span>
                   <span className="text-[10px] text-neutral-400 mt-1 block">体脂率紧致达标</span>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="flex justify-between items-center text-[11px] text-neutral-400 mb-1">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-cyan-400" />
+                      双频生物阻抗
+                    </span>
+                    <span className="text-cyan-400 font-bold font-mono text-[10px]">
+                      比值 {(currentInfo.imp100kHz / currentInfo.imp20kHz).toFixed(3)}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block font-mono">20kHz (低频)</span>
+                      <span className="text-base font-black text-cyan-400 font-mono">
+                        {currentInfo.imp20kHz} <span className="text-[10px] font-normal text-neutral-400">Ω</span>
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-neutral-400 block font-mono">100kHz (高频)</span>
+                      <span className="text-base font-black text-cyan-300 font-mono">
+                        {currentInfo.imp100kHz} <span className="text-[10px] font-normal text-neutral-400">Ω</span>
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[9px] text-neutral-400 mt-1 block">细胞膜完整度与液态极佳</span>
                 </div>
               </div>
 
@@ -526,6 +593,72 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({ currentDay }) =>
               </p>
             </motion.div>
           </AnimatePresence>
+        </div>
+      </div>
+
+      {/* 8-Electrode Dual-Frequency Bioelectrical Impedance (BIA) Full Matrix Table */}
+      <div className="mt-5 pt-5 border-t border-black/5 dark:border-white/5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-cyan-400" />
+            <h4 className="text-sm font-bold text-neutral-900 dark:text-white m-0">
+              8 电极双频生物电阻抗 (BIA) 节段测试矩阵
+            </h4>
+          </div>
+          <span className="text-[11px] text-neutral-400">
+            20kHz (细胞外液敏感) · 100kHz (全身体液穿透) · 阻抗比越小表示细胞活性越充沛
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="border-b border-black/5 dark:border-white/10 text-neutral-400 text-[11px]">
+                <th className="py-2 px-3 font-semibold">解剖节段部位</th>
+                <th className="py-2 px-3 font-semibold font-mono">20 kHz 阻抗 (低频)</th>
+                <th className="py-2 px-3 font-semibold font-mono">100 kHz 阻抗 (高频)</th>
+                <th className="py-2 px-3 font-semibold font-mono">阻抗衰减 ΔZ (Ω)</th>
+                <th className="py-2 px-3 font-semibold font-mono">阻抗比率 (Z100/Z20)</th>
+                <th className="py-2 px-3 font-semibold">体液机能评估</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/5 dark:divide-white/5 font-mono">
+              {[
+                { key: 'trunk', name: '核心与躯干', z20: 23.7, z100: 17.2, status: '低阻抗高导电 · 核心充沛' },
+                { key: 'leftArm', name: '左上肢 (左臂)', z20: 325.3, z100: 297.4, status: '上肢对称均衡 · 肌肉密实' },
+                { key: 'rightArm', name: '右上肢 (右臂)', z20: 309.6, z100: 277.9, status: '抓握导电极佳 · 耐力优异' },
+                { key: 'leftLeg', name: '左下肢 (左腿)', z20: 245.6, z100: 216.5, status: '下肢含水率高 · 发力充盈' },
+                { key: 'rightLeg', name: '右下肢 (右腿)', z20: 252.8, z100: 222.8, status: '巡航爆发充沛 · 无水肿代偿' },
+              ].map((row) => {
+                const isSelected = hoveredPart === row.key;
+                const deltaZ = Number((row.z20 - row.z100).toFixed(1));
+                const ratio = (row.z100 / row.z20).toFixed(3);
+
+                return (
+                  <tr
+                    key={row.key}
+                    onClick={() => setHoveredPart(row.key as BodyPartKey)}
+                    onMouseEnter={() => setHoveredPart(row.key as BodyPartKey)}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-cyan-500/10 text-cyan-300 font-bold'
+                        : 'hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    <td className="py-2.5 px-3 font-sans font-medium flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-cyan-400' : 'bg-neutral-500'}`} />
+                      {row.name}
+                    </td>
+                    <td className="py-2.5 px-3 text-cyan-400 font-bold">{row.z20} Ω</td>
+                    <td className="py-2.5 px-3 text-cyan-300 font-bold">{row.z100} Ω</td>
+                    <td className="py-2.5 px-3 text-emerald-400">-{deltaZ} Ω</td>
+                    <td className="py-2.5 px-3 font-semibold">{ratio}</td>
+                    <td className="py-2.5 px-3 font-sans text-[11px] text-neutral-400">{row.status}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </AppleCard>

@@ -10,10 +10,7 @@ import {
   UploadCloud,
   FileArchive,
   Download,
-  Copy,
-  Check,
   RefreshCw,
-  Terminal,
   HardDrive,
   RotateCcw,
   Sliders,
@@ -40,7 +37,6 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   onResetLayout,
   onOpenWizard,
 }) => {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const {
     liquid,
@@ -50,12 +46,6 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
     applyLiquidPreset,
     resetCustomizationDefaults,
   } = useCustomization();
-
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2000);
-  };
 
   const handleExportBackup = () => {
     const blob = new Blob([JSON.stringify(days, null, 2)], { type: 'application/json' });
@@ -68,52 +58,6 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
     downloadAnchor.remove();
     URL.revokeObjectURL(url);
   };
-
-  const dockerComposeSnippet = `services:
-  db:
-    image: postgres:16-alpine
-    container_name: health-dashboard-db
-    restart: unless-stopped
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: health_dashboard
-      POSTGRES_USER: health
-      POSTGRES_PASSWORD: HealthSecretPassword2026!
-      TZ: Asia/Shanghai
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U health -d health_dashboard"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  app:
-    image: wangheqiang/health-dashboard:0.0.4
-    container_name: health-dashboard-app
-    restart: unless-stopped
-    init: true
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://health:HealthSecretPassword2026!@db:5432/health_dashboard
-      APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a
-      TZ: Asia/Shanghai
-      LOG_LEVEL: info
-      MAX_HAE_BYTES: 268435456
-      BACKUP_RETENTION_DAYS: 365
-    ports:
-      - "8443:8080"
-    volumes:
-      - ./data:/app/data
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-`;
 
   return (
     <div className="space-y-5">
@@ -534,30 +478,6 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
               <span className="text-xs font-semibold text-amber-500">重置 ➔</span>
             </div>
           </div>
-      </AppleCard>
-
-      {/* Section 3: Docker Compose One-Click Deployment on NAS */}
-      <AppleCard>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-emerald-500" />
-            <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
-              NAS Docker Compose 部署配置 (群晖 Synology / 威联通 QNAP / UNRAID / TrueNAS)
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => copyToClipboard(dockerComposeSnippet, 'compose')}
-            className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs bg-black/5 dark:bg-white/10 hover:bg-black/10 text-neutral-700 dark:text-neutral-200 transition-all cursor-pointer"
-          >
-            {copiedKey === 'compose' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copiedKey === 'compose' ? '已复制' : '复制 Compose 配置'}</span>
-          </button>
-        </div>
-
-        <pre className="p-4 rounded-2xl bg-neutral-950 text-sky-300 font-mono text-xs overflow-x-auto leading-relaxed border border-white/10">
-          {dockerComposeSnippet}
-        </pre>
       </AppleCard>
 
       <AppleHealthZipModal

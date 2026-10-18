@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { ActivityRings } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
@@ -11,6 +11,8 @@ interface AppleRingsCardProps {
 }
 
 export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingClick }) => {
+  const [hoveredRing, setHoveredRing] = useState<'move' | 'exercise' | 'stand' | null>(null);
+
   const size = 200;
   const center = size / 2;
   const strokeWidth = 14;
@@ -110,35 +112,70 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                 <filter id="ringCapShadow" x="-20%" y="-20%" width="140%" height="140%">
                   <feDropShadow dx="2" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity="0.4" />
                 </filter>
+                <filter id="glowMove" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#FA114F" floodOpacity="0.65" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+                <filter id="glowExercise" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#99E834" floodOpacity="0.65" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+                <filter id="glowStand" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#00F5D4" floodOpacity="0.65" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
               </defs>
 
               {/* Background Tracks */}
-              {ringConfigs.map((cfg) => (
-                <circle
-                  key={`bg-${cfg.key}`}
-                  cx={center}
-                  cy={center}
-                  r={cfg.radius}
-                  stroke={cfg.ring.bgTrack}
-                  strokeWidth={strokeWidth}
-                  fill="none"
-                />
-              ))}
+              {ringConfigs.map((cfg) => {
+                const isHovered = hoveredRing === cfg.key;
+                const isDimmed = hoveredRing !== null && !isHovered;
+                const currentStroke = isHovered ? strokeWidth + 4 : strokeWidth;
+
+                return (
+                  <circle
+                    key={`bg-${cfg.key}`}
+                    cx={center}
+                    cy={center}
+                    r={cfg.radius}
+                    stroke={cfg.ring.bgTrack}
+                    strokeWidth={currentStroke}
+                    strokeOpacity={isDimmed ? 0.25 : 1}
+                    fill="none"
+                    className="transition-all duration-300"
+                  />
+                );
+              })}
 
               {/* Foreground Arcs starting from 0 and spinning to value */}
               {ringConfigs.map((cfg, idx) => {
                 const circumference = 2 * Math.PI * cfg.radius;
                 const ratio = cfg.ring.current / Math.max(cfg.ring.goal, 1);
                 const strokeDashoffset = circumference * (1 - Math.min(ratio, 1));
+                const isHovered = hoveredRing === cfg.key;
+                const isDimmed = hoveredRing !== null && !isHovered;
+                const currentStroke = isHovered ? strokeWidth + 4 : strokeWidth;
+                const glowFilter = cfg.key === 'move' ? 'url(#glowMove)' : cfg.key === 'exercise' ? 'url(#glowExercise)' : 'url(#glowStand)';
 
                 return (
-                  <g key={`fg-${cfg.key}`}>
+                  <g
+                    key={`fg-${cfg.key}`}
+                    onMouseEnter={() => setHoveredRing(cfg.key as 'move' | 'exercise' | 'stand')}
+                    onMouseLeave={() => setHoveredRing(null)}
+                    className="cursor-pointer"
+                    filter={isHovered ? glowFilter : undefined}
+                    opacity={isDimmed ? 0.35 : 1}
+                    style={{ transition: 'opacity 0.25s ease, filter 0.25s ease' }}
+                  >
                     <motion.circle
                       cx={center}
                       cy={center}
                       r={cfg.radius}
                       stroke={`url(#${cfg.gradientId})`}
-                      strokeWidth={strokeWidth}
+                      strokeWidth={currentStroke}
                       fill="none"
                       strokeLinecap="round"
                       strokeDasharray={circumference}
@@ -152,7 +189,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                         cy={center}
                         r={cfg.radius}
                         stroke={`url(#${cfg.gradientId})`}
-                        strokeWidth={strokeWidth}
+                        strokeWidth={currentStroke}
                         fill="none"
                         strokeLinecap="round"
                         strokeDasharray={circumference}
@@ -162,6 +199,16 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                         filter="url(#ringCapShadow)"
                       />
                     )}
+                    {/* Transparent hover hit target to ensure effortless mouse interaction */}
+                    <circle
+                      cx={center}
+                      cy={center}
+                      r={cfg.radius}
+                      stroke="transparent"
+                      strokeWidth={strokeWidth + 12}
+                      fill="none"
+                      className="cursor-pointer pointer-events-auto"
+                    />
                   </g>
                 );
               })}
@@ -178,11 +225,29 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
             {ringConfigs.map((cfg) => {
               const percent = Math.round((cfg.ring.current / Math.max(cfg.ring.goal, 1)) * 100);
               const Icon = cfg.icon;
+              const isHovered = hoveredRing === cfg.key;
+              const isDimmed = hoveredRing !== null && !isHovered;
 
               return (
-                <div
+                <motion.div
                   key={cfg.key}
-                  className="group p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.04] dark:hover:bg-white/[0.06] border border-black/[0.05] dark:border-white/[0.05] transition-all duration-200"
+                  onMouseEnter={() => setHoveredRing(cfg.key as 'move' | 'exercise' | 'stand')}
+                  onMouseLeave={() => setHoveredRing(null)}
+                  animate={{
+                    scale: isHovered ? 1.03 : 1,
+                    opacity: isDimmed ? 0.45 : 1,
+                  }}
+                  transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                  className={`group p-3 rounded-2xl transition-all duration-200 cursor-pointer ${
+                    isHovered
+                      ? 'border shadow-lg'
+                      : 'bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.04] dark:hover:bg-white/[0.06] border border-black/[0.05] dark:border-white/[0.05]'
+                  }`}
+                  style={{
+                    borderColor: isHovered ? `${cfg.endColor}80` : undefined,
+                    backgroundColor: isHovered ? `${cfg.endColor}15` : undefined,
+                    boxShadow: isHovered ? `0 10px 25px -5px ${cfg.endColor}30` : undefined,
+                  }}
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
@@ -225,7 +290,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                       {percent}%
                     </span>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
           </div>

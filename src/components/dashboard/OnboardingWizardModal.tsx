@@ -640,6 +640,16 @@ export const OnboardingWizardModal: React.FC<OnboardingWizardModalProps> = ({
                   </span>
                 </div>
               </div>
+
+              <div className="p-3.5 rounded-2xl bg-amber-500/[0.08] border border-amber-500/25 text-left max-w-md mx-auto text-xs space-y-1 text-amber-800 dark:text-amber-300">
+                <div className="font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>顶栏空间优化提示</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-neutral-600 dark:text-neutral-300 m-0">
+                  配置已生效！为保持首页空间整洁，「新手向导」按钮将自动移入主页顶栏的「配置中心」。如需再次重新配置或查看指引，可随时在配置中心重新唤起。
+                </p>
+              </div>
             </motion.div>
           )}
         </div>

@@ -7,8 +7,9 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_TARGET || 'https://health.mrwoo.cn:53000',
         changeOrigin: true,
+        secure: false,
       },
     },
   },

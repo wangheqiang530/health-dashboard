@@ -56,7 +56,19 @@ function DashboardContent() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [syncInfo, setSyncInfo] = useState<AutoExportSyncInfo | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [currentTab, setCurrentTab] = useState<DashboardTab>('overview');
+  const [currentTab, setCurrentTabState] = useState<DashboardTab>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '') as DashboardTab;
+      if (['overview', 'trends', 'body', 'workouts', 'config'].includes(hash)) return hash;
+    }
+    return 'overview';
+  });
+  const setCurrentTab = (tab: DashboardTab) => {
+    setCurrentTabState(tab);
+    if (typeof window !== 'undefined') {
+      window.location.hash = tab;
+    }
+  };
   const [isSyncHubOpen, setIsSyncHubOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -103,6 +115,8 @@ function DashboardContent() {
       setSyncInfo(data.syncInfo);
       if (Object.keys(data.days).length > 0) {
         setHasRealData(true);
+        localStorage.setItem('health_dashboard_wizard_completed', 'true');
+        window.dispatchEvent(new Event('storage'));
         setDaysData(data.days);
         setSelectedDate((prev) => (prev && data.days[prev] ? prev : data.selectedDate || data.dates[data.dates.length - 1] || ''));
         if (!silent) {
@@ -553,11 +567,15 @@ function DashboardContent() {
         onFinish={() => {
           setIsOnboardingOpen(false);
           localStorage.setItem('health_dashboard_onboarding_dismissed', 'true');
+          localStorage.setItem('health_dashboard_wizard_completed', 'true');
+          window.dispatchEvent(new Event('storage'));
           void refreshDashboard(true);
         }}
         onOpenConfigCenter={() => {
           setIsOnboardingOpen(false);
           localStorage.setItem('health_dashboard_onboarding_dismissed', 'true');
+          localStorage.setItem('health_dashboard_wizard_completed', 'true');
+          window.dispatchEvent(new Event('storage'));
           setCurrentTab('config');
         }}
         syncInfo={syncInfo}
