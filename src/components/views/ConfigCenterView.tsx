@@ -73,11 +73,13 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       POSTGRES_DB: health_dashboard
       POSTGRES_USER: health
       POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+    ports:
+      - "\${POSTGRES_PORT:-5433}:5432"
     volumes:
       - health_pgdata:/var/lib/postgresql/data
 
   app:
-    build: .
+    image: \${DOCKERHUB_USERNAME:-wangheqiang}/health-dashboard:\${APP_VERSION:-0.0.2}
     container_name: health-dashboard-app
     restart: unless-stopped
     ports:

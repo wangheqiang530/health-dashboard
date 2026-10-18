@@ -200,6 +200,7 @@ http://192.168.1.20:8443
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `POSTGRES_PASSWORD` | - | PostgreSQL 数据库连接强密码 |
+| `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
 | `APP_VERSION` | `0.0.2` | 当前发布的容器镜像版本号 |
@@ -208,6 +209,46 @@ http://192.168.1.20:8443
 | `TZ` | `Asia/Shanghai` | 系统与 Cron 调度时区 |
 | `CONTAINER_HTTP_PROXY` | - | 容器内部外部同步请求的 HTTP 代理 (例如 `http://host.docker.internal:10808`) |
 | `CONTAINER_HTTPS_PROXY` | - | 容器内部外部同步请求的 HTTPS 代理 |
+
+---
+
+## 外部调用与 AI / Agent 接入指南
+
+本项目自带完善的 API 与标准化数据库，非常适合与本地或云端 AI（如 Dify、FastGPT、OpenAI Function Calling、n8n、Home Assistant 等）联动，实现个性化智能健康管家与自然语言查询。
+
+### 方式一：通过 REST API 接入（推荐，最适合 AI Agent 与自动化工作流）
+
+无需理解复杂的底层数据库表结构，直接请求清洗聚合好的 JSON 数据接口：
+
+```http
+# 获取当日全维度健康档案（三环、身体状态、心率、睡眠、体脂、运动明细）
+GET http://<NAS_IP>:8443/api/v1/dashboard
+
+# 按指定时间段过滤数据
+GET http://<NAS_IP>:8443/api/v1/dashboard?from=2026-10-01&to=2026-10-18
+```
+
+**场景示例**：在 Dify / FastGPT 中添加 HTTP 工具，挂载该 API，即可让大模型轻松回答：“分析我最近一周的睡眠深度与心率负荷”、“我本周骑行与力量训练的卡路里总消耗是多少并给出补剂建议”。
+
+### 方式二：直接连接 PostgreSQL 数据库（适合数据分析、Metabase、Python、DBeaver）
+
+默认配置已将 PostgreSQL 映射到宿主机 `5433` 端口（避免与 NAS 自带的 5432 冲突）：
+
+- **主机 (Host)**：`NAS的局域网IP`
+- **端口 (Port)**：`5433` (可通过 `.env` 中的 `POSTGRES_PORT` 更改)
+- **数据库 (Database)**：`health_dashboard`
+- **用户名 (User)**：`health`
+- **密码 (Password)**：`.env` 中设置的 `POSTGRES_PASSWORD`
+
+**核心数据表说明**：
+
+| 表名 | 数据内容与用途 | 关键字段 |
+| :--- | :--- | :--- |
+| `daily_summaries` | 每日综合健康大屏数据（按天聚合的完整 JSONB 字段） | `day`, `summary`, `updated_at` |
+| `body_measurements` | Fitdays 8 电极体测历史明细（270+ 项记录） | `measured_date`, `weight_kg`, `bmi`, `body_fat_rate`, `skeletal_muscle_rate`, `visceral_fat_level`, `bmr_kcal`, `bone_mass_kg` |
+| `cycling_activities` | 码表骑行活动全记录（里程、踏频、功率、爬升） | `started_at`, `distance_km`, `avg_speed_kmh`, `avg_cadence`, `avg_power`, `ascent_m`, `fit_file_path` |
+| `health_workouts` | 苹果健康训练明细（跑步、力量、骑行、游泳等） | `name`, `started_at`, `duration_sec`, `active_energy_kcal`, `avg_heart_rate` |
+| `health_metric_points` | 高频生理指标时序采样点（心率、步数、血氧等） | `metric_name`, `recorded_at`, `local_date`, `value` |
 
 ---
 
