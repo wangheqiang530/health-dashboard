@@ -6,6 +6,7 @@ import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
 import { SystemLogsModal } from '../dashboard/SystemLogsModal';
+import { uploadFitFile } from '../../api/healthApi';
 import {
   Server,
   UploadCloud,
@@ -18,6 +19,7 @@ import {
   Palette,
   Sparkles,
   Terminal,
+  Bike,
 } from 'lucide-react';
 
 interface ConfigCenterViewProps {
@@ -41,13 +43,33 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
 }) => {
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [uploadingFit, setUploadingFit] = useState(false);
+  const fitInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleFitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingFit(true);
+    try {
+      const res = await uploadFitFile(file);
+      alert(res.message);
+      onRefreshData();
+    } catch (err) {
+      alert(`上传失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setUploadingFit(false);
+      if (fitInputRef.current) fitInputRef.current.value = '';
+    }
+  };
+
   const {
     liquid,
     updateLiquid,
     glass,
     updateGlass,
     applyLiquidPreset,
-    resetCustomizationDefaults,
+    resetLiquidDefaults,
+    resetGlassDefaults,
   } = useCustomization();
 
   const handleExportBackup = () => {
@@ -138,7 +160,15 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 底层弥散流光动态控制 (Liquid Light)
               </h3>
             </div>
-            <span className="text-[11px] text-neutral-400">实时滑块响应</span>
+            <button
+              type="button"
+              onClick={resetLiquidDefaults}
+              className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 cursor-pointer"
+              title="仅恢复本卡片设置"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>恢复默认</span>
+            </button>
           </div>
 
           {/* Color Presets */}
@@ -276,6 +306,28 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 className="w-full accent-teal-500 cursor-pointer"
               />
             </div>
+
+            {/* Brightness Slider (User Comment 1) */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-neutral-600 dark:text-neutral-300 font-medium">流光色彩亮度增强</span>
+                <span className="font-mono font-bold text-neutral-900 dark:text-white">{Math.round((liquid.brightness ?? 1) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.4"
+                max="2.0"
+                step="0.05"
+                value={liquid.brightness ?? 1}
+                onChange={(e) => updateLiquid({ brightness: parseFloat(e.target.value) })}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-400 mt-0.5">
+                <span>柔和 (40%)</span>
+                <span>标准 (100%)</span>
+                <span>高亮 (200%)</span>
+              </div>
+            </div>
           </div>
         </AppleCard>
 
@@ -290,8 +342,9 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
             </div>
             <button
               type="button"
-              onClick={resetCustomizationDefaults}
+              onClick={resetGlassDefaults}
               className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 cursor-pointer"
+              title="仅恢复本卡片设置"
             >
               <RotateCcw className="w-3 h-3" />
               <span>恢复标准</span>
@@ -446,6 +499,39 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 </div>
               </div>
               <span className="text-xs font-semibold text-sky-500">立即导入 ➔</span>
+            </div>
+
+            {/* Import Single .fit File Tile */}
+            <div
+              onClick={() => fitInputRef.current?.click()}
+              className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/5 dark:border-white/5 transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <input
+                ref={fitInputRef}
+                type="file"
+                accept=".fit"
+                onChange={handleFitUpload}
+                className="hidden"
+              />
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-400 group-hover:scale-105 transition-transform">
+                  <Bike className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                    <span>导入码表 FIT 原始运动记录 (.fit)</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                      支持所有标准码表
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    支持 iGPSPORT、Garmin、百锐腾等码表导出的单次 .fit 轨迹直接解析入库
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-teal-400">
+                {uploadingFit ? '解析中...' : '上传 FIT ➔'}
+              </span>
             </div>
 
             {/* Export Backup Tile */}

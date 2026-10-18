@@ -112,6 +112,9 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                 <filter id="ringCapShadow" x="-20%" y="-20%" width="140%" height="140%">
                   <feDropShadow dx="2" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity="0.4" />
                 </filter>
+                <filter id="leadingCapShadow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feDropShadow dx="-1.5" dy="2" stdDeviation="3" floodColor="#000000" floodOpacity="0.9" />
+                </filter>
                 <filter id="glowMove" x="-30%" y="-30%" width="160%" height="160%">
                   <feGaussianBlur stdDeviation="3.5" result="blur" />
                   <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#FA114F" floodOpacity="0.65" />
@@ -184,20 +187,48 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                       transition={{ duration: 1.6, delay: idx * 0.15, ease: [0.16, 1, 0.3, 1] }}
                     />
                     {ratio > 1 && (
-                      <motion.circle
-                        cx={center}
-                        cy={center}
-                        r={cfg.radius}
-                        stroke={`url(#${cfg.gradientId})`}
-                        strokeWidth={currentStroke}
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeDasharray={circumference}
-                        initial={{ strokeDashoffset: circumference }}
-                        animate={{ strokeDashoffset: circumference * (1 - Math.min(ratio - 1, 1)) }}
-                        transition={{ duration: 1.6, delay: 0.5 + idx * 0.1, ease: 'easeOut' }}
-                        filter="url(#ringCapShadow)"
-                      />
+                      (() => {
+                        const overlapRatio = Math.min(ratio - 1, 0.999);
+                        const headAngleRad = overlapRatio * 2 * Math.PI;
+                        const headX = center + cfg.radius * Math.cos(headAngleRad);
+                        const headY = center + cfg.radius * Math.sin(headAngleRad);
+                        return (
+                          <g>
+                            <motion.circle
+                              cx={center}
+                              cy={center}
+                              r={cfg.radius}
+                              stroke={`url(#${cfg.gradientId})`}
+                              strokeWidth={currentStroke}
+                              fill="none"
+                              strokeLinecap="round"
+                              strokeDasharray={circumference}
+                              initial={{ strokeDashoffset: circumference }}
+                              animate={{ strokeDashoffset: circumference * (1 - overlapRatio) }}
+                              transition={{ duration: 1.6, delay: 0.5 + idx * 0.1, ease: 'easeOut' }}
+                            />
+                            {/* Deep Drop Shadow behind the overlapping head to clearly terminate the lap */}
+                            <circle
+                              cx={headX}
+                              cy={headY}
+                              r={currentStroke / 2}
+                              fill="#000000"
+                              filter="url(#leadingCapShadow)"
+                              pointerEvents="none"
+                            />
+                            {/* Foreground Overlapping Cap disk */}
+                            <circle
+                              cx={headX}
+                              cy={headY}
+                              r={currentStroke / 2}
+                              fill={cfg.endColor}
+                              stroke="rgba(0,0,0,0.35)"
+                              strokeWidth="0.8"
+                              pointerEvents="none"
+                            />
+                          </g>
+                        );
+                      })()
                     )}
                     {/* Transparent hover hit target to ensure effortless mouse interaction */}
                     <circle

@@ -111,6 +111,10 @@ export interface WorkoutRecord {
   paceAvg?: string;
   cadenceAvg?: number;
   elevationGainM?: number;
+  avgPower?: number;
+  maxPower?: number;
+  normalizedPower?: number;
+  tss?: number;
   hrZones: {
     zone1: number;
     zone2: number;

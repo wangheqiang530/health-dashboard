@@ -21,6 +21,7 @@ import { EditModuleRibbon } from './components/dashboard/EditModuleRibbon';
 import { fetchDashboard } from './api/healthApi';
 import { createEmptyDailySummary } from './utils/emptyData';
 import { OnboardingWizardModal } from './components/dashboard/OnboardingWizardModal';
+import { CrossDomainInsightsCard } from './components/dashboard/CrossDomainInsightsCard';
 
 // 5 Dedicated Views for the 5 Tabs
 import { TrendsView } from './components/views/TrendsView';
@@ -433,6 +434,11 @@ function DashboardContent() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Cross-Domain Physiological Insights Card (Apple Watch x Fitdays x iGPSPORT) */}
+              <div className="mb-5">
+                <CrossDomainInsightsCard currentDay={currentDay} />
               </div>
             </motion.main>
           )}

@@ -6,6 +6,7 @@ export interface LiquidBackgroundSettings {
   speedSeconds: number; // 8s to 60s
   blurPx: number; // 60px to 220px
   opacity: number; // 0.1 to 1.0
+  brightness: number; // 0.4 to 2.0
   preset: LiquidColorPreset;
   color1: string;
   color2: string;
@@ -29,6 +30,8 @@ interface CustomizationContextType {
   updateGlass: (partial: Partial<LiquidGlassSettings>) => void;
   applyLiquidPreset: (preset: LiquidColorPreset) => void;
   resetCustomizationDefaults: () => void;
+  resetLiquidDefaults: () => void;
+  resetGlassDefaults: () => void;
 }
 
 export const PRESET_COLORS: Record<LiquidColorPreset, { name: string; color1: string; color2: string; color3: string }> = {
@@ -68,6 +71,7 @@ const DEFAULT_LIQUID: LiquidBackgroundSettings = {
   speedSeconds: 24,
   blurPx: 140,
   opacity: 0.75,
+  brightness: 1.0,
   preset: 'aurora',
   color1: '#FA114F',
   color2: '#00F5D4',
@@ -147,6 +151,14 @@ export const CustomizationProvider: React.FC<{ children: React.ReactNode }> = ({
     setGlass(DEFAULT_GLASS);
   };
 
+  const resetLiquidDefaults = () => {
+    setLiquid(DEFAULT_LIQUID);
+  };
+
+  const resetGlassDefaults = () => {
+    setGlass(DEFAULT_GLASS);
+  };
+
   return (
     <CustomizationContext.Provider
       value={{
@@ -158,6 +170,8 @@ export const CustomizationProvider: React.FC<{ children: React.ReactNode }> = ({
         updateGlass,
         applyLiquidPreset,
         resetCustomizationDefaults,
+        resetLiquidDefaults,
+        resetGlassDefaults,
       }}
     >
       {children}

@@ -3,6 +3,7 @@ import type { WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from './WorkoutDetailModal';
 import { Flame, Heart, ChevronRight, Activity, Dumbbell, Bike, Footprints } from 'lucide-react';
+import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 
 interface WorkoutsSectionProps {
   workouts: WorkoutRecord[];
@@ -54,6 +55,8 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
             <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
               {workouts.map((w) => {
                 const Icon = getCategoryIcon(w.category);
+                const isIgpsport = w.id.startsWith('igpsport') || w.category === 'cycling';
+                const food = getCalorieFoodEquivalents(w.activeCalories);
 
                 return (
                   <div
@@ -66,9 +69,18 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
                         <Icon className="w-4 h-4" />
                       </div>
                       <div className="min-w-0">
-                        <h4 className="text-sm font-bold text-neutral-900 dark:text-white group-hover:text-[#A1FF00] transition-colors truncate">
-                          {w.name}
-                        </h4>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-sm font-bold text-neutral-900 dark:text-white group-hover:text-[#A1FF00] transition-colors truncate">
+                            {w.name}
+                          </h4>
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                            isIgpsport
+                              ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                              : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                          }`}>
+                            {isIgpsport ? '🚴 码表' : '⌚ Watch'}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
                           <span>{w.startTime}</span>
                           <span>•</span>
@@ -88,6 +100,7 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
                         <div className="flex items-center gap-1 justify-end text-sm font-bold text-[#FA114F]">
                           <Flame className="w-3.5 h-3.5" />
                           <span>{w.activeCalories} kcal</span>
+                          <span className="text-xs ml-0.5" title={`≈ ${food.description}`}>{food.emojis}</span>
                         </div>
                         <div className="flex items-center gap-1 justify-end text-xs text-neutral-400 mt-0.5">
                           <Heart className="w-3 h-3 text-rose-500" />

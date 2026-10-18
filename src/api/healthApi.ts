@@ -312,3 +312,21 @@ export async function clearSystemLogs(): Promise<{ ok: boolean }> {
   });
   return parseResponse(response);
 }
+
+export async function uploadFitFile(file: File): Promise<{
+  ok: true;
+  message: string;
+  filename: string;
+  fileSizeBytes: number;
+  startedAt: string;
+}> {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+
+  const response = await fetch('/api/v1/workouts/upload-fit', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    body: formData,
+  });
+  return parseResponse(response);
+}

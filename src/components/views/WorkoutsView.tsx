@@ -3,6 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { DailySummary, WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
+import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
+import { PowerDurationCurveCard } from '../dashboard/PowerDurationCurveCard';
+import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
+import { uploadFitFile } from '../../api/healthApi';
 import {
   Bike,
   Activity,
@@ -15,6 +19,8 @@ import {
   ChevronDown,
   Timer,
   Calendar,
+  UploadCloud,
+  Check,
 } from 'lucide-react';
 
 interface WorkoutsViewProps {
@@ -29,6 +35,27 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
   const [filterCategory, setFilterCategory] = useState<'all' | 'cycling' | 'strength' | 'walking'>('all');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
   const [hoveredWorkoutId, setHoveredWorkoutId] = useState<string | null>(null);
+  const [uploadingFit, setUploadingFit] = useState(false);
+  const [fitUploadMessage, setFitUploadMessage] = useState<string | null>(null);
+  const fitInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleFitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingFit(true);
+    setFitUploadMessage(null);
+    try {
+      const res = await uploadFitFile(file);
+      setFitUploadMessage(res.message);
+      setTimeout(() => setFitUploadMessage(null), 4000);
+    } catch (err) {
+      setFitUploadMessage(`上传失败: ${err instanceof Error ? err.message : String(err)}`);
+      setTimeout(() => setFitUploadMessage(null), 4000);
+    } finally {
+      setUploadingFit(false);
+      if (fitInputRef.current) fitInputRef.current.value = '';
+    }
+  };
 
   // Extract all workouts and sort descending by date and time
   const allWorkouts = Object.values(days)
@@ -75,6 +102,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
   const maxHeartRate =
     rangeWorkouts.length > 0 ? Math.max(...rangeWorkouts.map((w) => w.maxHeartRate || 0)) : 172;
   const estimatedFatBurnedG = Math.round(totalKcal / 7.7);
+  const periodFood = getCalorieFoodEquivalents(totalKcal);
 
   const rangeConfig: Record<TimeRange, { label: string; workoutsCount: number }> = {
     week: { label: '本周', workoutsCount: rangeWorkouts.length },
@@ -160,6 +188,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
               <span className="text-[10px] text-neutral-400">kcal</span>
             </div>
             <span className="text-[10px] text-emerald-500 mt-1 block font-medium">燃脂 ≈ {estimatedFatBurnedG}g</span>
+            <span className="text-[10px] text-amber-400 mt-0.5 truncate block font-sans" title={`等效食物: ≈ ${periodFood.description}`}>
+              ≈ {periodFood.emojis} {periodFood.description}
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
@@ -234,6 +265,12 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
         </div>
       </AppleCard>
 
+      {/* iOS 18 Training Load Bento Module (User Requirement) */}
+      <AppleTrainingLoadCard workouts={allWorkouts} />
+
+      {/* Cycling Power Duration Curve (PDC / MMP) */}
+      <PowerDurationCurveCard workouts={allWorkouts} />
+
       {/* Filter Tabs & Expandable Workouts List */}
       <AppleCard>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
@@ -244,8 +281,28 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
             <span className="text-[11px] text-neutral-400">已载入全部 {allWorkouts.length} 场训练数据</span>
           </div>
 
-          {/* Filter Segmented Control */}
-          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-xl border border-black/5 dark:border-white/5">
+          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {/* Upload single .fit file button */}
+            <input
+              ref={fitInputRef}
+              type="file"
+              accept=".fit"
+              onChange={handleFitUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fitInputRef.current?.click()}
+              disabled={uploadingFit}
+              className="px-2.5 py-1 rounded-xl text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/25 hover:bg-sky-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+              title="上传单次码表原始 .fit 运动记录"
+            >
+              <UploadCloud className={`w-3.5 h-3.5 ${uploadingFit ? 'animate-bounce' : ''}`} />
+              <span>{uploadingFit ? '解析中...' : '导入 .fit 文件'}</span>
+            </button>
+
+            {/* Filter Segmented Control */}
+            <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-xl border border-black/5 dark:border-white/5">
             {[
               { key: 'all', label: `全部 (${allWorkouts.length})` },
               { key: 'cycling', label: '骑行' },
@@ -265,14 +322,24 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                 {f.label}
               </button>
             ))}
+            </div>
           </div>
         </div>
+
+        {fitUploadMessage && (
+          <div className="mb-3 p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs flex items-center gap-2">
+            <Check className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span>{fitUploadMessage}</span>
+          </div>
+        )}
 
         {/* Workouts Feed: Hover expands drawer, click opens full modal */}
         <div className="space-y-3">
           {filtered.map((w) => {
             const Icon = getCategoryIcon(w.category);
             const isHovered = hoveredWorkoutId === w.id;
+            const isIgpsport = w.id.startsWith('igpsport') || w.category === 'cycling';
+            const food = getCalorieFoodEquivalents(w.activeCalories);
 
             return (
               <div
@@ -297,6 +364,24 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                         <h4 className="text-sm font-bold text-neutral-900 dark:text-white truncate">
                           {w.name}
                         </h4>
+                        {/* Data Source Badge (User Requirement) */}
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${
+                          isIgpsport
+                            ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                            : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                        }`}>
+                          {isIgpsport ? (
+                            <>
+                              <Bike className="w-3 h-3 text-sky-400" />
+                              <span>iGPSPORT</span>
+                            </>
+                          ) : (
+                            <>
+                              <Activity className="w-3 h-3 text-rose-400" />
+                              <span>Apple Watch</span>
+                            </>
+                          )}
+                        </span>
                         {w.routeGpxPoints && (
                           <span className="px-1.5 py-0.2 rounded text-[9px] bg-[#00F5D4]/20 text-[#00F5D4] border border-[#00F5D4]/30">
                             GPX 轨迹
@@ -327,6 +412,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       <div className="flex items-center gap-1 justify-end text-sm font-bold text-[#FA114F]">
                         <Flame className="w-3.5 h-3.5" />
                         <span>{w.activeCalories} kcal</span>
+                        <span className="text-xs ml-0.5" title={`≈ ${food.description}`}>{food.emojis}</span>
                       </div>
                       <div className="flex items-center gap-1 justify-end text-xs text-neutral-400 mt-0.5">
                         <Heart className="w-3 h-3 text-rose-500" />
@@ -363,9 +449,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
                           <span className="text-neutral-400 block text-[10px]">
-                            {w.category === 'cycling' ? '平均踏频' : w.category === 'strength' ? '训练部位' : '步频 / 动作'}
+                            {w.category === 'cycling' ? '踏频 / 功率' : w.category === 'strength' ? '训练部位' : '步频 / 动作'}
                           </span>
-                          <span className="font-bold text-[#A1FF00] font-mono text-sm">
+                          <span className="font-bold text-[#A1FF00] font-mono text-sm flex items-center gap-1">
                             {w.cadenceAvg
                               ? `${w.cadenceAvg} ${w.category === 'cycling' ? 'rpm' : 'spm'}`
                               : w.category === 'cycling'
@@ -373,11 +459,14 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                                 : w.category === 'strength'
                                   ? '综合肌群'
                                   : '-'}
+                            {w.avgPower && <span className="text-amber-400 font-normal text-xs">({w.avgPower}W)</span>}
                           </span>
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">总能量消耗</span>
-                          <span className="font-bold text-neutral-900 dark:text-white font-mono text-sm">{w.totalCalories} kcal</span>
+                          <span className="text-neutral-400 block text-[10px]">食物热量等效</span>
+                          <span className="font-bold text-amber-400 text-xs truncate block" title={food.description}>
+                            {food.emojis} {food.description}
+                          </span>
                         </div>
                       </div>
 

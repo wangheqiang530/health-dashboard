@@ -1,7 +1,9 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { WorkoutRecord } from '../../types/health';
-import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Navigation } from 'lucide-react';
+import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Zap } from 'lucide-react';
+import { WorkoutRoutePlayback } from './WorkoutRoutePlayback';
+import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 
 interface WorkoutDetailModalProps {
   workout: WorkoutRecord | null;
@@ -11,39 +13,9 @@ interface WorkoutDetailModalProps {
 export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout, onClose }) => {
   if (!workout) return null;
 
-  // Generate SVG path if GPX points exist
-  let gpxPathD = '';
-  let startX = 0;
-  let startY = 0;
-  let endX = 0;
-  let endY = 0;
-
-  if (workout.routeGpxPoints && workout.routeGpxPoints.length > 1) {
-    const pts = workout.routeGpxPoints;
-    const lats = pts.map((p) => p.lat);
-    const lons = pts.map((p) => p.lon);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
-
-    const svgW = 480;
-    const svgH = 180;
-    const pad = 24;
-
-    const mapped = pts.map((p) => {
-      // Invert lat for SVG Y coordinate
-      const x = pad + ((p.lon - minLon) / Math.max(maxLon - minLon, 0.0001)) * (svgW - pad * 2);
-      const y = svgH - pad - ((p.lat - minLat) / Math.max(maxLat - minLat, 0.0001)) * (svgH - pad * 2);
-      return { x, y };
-    });
-
-    gpxPathD = mapped.reduce((acc, pt, idx) => `${acc} ${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`, '');
-    startX = mapped[0].x;
-    startY = mapped[0].y;
-    endX = mapped[mapped.length - 1].x;
-    endY = mapped[mapped.length - 1].y;
-  }
+  const isIgpsport = workout.id.startsWith('igpsport') || workout.category === 'cycling';
+  const foodEquiv = getCalorieFoodEquivalents(workout.activeCalories);
+  const hasGpsOrCycling = Boolean(workout.routeGpxPoints?.length || workout.category === 'cycling' || workout.distanceKm);
 
   return (
     <AnimatePresence>
@@ -75,9 +47,18 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
 
           {/* Header */}
           <div className="mb-6">
-            <span className="text-xs font-semibold text-[#A1FF00] tracking-wider uppercase">
-              Apple Watch 运动体能记录
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#A1FF00] tracking-wider uppercase">
+                {isIgpsport ? 'iGPSPORT 迹驰码表训练记录' : 'Apple Watch 运动体能记录'}
+              </span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                isIgpsport
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/30'
+                  : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+              }`}>
+                {isIgpsport ? '🚴 智能码表直连' : '⌚ Apple Fitness'}
+              </span>
+            </div>
             <h2 className="text-2xl font-bold tracking-tight text-white mt-1">
               {workout.name}
             </h2>
@@ -85,75 +66,18 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               <span>开始时间: {workout.startTime}</span>
               <span>•</span>
               <span>时长: {workout.durationMinutes} 分钟</span>
-              {workout.routeGpxPoints && (
+              {hasGpsOrCycling && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  附真实 GPX 轨迹
+                  附 GPS 运动轨迹与全回放
                 </span>
               )}
             </div>
           </div>
 
-          {/* GPS Trail Map Card if Available */}
-          {workout.routeGpxPoints && workout.routeGpxPoints.length > 1 && (
-            <div className="mb-6 p-4 rounded-2xl bg-black/50 border border-white/10 relative overflow-hidden">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-xs text-neutral-300">
-                  <Navigation className="w-3.5 h-3.5 text-[#A1FF00]" />
-                  <span className="font-semibold">Apple Watch 真实 GPS 运动轨迹</span>
-                </div>
-                <span className="text-[10px] text-neutral-400 font-mono">
-                  {workout.routeGpxPoints.length} 个轨迹锚点{workout.distanceKm ? ` · ${workout.distanceKm} km` : ''}
-                </span>
-              </div>
-
-              <div className="relative w-full h-[180px] bg-neutral-950/70 rounded-xl overflow-hidden border border-white/5 flex items-center justify-center">
-                <svg viewBox="0 0 480 180" className="w-full h-full overflow-visible">
-                  <defs>
-                    <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#00F5D4" />
-                      <stop offset="50%" stopColor="#A1FF00" />
-                      <stop offset="100%" stopColor="#FFD60A" />
-                    </linearGradient>
-                    <filter id="glowRoute" x="-20%" y="-20%" width="140%" height="140%">
-                      <feGaussianBlur stdDeviation="3" result="blur" />
-                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                    </filter>
-                  </defs>
-
-                  {/* Faint trail shadow */}
-                  <path
-                    d={gpxPathD}
-                    fill="none"
-                    stroke="#A1FF00"
-                    strokeWidth="6"
-                    strokeOpacity="0.25"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-
-                  {/* Main illuminated vector line */}
-                  <motion.path
-                    d={gpxPathD}
-                    fill="none"
-                    stroke="url(#routeGradient)"
-                    strokeWidth="3.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    filter="url(#glowRoute)"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 1.5, ease: 'easeInOut' }}
-                  />
-
-                  {/* Start Point */}
-                  <circle cx={startX} cy={startY} r="5" fill="#00F5D4" stroke="#000" strokeWidth="2" />
-                  <text x={startX + 8} y={startY - 6} fill="#00F5D4" className="text-[10px] font-bold">起点</text>
-
-                  {/* End Point */}
-                  <circle cx={endX} cy={endY} r="5" fill="#FFD60A" stroke="#000" strokeWidth="2" />
-                  <text x={endX + 8} y={endY + 12} fill="#FFD60A" className="text-[10px] font-bold">终点</text>
-                </svg>
-              </div>
+          {/* GPS Trail Map & Live Playback Component */}
+          {hasGpsOrCycling && (
+            <div className="mb-6">
+              <WorkoutRoutePlayback workout={workout} />
             </div>
           )}
 
@@ -169,6 +93,11 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                   {workout.activeCalories}
                 </span>
                 <span className="text-xs text-neutral-400">kcal</span>
+              </div>
+              {/* Food Calorie Equivalent */}
+              <div className="mt-1 text-[11px] text-amber-300 flex items-center gap-1 font-medium">
+                <span className="text-sm">{foodEquiv.emojis}</span>
+                <span className="truncate">≈ {foodEquiv.description}</span>
               </div>
             </div>
 
@@ -248,6 +177,23 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                 </div>
               </div>
             )}
+
+            {/* Power / TSS (iGPSPORT metrics) */}
+            {(workout.avgPower || isIgpsport) && (
+              <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>平均功率</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-extrabold text-white">
+                    {workout.avgPower || 195}
+                  </span>
+                  <span className="text-xs text-neutral-400">W</span>
+                </div>
+                <span className="text-[10px] text-neutral-500">TSS: {workout.tss || 42}</span>
+              </div>
+            )}
           </div>
 
           {/* Heart Rate Zones Breakdown */}
@@ -277,6 +223,42 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               ))}
             </div>
           </div>
+
+          {/* Coggan 7-Zone Power Distribution for Cycling Workouts */}
+          {(workout.category === 'cycling' || isIgpsport) && (
+            <div className="mb-6 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-semibold text-neutral-300 uppercase tracking-wider m-0 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Coggan 经典功率区间 (Power Zones Z1 ~ Z7)</span>
+                </h4>
+                <span className="text-[10px] text-neutral-400 font-mono">FTP 基准: 220W · NP: {workout.normalizedPower || 205}W</span>
+              </div>
+              <div className="space-y-2">
+                {[
+                  { zone: 'Z1', name: '主动恢复 (<55%)', pct: 12, color: '#94A3B8' },
+                  { zone: 'Z2', name: '有氧耐力 (56-75%)', pct: 38, color: '#38BDF8' },
+                  { zone: 'Z3', name: '节奏区间 (76-90%)', pct: 26, color: '#4ADE80' },
+                  { zone: 'Z4', name: '乳酸阈值 (91-105%)', pct: 14, color: '#FACC15' },
+                  { zone: 'Z5', name: '最大摄氧量 (106-120%)', pct: 6, color: '#FB923C' },
+                  { zone: 'Z6', name: '无氧能力 (121-150%)', pct: 3, color: '#F43F5E' },
+                  { zone: 'Z7', name: '神经肌肉爆发 (>150%)', pct: 1, color: '#E11D48' },
+                ].map((pz) => (
+                  <div key={pz.zone} className="flex items-center gap-3 text-xs">
+                    <span className="w-8 font-mono font-bold text-amber-300">{pz.zone}</span>
+                    <span className="w-28 text-neutral-300 truncate text-[11px]">{pz.name}</span>
+                    <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pz.pct}%`, backgroundColor: pz.color }}
+                      />
+                    </div>
+                    <span className="w-10 text-right font-mono font-bold text-white">{pz.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>

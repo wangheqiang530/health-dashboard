@@ -15,7 +15,10 @@ export const LiquidBackground: React.FC = () => {
   return (
     <div
       className="fixed inset-0 pointer-events-none overflow-hidden z-0 transition-all duration-700"
-      style={{ opacity: liquid.opacity }}
+      style={{
+        opacity: liquid.opacity,
+        filter: `brightness(${liquid.brightness ?? 1})`,
+      }}
     >
       {/* Dynamic Liquid Blob 1 (Primary Color) */}
       <div

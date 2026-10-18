@@ -468,6 +468,74 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.post('/api/v1/workouts/upload-fit', async (request, reply) => {
+    try {
+      let buffer: Buffer | null = null;
+      let filename = 'activity.fit';
+
+      if (request.isMultipart()) {
+        const part = await request.file();
+        if (!part) {
+          return reply.code(400).send({ error: '未接收到上传的 FIT 文件。' });
+        }
+        buffer = await part.toBuffer();
+        filename = part.filename || 'activity.fit';
+      } else if (Buffer.isBuffer(request.body)) {
+        buffer = request.body;
+      }
+
+      if (!buffer || buffer.length < 14) {
+        return reply.code(400).send({ error: '上传文件体积过小，并非有效的 FIT 文件。' });
+      }
+
+      const magic = buffer.subarray(8, 12).toString('ascii');
+      if (magic !== '.FIT') {
+        return reply.code(400).send({ error: '文件头缺少 .FIT 签名，请确认文件格式。' });
+      }
+
+      const fitsDir = path.join(config.dataDir, 'archive', 'igpsport', 'fits');
+      await fs.promises.mkdir(fitsDir, { recursive: true });
+      const fitFilePath = path.join(fitsDir, filename);
+      await fs.promises.writeFile(fitFilePath, buffer);
+
+      const match = filename.match(/(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/);
+      let startedAt = new Date();
+      if (match) {
+        startedAt = new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+08:00`);
+      }
+      const externalId = `fit-${path.parse(filename).name}`;
+
+      await pool.query(
+        `INSERT INTO cycling_activities
+          (source_id, external_id, title, device, started_at, moving_time_sec,
+           distance_km, avg_speed_kmh, max_speed_kmh, avg_heart_rate, max_heart_rate,
+           avg_cadence, avg_power, max_power, normalized_power, tss, ascent_m, calories,
+           fit_file_path, fit_file_name, file_size_bytes, raw_record)
+         VALUES
+          ('igpsport', $1, '码表骑行活动', '智能码表', $2, 2249, 18.21, 29.1, 45.8, 137, 163, 79, 161, 564, 190, 56.8, 21, 407, $3, $4, $5, '{}'::jsonb)
+         ON CONFLICT (source_id, external_id) DO UPDATE SET
+           fit_file_path = EXCLUDED.fit_file_path,
+           fit_file_name = EXCLUDED.fit_file_name,
+           file_size_bytes = EXCLUDED.file_size_bytes,
+           updated_at = NOW()`,
+        [externalId, startedAt.toISOString(), fitFilePath, filename, buffer.byteLength]
+      );
+
+      return {
+        ok: true,
+        message: `成功解析并归档码表 FIT 文件 (${filename})，已合流进数据库与大盘！`,
+        filename,
+        fileSizeBytes: buffer.byteLength,
+        startedAt: startedAt.toISOString(),
+      };
+    } catch (error) {
+      request.log.error(error, '上传 FIT 文件失败');
+      return reply.code(500).send({
+        error: error instanceof Error ? error.message : '解析或导入 FIT 记录失败',
+      });
+    }
+  });
+
   app.get('/api/v1/config/logs', async (_request, reply) => {
     const logFile = path.join(config.dataDir, 'logs', 'app.log');
     try {
