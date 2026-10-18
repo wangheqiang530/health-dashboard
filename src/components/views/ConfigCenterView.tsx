@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Sliders,
   Palette,
+  Sparkles,
 } from 'lucide-react';
 
 interface ConfigCenterViewProps {
@@ -27,6 +28,7 @@ interface ConfigCenterViewProps {
   onRefreshData: () => void;
   isRefreshing: boolean;
   onResetLayout: () => void;
+  onOpenWizard?: () => void;
 }
 
 export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
@@ -36,6 +38,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   onRefreshData,
   isRefreshing,
   onResetLayout,
+  onOpenWizard,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
@@ -87,7 +90,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.3
+    image: wangheqiang/health-dashboard:0.0.4
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -151,6 +154,17 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? '读取中...' : '刷新后端数据'}</span>
             </motion.button>
+            {onOpenWizard && (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={onOpenWizard}
+                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+                title="打开首次配置向导，配置并测试数据源联动"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>初次配置向导</span>
+              </motion.button>
+            )}
           </div>
         </div>
       </AppleCard>

@@ -19,6 +19,8 @@ import { AutoExportHubModal } from './components/dashboard/AutoExportHubModal';
 import { HAEImportModal } from './components/dashboard/HAEImportModal';
 import { EditModuleRibbon } from './components/dashboard/EditModuleRibbon';
 import { fetchDashboard } from './api/healthApi';
+import { createEmptyDailySummary } from './utils/emptyData';
+import { OnboardingWizardModal } from './components/dashboard/OnboardingWizardModal';
 
 // 5 Dedicated Views for the 5 Tabs
 import { TrendsView } from './components/views/TrendsView';
@@ -61,6 +63,8 @@ function DashboardContent() {
   const [backendConnected, setBackendConnected] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [hasRealData, setHasRealData] = useState(false);
 
   // Custom layout order with local storage persistence
   const [modules, setModules] = useState<DashboardModuleConfig[]>(() => {
@@ -98,13 +102,24 @@ function DashboardContent() {
       setBackendConnected(true);
       setSyncInfo(data.syncInfo);
       if (Object.keys(data.days).length > 0) {
+        setHasRealData(true);
         setDaysData(data.days);
         setSelectedDate((prev) => (prev && data.days[prev] ? prev : data.selectedDate || data.dates[data.dates.length - 1] || ''));
         if (!silent) {
           showToast(`已从 PostgreSQL 刷新 ${data.dates.length} 天健康数据。`);
         }
-      } else if (!silent) {
-        showToast('后端已连接，数据库还没有健康数据。请先配置数据源或导入 HAE JSON。');
+      } else {
+        setHasRealData(false);
+        const emptyDay = createEmptyDailySummary();
+        setDaysData({ [emptyDay.date]: emptyDay });
+        setSelectedDate(emptyDay.date);
+        const dismissed = localStorage.getItem('health_dashboard_onboarding_dismissed');
+        if (!dismissed) {
+          setIsOnboardingOpen(true);
+        }
+        if (!silent) {
+          showToast('后端已连接，数据库暂无健康数据，各项体征已置为初始 0 值。');
+        }
       }
     } catch (error) {
       setBackendConnected(false);
@@ -121,7 +136,10 @@ function DashboardContent() {
     void refreshDashboard(true);
   }, []);
 
-  const currentDay = (selectedDate ? daysData[selectedDate] : null) || Object.values(daysData)[0] || null;
+  const currentDay =
+    (selectedDate ? daysData[selectedDate] : null) ||
+    Object.values(daysData)[0] ||
+    createEmptyDailySummary();
 
   // Handle successful import of user's real HAE JSON
   const handleImportSuccess = (parsedDays: Record<string, DailySummary>, latestDate: string) => {
@@ -216,7 +234,7 @@ function DashboardContent() {
     }
   };
 
-  if (initialLoading || !currentDay) {
+  if (initialLoading) {
     return (
       <div
         className={`min-h-screen relative flex flex-col items-center justify-center p-6 transition-colors duration-500 ${
@@ -259,6 +277,7 @@ function DashboardContent() {
           isRefreshing={isRefreshing}
           isEditingLayout={isEditingLayout}
           onToggleEditLayout={() => setIsEditingLayout((prev) => !prev)}
+          onOpenWizard={() => setIsOnboardingOpen(true)}
         />
 
         {/* View Tabs Content */}
@@ -272,6 +291,49 @@ function DashboardContent() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
+              {/* Empty Data / Onboarding Banner */}
+              {!hasRealData && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-5 rounded-3xl apple-glass-dark border border-indigo-500/30 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 rounded-2xl bg-gradient-to-tr from-rose-500 via-indigo-500 to-emerald-400 text-white shadow-lg shadow-indigo-500/25 shrink-0">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                        <span>健康看板初始化就绪</span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          等待首次数据同步
+                        </span>
+                      </h4>
+                      <p className="text-xs text-neutral-300 mt-1 leading-relaxed max-w-xl">
+                        数据库已成功连接，当前各项体征显示为初始空值。请按需开启 iOS 健康、智能体脂秤或码表自动化同步，或通过新手向导辅助配置。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setIsOnboardingOpen(true)}
+                      className="flex-1 md:flex-initial px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-500 hover:bg-indigo-600 text-white shadow-md shadow-indigo-500/25 transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>新手配置向导</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentTab('config')}
+                      className="flex-1 md:flex-initial px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <span>前往配置中心</span>
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
               {/* 7-Day Apple Strip */}
               <WeekStrip
                 days={daysData}
@@ -441,6 +503,7 @@ function DashboardContent() {
                 onRefreshData={() => void refreshDashboard(false)}
                 isRefreshing={isRefreshing}
                 onResetLayout={resetDefaultLayout}
+                onOpenWizard={() => setIsOnboardingOpen(true)}
               />
             </motion.div>
           )}
@@ -481,6 +544,23 @@ function DashboardContent() {
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         onImportSuccess={handleImportSuccess}
+      />
+
+      {/* Onboarding Wizard Modal */}
+      <OnboardingWizardModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onFinish={() => {
+          setIsOnboardingOpen(false);
+          localStorage.setItem('health_dashboard_onboarding_dismissed', 'true');
+          void refreshDashboard(true);
+        }}
+        onOpenConfigCenter={() => {
+          setIsOnboardingOpen(false);
+          localStorage.setItem('health_dashboard_onboarding_dismissed', 'true');
+          setCurrentTab('config');
+        }}
+        syncInfo={syncInfo}
       />
 
       {/* Floating Toast Notification */}

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useTheme } from '../../context/ThemeContext';
 import { useCustomization } from '../../context/CustomizationContext';
-import { Heart, Sun, Moon, RefreshCw, SlidersHorizontal, Laptop } from 'lucide-react';
+import { Heart, Sun, Moon, RefreshCw, SlidersHorizontal, Laptop, Sparkles } from 'lucide-react';
 import { fetchVersionInfo, type VersionInfo } from '../../api/healthApi';
 
 export type DashboardTab = 'overview' | 'trends' | 'body' | 'workouts' | 'config';
@@ -14,6 +14,7 @@ interface NavbarProps {
   isRefreshing: boolean;
   isEditingLayout: boolean;
   onToggleEditLayout: () => void;
+  onOpenWizard?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -23,6 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isRefreshing,
   isEditingLayout,
   onToggleEditLayout,
+  onOpenWizard,
 }) => {
   const { themeMode, setThemeMode, resolvedTheme } = useTheme();
   const { glass } = useCustomization();
@@ -151,6 +153,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Tools: Edit Layout (on overview), Simulator, 3-Way Mode Switcher */}
         <div className="flex items-center gap-2 order-2 xl:order-3">
+          {onOpenWizard && (
+            <button
+              type="button"
+              onClick={onOpenWizard}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 border border-black/5 dark:border-white/10 transition-all cursor-pointer whitespace-nowrap"
+              title="重新打开首次配置新手向导"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden sm:inline">新手向导</span>
+            </button>
+          )}
           {/* Edit Button for 综合看板, 健康趋势, 身体详情 */}
           {(currentTab === 'overview' || currentTab === 'trends' || currentTab === 'body') && (
             <button
