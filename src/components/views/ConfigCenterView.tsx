@@ -4,6 +4,7 @@ import type { AutoExportSyncInfo, DailySummary } from '../../types/health';
 import { useCustomization, PRESET_COLORS, type LiquidColorPreset } from '../../context/CustomizationContext';
 import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
+import { SecuritySettings } from './SecuritySettings';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
 import { SystemLogsModal } from '../dashboard/SystemLogsModal';
 import { uploadFitFile } from '../../api/healthApi';
@@ -96,7 +97,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white m-0">
-                  配置中心 · 视觉微调、NAS 部署与数据管道
+                  配置中心 · 访问安全、视觉微调与数据管道
                 </h2>
                 <span className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -146,6 +147,8 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
           </div>
         </div>
       </AppleCard>
+
+      <SecuritySettings />
 
       <DataSourceSettings onDataChanged={onRefreshData} />
 

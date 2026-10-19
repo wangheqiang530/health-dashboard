@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.ts';
+import { parseFitActivity } from '../fit.ts';
 import { httpFetch } from '../http.ts';
 import { dateInTimeZone, timeInTimeZone } from '../time.ts';
 
@@ -9,7 +10,7 @@ const BASE_URL = 'https://prod.zh.igpsport.com/service';
 export interface IgpsportCredentials {
   account: string;
   password: string;
-  syncLimit: number;
+  syncLimit: number | null;
 }
 
 export interface IgpsportRide {
@@ -101,13 +102,14 @@ export async function loginIgpsport(account: string, password: string): Promise<
 
 export async function getRideList(
   token: string,
-  limit: number
+  limit: number | null
 ): Promise<{ rows: Array<Record<string, unknown>>; totalRows: number }> {
   let pageNo = 1;
   const allRows: Array<Record<string, unknown>> = [];
   let totalRows = 0;
+  const effectiveLimit = limit ?? Number.POSITIVE_INFINITY;
 
-  while (allRows.length < limit) {
+  while (allRows.length < effectiveLimit) {
     const json = await requestJson<RideListResponse>(
       `${BASE_URL}/web-gateway/web-analyze/activity/queryMyActivity?pageNo=${pageNo}&pageSize=20&reqType=0&sort=1`,
       {
@@ -128,7 +130,10 @@ export async function getRideList(
     pageNo += 1;
   }
 
-  return { rows: allRows.slice(0, limit), totalRows };
+  return {
+    rows: Number.isFinite(effectiveLimit) ? allRows.slice(0, effectiveLimit) : allRows,
+    totalRows,
+  };
 }
 
 async function getRideDetail(token: string, rideId: string): Promise<Record<string, unknown>> {
@@ -151,10 +156,10 @@ async function downloadFitFile(
   token: string,
   rideId: string,
   destination: string
-): Promise<{ size: number; existed: boolean }> {
+): Promise<{ size: number; existed: boolean; buffer: Buffer }> {
   try {
     const existing = await fs.stat(destination);
-    return { size: existing.size, existed: true };
+    return { size: existing.size, existed: true, buffer: await fs.readFile(destination) };
   } catch {
     // File does not exist yet.
   }
@@ -179,7 +184,7 @@ async function downloadFitFile(
   const buffer = Buffer.from(await response.arrayBuffer());
   await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.writeFile(destination, buffer);
-  return { size: buffer.length, existed: false };
+  return { size: buffer.length, existed: false, buffer };
 }
 
 const toFitFileName = (startTime: string): string =>
@@ -221,15 +226,32 @@ export async function syncRecentRides(
     let fileSizeBytes = 0;
     let savedFitFilePath: string | null = fitFilePath;
     let savedFitFileName: string | null = fitFileName;
+    let routePoints: Array<{ lat: number; lon: number }> = [];
+    let heartRateZones:
+      | { zone1: number; zone2: number; zone3: number; zone4: number; zone5: number }
+      | null = null;
     try {
       const file = await downloadFitFile(token, rideId, fitFilePath);
       fileSizeBytes = file.size;
+      try {
+        const parsedFit = parseFitActivity(file.buffer, fitFileName);
+        routePoints = parsedFit.routePoints;
+        heartRateZones = parsedFit.heartRateZones;
+      } catch (parseError) {
+        console.warn(`[igpsport] FIT 轨迹解析失败 (${rideId})，保留活动基础数据:`, parseError);
+      }
     } catch (fitError) {
       console.warn(`[igpsport] 下载 FIT 文件失败 (${rideId})，保留活动基础数据:`, fitError);
       savedFitFilePath = null;
       savedFitFileName = null;
     }
     const deviceInfo = detail.deviceInfo as Record<string, unknown> | undefined;
+
+    const rawRecord: Record<string, unknown> = {
+      ...detail,
+      ...(routePoints.length > 0 ? { routePoints } : {}),
+      ...(heartRateZones ? { heartRateZones } : {}),
+    };
 
     rides.push({
       externalId: rideId,
@@ -264,7 +286,7 @@ export async function syncRecentRides(
       fitFilePath: savedFitFilePath,
       fitFileName: savedFitFileName,
       fileSizeBytes,
-      rawRecord: detail,
+      rawRecord,
     });
   }
 

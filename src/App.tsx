@@ -18,11 +18,11 @@ import { QuickMetricsGrid } from './components/dashboard/QuickMetricsGrid';
 import { AutoExportHubModal } from './components/dashboard/AutoExportHubModal';
 import { HAEImportModal } from './components/dashboard/HAEImportModal';
 import { EditModuleRibbon } from './components/dashboard/EditModuleRibbon';
-import { clearAccessToken, fetchDashboard } from './api/healthApi';
+import { fetchDashboard, logoutDashboard } from './api/healthApi';
 import { createEmptyDailySummary } from './utils/emptyData';
 import { OnboardingWizardModal } from './components/dashboard/OnboardingWizardModal';
 import { CrossDomainInsightsCard } from './components/dashboard/CrossDomainInsightsCard';
-import { AccessTokenGate } from './components/auth/AccessTokenGate';
+import { PasswordGate } from './components/auth/PasswordGate';
 
 // 5 Dedicated Views for the 5 Tabs
 import { TrendsView } from './components/views/TrendsView';
@@ -295,8 +295,9 @@ function DashboardContent() {
           onToggleEditLayout={() => setIsEditingLayout((prev) => !prev)}
           onOpenWizard={() => setIsOnboardingOpen(true)}
           onLogout={() => {
-            clearAccessToken();
-            window.dispatchEvent(new Event('health-dashboard:unauthorized'));
+            void logoutDashboard().finally(() => {
+              window.dispatchEvent(new Event('health-dashboard:unauthorized'));
+            });
           }}
         />
 
@@ -498,8 +499,6 @@ function DashboardContent() {
               transition={{ duration: 0.15 }}
             >
               <WorkoutsView
-                days={daysData}
-                currentDay={currentDay}
                 onRefreshData={() => void refreshDashboard(false)}
               />
             </motion.div>
@@ -620,9 +619,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <CustomizationProvider>
-        <AccessTokenGate>
+        <PasswordGate>
           <DashboardContent />
-        </AccessTokenGate>
+        </PasswordGate>
       </CustomizationProvider>
     </ThemeProvider>
   );

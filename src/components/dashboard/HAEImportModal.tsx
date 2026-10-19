@@ -98,7 +98,7 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
       setErrorMsg(
         error instanceof Error
           ? error.message === 'UNAUTHORIZED'
-            ? '访问密钥已失效，请重新解锁面板。'
+            ? '登录会话已失效，请重新输入面板密码。'
             : error.message
           : '写入数据库失败'
       );

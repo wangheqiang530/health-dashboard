@@ -56,8 +56,8 @@ const DEFAULT_BODY_SECTIONS: BodySectionConfig[] = [
   },
   {
     id: 'silhouette',
-    name: '身体成分整体分布',
-    desc: '仅展示体脂秤实际提供的整身肌肉与脂肪比例',
+    name: '五部位肌脂与双频阻抗',
+    desc: '躯干、左右上肢、左右下肢的肌肉量、脂肪量、20k/100k 阻抗与趋势',
     visible: true,
   },
 ];
@@ -144,6 +144,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   const [modalData, setModalData] = useState<Metric30DayModalData | null>(null);
   const [activeDateRange, setActiveDateRange] = useState<'today' | '7d' | '30d' | '90d' | '180d'>('today');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [focusedDate, setFocusedDate] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -175,8 +176,15 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     };
   }, []);
 
-  const allDates = Object.keys(days).sort();
-  const currentDate = selectedDate || currentDay.date;
+  const allDates = Array.from(
+    new Set([
+      ...Object.keys(days),
+      ...measurements.map((measurement) => measurement.measuredDate),
+    ])
+  ).sort();
+  const latestMeasurementDate = measurements[measurements.length - 1]?.measuredDate;
+  const currentDate =
+    focusedDate || latestMeasurementDate || selectedDate || currentDay.date;
   const measurementsForDate = useMemo(
     () =>
       measurements
@@ -223,7 +231,6 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   const body = selectedMeasurement
     ? measurementToBody(selectedMeasurement, bodyTrend)
     : currentDay.body;
-  const effectiveDay: DailySummary = { ...currentDay, body };
 
   const historyPoints = (key: MeasurementKey) =>
     measurementsUpToDate
@@ -244,7 +251,9 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     setActiveDateRange(rangeKey);
     if (!onSelectDate || allDates.length === 0) return;
     if (rangeKey === 'today') {
-      onSelectDate(allDates[allDates.length - 1]);
+      const latestDate = allDates[allDates.length - 1];
+      setFocusedDate(latestDate);
+      onSelectDate(latestDate);
       return;
     }
     const daysBack =
@@ -253,7 +262,10 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     anchor.setDate(anchor.getDate() - daysBack);
     const target = anchor.toISOString().slice(0, 10);
     const closest = allDates.filter((date) => date <= target).slice(-1)[0] || allDates[0];
-    if (closest) onSelectDate(closest);
+    if (closest) {
+      setFocusedDate(closest);
+      onSelectDate(closest);
+    }
   };
 
   const isVisible = (id: string) =>
@@ -426,7 +438,9 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
             </div>
           ) : (
             <p className="text-[11px] text-neutral-400">
-              {latestMeasurement
+              {measurementsLoading
+                ? '正在读取体脂秤历史记录...'
+                : latestMeasurement
                 ? `当日没有新的体测记录，当前显示 ${formatMeasurementDate(latestMeasurement.measuredAt)} 的最近一次测量。`
                 : '尚未收到体脂秤测量记录。'}
             </p>
@@ -652,7 +666,12 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
         </div>
       )}
 
-      {isVisible('silhouette') && <BodySilhouette currentDay={effectiveDay} />}
+      {isVisible('silhouette') && (
+        <BodySilhouette
+          measurement={selectedMeasurement || latestMeasurement}
+          measurements={measurementsUpToDate}
+        />
+      )}
 
       <Metric30DayModal data={modalData} onClose={() => setModalData(null)} />
 
@@ -661,7 +680,10 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
         onClose={() => setIsCalendarOpen(false)}
         selectedDate={currentDate}
         availableDates={allDates}
-        onSelectDate={(date) => onSelectDate?.(date)}
+        onSelectDate={(date) => {
+          setFocusedDate(date);
+          onSelectDate?.(date);
+        }}
         title="身体详情 · 历史体测数据日期选择"
       />
 

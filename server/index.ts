@@ -5,9 +5,15 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { startArchiveCleanupScheduler, stopArchiveCleanupScheduler } from './archive.ts';
+import {
+  extractDashboardSessionToken,
+  findDashboardSession,
+} from './auth.ts';
+import { backfillCyclingRoutes } from './backfill.ts';
 import { startBackupScheduler, stopBackupScheduler } from './backup.ts';
 import { config } from './config.ts';
 import { closeDatabase, migrate, pool } from './db.ts';
+import { authRoutes } from './routes/auth.ts';
 import { configRoutes } from './routes/config.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
 import { haeRoutes } from './routes/hae.ts';
@@ -16,9 +22,9 @@ import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
 import { bodyRoutes } from './routes/body.ts';
 import {
-  ensureDashboardAccessToken,
+  ensureDashboardPassword,
+  getDashboardInitialPasswordPath,
   ensureHaeApiKey,
-  secureCompare,
 } from './settings.ts';
 import { reloadSchedules, stopScheduler } from './sync.ts';
 
@@ -53,19 +59,10 @@ app.addContentTypeParser(
 const publicApiPaths = new Set([
   '/api/health',
   '/api/v1/health-auto-export',
+  '/api/v1/auth/status',
+  '/api/v1/auth/login',
+  '/api/v1/auth/logout',
 ]);
-
-const extractDashboardToken = (
-  headers: Record<string, string | string[] | undefined>
-): string => {
-  const authorization = headers.authorization;
-  if (typeof authorization === 'string' && authorization.toLowerCase().startsWith('bearer ')) {
-    return authorization.slice(7).trim();
-  }
-
-  const direct = headers['x-dashboard-token'];
-  return typeof direct === 'string' ? direct.trim() : '';
-};
 
 app.addHook('onSend', async (request, reply) => {
   reply.header('X-Content-Type-Options', 'nosniff');
@@ -81,10 +78,10 @@ app.addHook('onRequest', async (request, reply) => {
   const pathname = (request.raw.url || '').split('?')[0];
   if (!pathname.startsWith('/api/') || publicApiPaths.has(pathname)) return;
 
-  const expected = await ensureDashboardAccessToken();
-  const provided = extractDashboardToken(request.headers);
-  if (!provided || !secureCompare(provided, expected)) {
-    return reply.code(401).send({ error: '需要有效的面板访问密钥。' });
+  const token = extractDashboardSessionToken(request.headers);
+  const session = await findDashboardSession(token);
+  if (!session) {
+    return reply.code(401).send({ error: '登录会话已失效，请重新输入面板密码。' });
   }
 });
 
@@ -99,9 +96,8 @@ app.get('/api/health', async () => {
   };
 });
 
-app.get('/api/v1/auth/verify', async () => ({ ok: true }));
-
 await app.register(haeRoutes);
+await app.register(authRoutes);
 await app.register(dashboardRoutes);
 await app.register(configRoutes);
 await app.register(versionRoutes);
@@ -159,10 +155,11 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 try {
   await migrate();
   await ensureHaeApiKey();
-  await ensureDashboardAccessToken();
-  app.log.info(
-    `面板访问密钥已写入 ${path.join(config.dataDir, 'dashboard-access-token.txt')}`
-  );
+  await ensureDashboardPassword();
+  const initialPasswordFile = await getDashboardInitialPasswordPath();
+  if (initialPasswordFile) {
+    app.log.info(`面板初始密码已写入 ${initialPasswordFile}`);
+  }
   try {
     const repair = await repairHistoricalHaeSummaries();
     if (repair.repairedCount > 0) {
@@ -176,6 +173,15 @@ try {
   await startBackupScheduler();
   await app.listen({ host: config.host, port: config.port });
   app.log.info(`Health Dashboard API listening on http://${config.host}:${config.port}`);
+  void backfillCyclingRoutes()
+    .then((result) => {
+      if (result.scanned > 0) {
+        app.log.info(
+          `[fit:backfill] 扫描 ${result.scanned} 条，回填 ${result.repaired} 条轨迹，缺失文件 ${result.missingFiles} 条，失败 ${result.failed} 条。`
+        );
+      }
+    })
+    .catch((error) => app.log.warn({ err: error }, '[fit:backfill] 历史轨迹回填失败'));
 } catch (error) {
   app.log.error(error);
   await closeDatabase();

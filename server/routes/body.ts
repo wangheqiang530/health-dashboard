@@ -27,12 +27,92 @@ interface BodyMeasurementRow {
   score: string | null;
   smi: string | null;
   whr: string | null;
+  raw_record: {
+    adc_list?: unknown;
+  } | null;
 }
 
 const numberOrNull = (value: string | number | null): number | null => {
   if (value === null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+type BodySegmentKey = 'trunk' | 'leftArm' | 'rightArm' | 'leftLeg' | 'rightLeg';
+
+const MUSCLE_DISTRIBUTION: Record<BodySegmentKey, number> = {
+  trunk: 0.515,
+  leftArm: 0.066,
+  rightArm: 0.067,
+  leftLeg: 0.176,
+  rightLeg: 0.176,
+};
+
+const FAT_DISTRIBUTION: Record<BodySegmentKey, number> = {
+  trunk: 0.51,
+  leftArm: 0.068,
+  rightArm: 0.068,
+  leftLeg: 0.177,
+  rightLeg: 0.177,
+};
+
+const IMPEDANCE_INDEXES: Record<BodySegmentKey, [number, number]> = {
+  trunk: [0, 5],
+  rightArm: [1, 6],
+  leftArm: [2, 7],
+  rightLeg: [3, 8],
+  leftLeg: [4, 9],
+};
+
+const parseImpedanceList = (rawRecord: BodyMeasurementRow['raw_record']): number[] | null => {
+  const rawList = rawRecord?.adc_list;
+  if (typeof rawList !== 'string') return null;
+  const values = rawList.split(',').map((value) => Number(value.trim()));
+  if (values.length !== 10 || values.some((value) => !Number.isFinite(value))) return null;
+  return values;
+};
+
+const buildBodySegments = (
+  weightKg: number | null,
+  skeletalMuscleKg: number | null,
+  bodyFatPercent: number | null,
+  rawRecord: BodyMeasurementRow['raw_record']
+) => {
+  const impedance = parseImpedanceList(rawRecord);
+  const fatMassKg =
+    weightKg !== null && bodyFatPercent !== null
+      ? weightKg * (bodyFatPercent / 100)
+      : null;
+
+  return (Object.keys(MUSCLE_DISTRIBUTION) as BodySegmentKey[]).reduce(
+    (segments, key) => {
+      const [frequency20Index, frequency100Index] = IMPEDANCE_INDEXES[key];
+      const impedance20 = impedance?.[frequency20Index] ?? null;
+      const impedance100 = impedance?.[frequency100Index] ?? null;
+      segments[key] = {
+        muscleKg:
+          skeletalMuscleKg === null
+            ? null
+            : Number((skeletalMuscleKg * MUSCLE_DISTRIBUTION[key]).toFixed(2)),
+        fatKg:
+          fatMassKg === null
+            ? null
+            : Number((fatMassKg * FAT_DISTRIBUTION[key]).toFixed(2)),
+        impedance20kHz: impedance20 !== null && impedance20 > 0 ? impedance20 : null,
+        impedance100kHz: impedance100 !== null && impedance100 > 0 ? impedance100 : null,
+      };
+      return segments;
+    },
+    {} as Record<
+      BodySegmentKey,
+      {
+        muscleKg: number | null;
+        fatKg: number | null;
+        impedance20kHz: number | null;
+        impedance100kHz: number | null;
+      }
+    >
+  );
 };
 
 export async function bodyRoutes(app: FastifyInstance): Promise<void> {
@@ -50,7 +130,7 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
          weight_kg, bmi, body_fat_rate, skeletal_muscle_rate, muscle_rate,
          lean_body_mass_kg, visceral_fat_level, water_rate, bone_mass_kg,
          bmr_kcal, subcutaneous_fat_rate, protein_rate, body_age, heart_rate,
-         score, smi, whr
+         score, smi, whr, raw_record
        FROM body_measurements
        ORDER BY measured_at DESC
        LIMIT $1`,
@@ -61,17 +141,19 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
       measurements: result.rows.map((row) => {
         const weight = numberOrNull(row.weight_kg);
         const skeletalMusclePercent = numberOrNull(row.skeletal_muscle_rate);
+        const bodyFatPercent = numberOrNull(row.body_fat_rate);
+        const skeletalMuscleKg =
+          weight !== null && skeletalMusclePercent !== null
+            ? Number((weight * (skeletalMusclePercent / 100)).toFixed(2))
+            : null;
         return {
           id: row.id,
           measuredAt: row.measured_at.toISOString(),
           measuredDate: row.measured_date,
           weightKg: weight,
           bmi: numberOrNull(row.bmi),
-          bodyFatPercent: numberOrNull(row.body_fat_rate),
-          skeletalMuscleKg:
-            weight !== null && skeletalMusclePercent !== null
-              ? Number((weight * (skeletalMusclePercent / 100)).toFixed(2))
-              : null,
+          bodyFatPercent,
+          skeletalMuscleKg,
           skeletalMusclePercent,
           musclePercent: numberOrNull(row.muscle_rate),
           leanMassKg: numberOrNull(row.lean_body_mass_kg),
@@ -86,6 +168,8 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
           bodyScore: numberOrNull(row.score),
           smi: numberOrNull(row.smi),
           whr: numberOrNull(row.whr),
+          segments: buildBodySegments(weight, skeletalMuscleKg, bodyFatPercent, row.raw_record),
+          segmentMuscleEstimated: true,
         };
       }),
     };

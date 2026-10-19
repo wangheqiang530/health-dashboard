@@ -124,13 +124,30 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         workout_count: string;
         body_count: string;
         ride_count: string;
+        daily_earliest: string | null;
+        daily_latest: string | null;
+        body_earliest: string | null;
+        body_latest: string | null;
+        ride_earliest: string | null;
+        ride_latest: string | null;
+        workout_earliest: string | null;
+        workout_latest: string | null;
       }>(
         `SELECT
           (SELECT COUNT(*) FROM daily_summaries)::text AS daily_count,
           (SELECT COUNT(*) FROM health_metric_points)::text AS metric_count,
           (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
           (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
-          (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count`
+          (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
+          (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
+          (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
+          (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
+          (SELECT to_char(MAX(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_latest,
+          (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_earliest,
+          (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_latest,
+          (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_earliest,
+          (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_latest`,
+        [config.timezone]
       ),
       getArchiveRetentionDays(),
       getArchiveStats(),
@@ -153,6 +170,28 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         workouts: Number(count?.workout_count || 0),
         bodyMeasurements: Number(count?.body_count || 0),
         cyclingActivities: Number(count?.ride_count || 0),
+      },
+      coverage: {
+        dailySummaries: {
+          count: Number(count?.daily_count || 0),
+          earliest: count?.daily_earliest || null,
+          latest: count?.daily_latest || null,
+        },
+        bodyMeasurements: {
+          count: Number(count?.body_count || 0),
+          earliest: count?.body_earliest || null,
+          latest: count?.body_latest || null,
+        },
+        cyclingActivities: {
+          count: Number(count?.ride_count || 0),
+          earliest: count?.ride_earliest || null,
+          latest: count?.ride_latest || null,
+        },
+        healthWorkouts: {
+          count: Number(count?.workout_count || 0),
+          earliest: count?.workout_earliest || null,
+          latest: count?.workout_latest || null,
+        },
       },
       storage: {
         retentionDays,
@@ -281,9 +320,15 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       );
       return {
         runs: result.rows.map((run) => ({
-          ...run,
-          started_at: run.started_at.toISOString(),
-          finished_at: run.finished_at?.toISOString() || null,
+          id: run.id,
+          sourceId: run.source_id,
+          triggerType: run.trigger_type,
+          status: run.status,
+          startedAt: run.started_at.toISOString(),
+          finishedAt: run.finished_at?.toISOString() || null,
+          recordsCount: run.records_count,
+          message: run.message,
+          details: run.details,
         })),
       };
     }

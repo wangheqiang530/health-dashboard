@@ -7,14 +7,14 @@
 
 ## 1. 项目基本概况
 
-- **当前版本**：`v0.0.9`
+- **当前版本**：`v0.0.10`
 - **定位**：全功能私有化人体健康数据大盘（“人体探针”），基于苹果原生健康（Apple Health）精致质感设计，整合手机日常生理指标、Apple Watch 运动体征、Fitdays 智能体脂秤体成分，以及 iGPSPORT 专业骑行码表数据。
 - **核心架构**：
   - **前端**：React 19 + TypeScript + Vite + Tailwind CSS v4 + Lucide React + Framer Motion
   - **后端**：Node.js 22 (TSX) + Fastify v5 + node-cron + undici
   - **数据库**：PostgreSQL 16 Alpine
   - **部署形态**：Docker Compose 容器化部署（支持纯字面量无环境依赖启动）
-  - **官方镜像**：`wangheqiang/health-dashboard:0.0.9`
+  - **官方镜像**：`wangheqiang/health-dashboard:0.0.10`
   - **GitHub 仓库**：`https://github.com/wangheqiang530/health-dashboard.git`
 
 ---
@@ -26,7 +26,7 @@
 | 服务 | 容器名称 | 宿主机端口 | 内部端口 | 账号 / 库名 / 密码 |
 | :--- | :--- | :--- | :--- | :--- |
 | **PostgreSQL** | `health-dashboard-db` | `5433` | `5432` | 库: `health_dashboard` / 用户: `health` / 密码: `HealthPassword12345` |
-| **Web & API** | `health-dashboard-app` | `8443` | `8080` | 加密密钥: `APP_ENCRYPTION_KEY`；面板登录密钥: `data/dashboard-access-token.txt` |
+| **Web & API** | `health-dashboard-app` | `8443` | `8080` | 加密密钥: `APP_ENCRYPTION_KEY`；初始面板密码: `data/dashboard-initial-password.txt` |
 
 > **外网反代说明**：
 > 用户之前使用 Nginx Proxy Manager 反向代理到内网 `http://127.0.0.1:8443`，绑定公网域名 `https://health.mrwoo.cn:53000/`。
@@ -39,6 +39,7 @@
 
 ```text
 data/
+├── dashboard-initial-password.txt # 首次随机面板密码（修改密码后移除）
 ├── postgres/            # PostgreSQL 16 数据库底层集群物理文件（挂载到 /var/lib/postgresql/data）
 ├── backups/             # 每日自动冷备及迁移快照（.sql.gz）
 │   └── latest_health_dashboard_dump.sql.gz # 本次迁移的最新全量 PG 数据转储（~6MB）
@@ -69,7 +70,7 @@ data/
 
 ---
 
-## 5. 项目已完成功能与进度 (截至 v0.0.9)
+## 5. 项目已完成功能与进度 (截至 v0.0.10)
 
 - [x] **原生苹果风格 UI**：运动三环（活动、锻炼、站立）、心率趋势、睡眠深度分期、体重与体脂曲线、骑行里程与路线轨迹图。
 - [x] **首次使用向导 (First-Launch Wizard)**：初次进入或数据库为空时自动引导配置数据源，附带各数据源详细教程及快速诊断。
@@ -77,7 +78,10 @@ data/
 - [x] **HAE 实时联通诊断**：在前端设置面板展示专属 Webhook URL、密钥状态及最近一条同步记录的时间与字节数。
 - [x] **自动冷备份与日志轮转**：每天凌晨自动 `pg_dump` 压缩归档至 `data/backups/`，日志按 10MB 自动轮换。
 - [x] **外网反代与跨域支持**：支持任意公网反代域名及 HTTPS 协议头解析（`x-forwarded-proto`, `x-forwarded-host`）。
-- [x] **面板访问控制**：业务 API 使用 Bearer 面板密钥，首次启动自动生成并写入 `data/dashboard-access-token.txt`。
+- [x] **面板密码与会话**：首次启动生成随机密码并写入 `data/dashboard-initial-password.txt`；支持 1 小时至 1 年的会话有效期，配置中心可修改密码和默认有效期。
+- [x] **五部位身体详情**：恢复躯干、左右上肢、左右下肢的肌肉量、脂肪量与 20 kHz / 100 kHz 双频阻抗趋势。
+- [x] **训练记录独立查询**：日期区间筛选与快捷选择器不再受 HAE `daily_summaries` 日期边界限制。
+- [x] **FIT 轨迹回填**：同步与启动回填都会解析 iGPSPORT FIT 文件中的 GPS 轨迹与心率区间。
 - [x] **真实数据模式**：移除所有固定回退值、模拟趋势、伪 GPS 路线与伪造 FIT 入库；缺数据显示空状态。
 - [x] **体测多次测量**：同一天多次 Fitdays 测量默认取最新一次，并在身体详情提供时间/体重明细切换。
 - [x] **官方三环着色器**：主圆环与七日迷你圆环共用 WebGL ActivityRingsVisual。

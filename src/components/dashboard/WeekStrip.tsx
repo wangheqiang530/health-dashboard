@@ -116,6 +116,7 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
                 e.stopPropagation();
                 onSelectDate(date);
               }}
+              title={`${date} · 动态能量 ${item.rings.move.current}/${item.rings.move.goal} 千卡 · 锻炼 ${item.rings.exercise.current}/${item.rings.exercise.goal} 分钟 · 站立 ${item.rings.stand.current}/${item.rings.stand.goal} 小时`}
               className={`relative flex flex-col items-center py-2 px-1 rounded-2xl transition-all duration-200 cursor-pointer ${
                 isSelected
                   ? 'bg-black/10 dark:bg-white/15 shadow-md text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 scale-[1.02]'
@@ -138,6 +139,9 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
 
               {/* Mini Tri-Color Activity Rings Graphic */}
               <MiniTriRings rings={item.rings} />
+              <span className="text-[8px] leading-none font-mono font-bold text-cyan-600 dark:text-[#00F5D4]">
+                站 {item.rings.stand.current}h
+              </span>
 
               {/* Status footer: Today or Star badge */}
               <div className="h-4 flex items-center justify-center">

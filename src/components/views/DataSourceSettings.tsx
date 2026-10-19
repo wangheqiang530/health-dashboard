@@ -28,6 +28,7 @@ import {
   deleteArchiveFile,
   downloadArchiveFile,
   fetchBackendConfig,
+  fetchSourceRuns,
   testDataSource,
   triggerSourceSync,
   updateArchiveRetention,
@@ -91,6 +92,9 @@ const sourceIcon = (sourceId: SourceId) => {
   }
   return <Bike className="w-4 h-4 text-sky-500" />;
 };
+
+const formatCoverage = (earliest: string | null, latest: string | null): string =>
+  earliest && latest ? `${earliest} → ${latest}` : '暂无记录';
 
 export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataChanged }) => {
   const [config, setConfig] = useState<BackendConfig | null>(null);
@@ -205,17 +209,45 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     setSyncingId(sourceId);
     setMessage(null);
     try {
-      await triggerSourceSync(sourceId, full);
+      const started = await triggerSourceSync(sourceId, full);
       setMessage({
         type: 'success',
         text: full
-          ? `已成功下发 ${sourceId === 'fitdays' ? 'Fitdays 体脂秤' : 'iGPSPORT 码表'} 的全量历史同步任务，后台正在抓取完整数据，完成后会自动刷新看板。`
-          : '同步任务已启动，完成后会自动刷新看板。',
+          ? `已下发 ${sourceId === 'fitdays' ? 'Fitdays 体脂秤' : 'iGPSPORT 码表'} 的全量历史同步任务，正在等待云端拉取、FIT 解析与入库完成...`
+          : '同步任务已启动，正在等待数据入库完成...',
       });
-      window.setTimeout(() => {
-        void loadConfig(false);
-        onDataChanged();
-      }, 5000);
+
+      let completedRun: Awaited<ReturnType<typeof fetchSourceRuns>>['runs'][number] | null = null;
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        try {
+          const result = await fetchSourceRuns(sourceId);
+          const run = result.runs.find((item) => item.id === started.runId);
+          if (run && run.status !== 'running') {
+            completedRun = run;
+            break;
+          }
+        } catch {
+          // A transient status read failure should not abort a running sync.
+        }
+      }
+
+      if (!completedRun) {
+        throw new Error('同步仍在后台运行，状态查询超时。请稍后刷新状态查看结果。');
+      }
+      if (completedRun.status === 'failed') {
+        throw new Error(completedRun.message || '数据源同步失败。');
+      }
+
+      const recordLabel = sourceId === 'fitdays' ? '条体测记录' : '条骑行记录';
+      setMessage({
+        type: 'success',
+        text: `${full ? '全量' : '增量'}同步完成，共处理 ${
+          completedRun.recordsCount
+        } ${recordLabel}。数据库覆盖范围已刷新。`,
+      });
+      await loadConfig(false);
+      onDataChanged();
     } catch (error) {
       setMessage({
         type: 'error',
@@ -551,6 +583,51 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
           刷新状态
         </button>
       </div>
+
+      {config.coverage && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 mb-4">
+          {[
+            {
+              label: 'HAE 日汇总',
+              coverage: config.coverage.dailySummaries,
+              unit: '天',
+              color: 'text-rose-500 bg-rose-500/10 border-rose-500/20',
+            },
+            {
+              label: 'Fitdays 体测',
+              coverage: config.coverage.bodyMeasurements,
+              unit: '次',
+              color: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
+            },
+            {
+              label: 'iGPSPORT 骑行',
+              coverage: config.coverage.cyclingActivities,
+              unit: '次',
+              color: 'text-sky-500 bg-sky-500/10 border-sky-500/20',
+            },
+            {
+              label: 'HAE 训练记录',
+              coverage: config.coverage.healthWorkouts,
+              unit: '次',
+              color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className={`p-3 rounded-2xl border ${item.color}`}
+            >
+              <span className="text-[10px] font-semibold opacity-80 block">{item.label}</span>
+              <span className="text-lg font-black font-mono block mt-0.5">
+                {item.coverage.count.toLocaleString()}{' '}
+                <span className="text-[10px] font-normal">{item.unit}</span>
+              </span>
+              <span className="text-[9px] font-mono opacity-70 block mt-0.5">
+                {formatCoverage(item.coverage.earliest, item.coverage.latest)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {message && (
         <div

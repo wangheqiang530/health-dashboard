@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { DailySummary, WorkoutRecord } from '../../types/health';
+import type { WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
 import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
-import { uploadFitFile } from '../../api/healthApi';
+import { fetchWorkouts, uploadFitFile } from '../../api/healthApi';
 import {
   Bike,
   Activity,
@@ -18,26 +18,68 @@ import {
   ChevronDown,
   Timer,
   Calendar,
+  CalendarRange,
   UploadCloud,
   Check,
+  LoaderCircle,
+  X,
 } from 'lucide-react';
 
 interface WorkoutsViewProps {
-  days: Record<string, DailySummary>;
-  currentDay: DailySummary;
   onRefreshData: () => void;
 }
 
-type TimeRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
+type DatePreset = 'week' | 'month' | '30d' | 'quarter' | 'year' | 'all' | 'custom';
 
-export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, onRefreshData }) => {
-  const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
+const dateInShanghai = (date = new Date()): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+
+const shiftDate = (date: string, days: number): string => {
+  const value = new Date(`${date}T12:00:00+08:00`);
+  value.setDate(value.getDate() + days);
+  return dateInShanghai(value);
+};
+
+export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => {
+  const [allWorkouts, setAllWorkouts] = useState<WorkoutRecord[]>([]);
+  const [loadingWorkouts, setLoadingWorkouts] = useState(true);
+  const [workoutError, setWorkoutError] = useState<string | null>(null);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
   const [filterCategory, setFilterCategory] = useState<'all' | 'cycling' | 'strength' | 'walking'>('all');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
   const [hoveredWorkoutId, setHoveredWorkoutId] = useState<string | null>(null);
   const [uploadingFit, setUploadingFit] = useState(false);
   const [fitUploadMessage, setFitUploadMessage] = useState<string | null>(null);
   const fitInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const loadWorkouts = useCallback(async () => {
+    setLoadingWorkouts(true);
+    setWorkoutError(null);
+    try {
+      const result = await fetchWorkouts({
+        from: fromDate || undefined,
+        to: toDate || undefined,
+        limit: 10000,
+      });
+      setAllWorkouts(result.workouts);
+    } catch (error) {
+      setWorkoutError(error instanceof Error ? error.message : '读取训练记录失败。');
+      setAllWorkouts([]);
+    } finally {
+      setLoadingWorkouts(false);
+    }
+  }, [fromDate, toDate]);
+
+  useEffect(() => {
+    void loadWorkouts();
+  }, [loadWorkouts]);
 
   const handleFitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -48,6 +90,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
       const res = await uploadFitFile(file);
       setFitUploadMessage(res.message);
       onRefreshData();
+      await loadWorkouts();
       setTimeout(() => setFitUploadMessage(null), 4000);
     } catch (err) {
       setFitUploadMessage(`上传失败: ${err instanceof Error ? err.message : String(err)}`);
@@ -58,33 +101,12 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
     }
   };
 
-  // Extract all workouts and sort descending by date and time
-  const allWorkouts = Object.values(days)
-    .flatMap((d) => d.workouts)
-    .sort((a, b) => ((b.date || '') + (b.startTime || '')).localeCompare((a.date || '') + (a.startTime || '')));
-
   const filtered = allWorkouts.filter((w) => {
     if (filterCategory === 'all') return true;
     return w.category === filterCategory;
   });
 
-  const latestDate = Object.keys(days).sort().slice(-1)[0] || currentDay.date;
-  const getCutoffDate = (daysAgo: number) => {
-    const d = new Date(latestDate + 'T12:00:00+08:00');
-    d.setDate(d.getDate() - daysAgo);
-    return d.toISOString().slice(0, 10);
-  };
-
-  const rangeFilteredWorkouts = allWorkouts.filter((w) => {
-    const wDate = w.date || '';
-    if (selectedRange === 'week') return wDate >= getCutoffDate(7);
-    if (selectedRange === 'month') return wDate >= getCutoffDate(30);
-    if (selectedRange === 'quarter') return wDate >= getCutoffDate(90);
-    if (selectedRange === 'year') return wDate >= `${latestDate.slice(0, 4)}-01-01`;
-    return true;
-  });
-
-  const rangeWorkouts = rangeFilteredWorkouts;
+  const rangeWorkouts = allWorkouts;
 
   const totalKcal = rangeWorkouts.reduce((acc, cur) => acc + (cur.activeCalories || 0), 0);
   const totalCyclingKm = rangeWorkouts
@@ -114,12 +136,39 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
       : null;
   const periodFood = getCalorieFoodEquivalents(totalKcal);
 
-  const rangeConfig: Record<TimeRange, { label: string; workoutsCount: number }> = {
-    week: { label: '本周', workoutsCount: rangeWorkouts.length },
-    month: { label: '本月', workoutsCount: rangeWorkouts.length },
-    quarter: { label: '本季度', workoutsCount: rangeWorkouts.length },
-    year: { label: '年度', workoutsCount: rangeWorkouts.length },
-    all: { label: '全部', workoutsCount: rangeWorkouts.length },
+  const applyDatePreset = (preset: DatePreset) => {
+    setDatePreset(preset);
+    if (preset === 'custom') return;
+    const today = dateInShanghai();
+    if (preset === 'week') {
+      setFromDate(shiftDate(today, -6));
+      setToDate(today);
+      return;
+    }
+    if (preset === 'month') {
+      setFromDate(`${today.slice(0, 7)}-01`);
+      setToDate(today);
+      return;
+    }
+    if (preset === '30d') {
+      setFromDate(shiftDate(today, -29));
+      setToDate(today);
+      return;
+    }
+    if (preset === 'quarter') {
+      const month = Number(today.slice(5, 7));
+      const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
+      setFromDate(`${today.slice(0, 4)}-${String(quarterStartMonth).padStart(2, '0')}-01`);
+      setToDate(today);
+      return;
+    }
+    if (preset === 'year') {
+      setFromDate(`${today.slice(0, 4)}-01-01`);
+      setToDate(today);
+      return;
+    }
+    setFromDate('');
+    setToDate('');
   };
 
   const getCategoryIcon = (category: WorkoutRecord['category']) => {
@@ -159,30 +208,89 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
             </div>
           </div>
 
-          {/* Time Range Selector */}
-          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/5 dark:border-white/5 self-start md:self-auto">
+          <div className="flex flex-wrap bg-black/5 dark:bg-white/5 p-1 rounded-2xl border border-black/5 dark:border-white/5 self-start md:self-auto">
             {[
-              { key: 'week', label: '本周' },
+              { key: 'week', label: '最近一周' },
               { key: 'month', label: '本月' },
+              { key: '30d', label: '最近 30 天' },
               { key: 'quarter', label: '本季度' },
-              { key: 'year', label: '年度' },
+              { key: 'year', label: '今年' },
               { key: 'all', label: '全部' },
-            ].map((r) => (
+            ].map((range) => (
               <button
-                key={r.key}
+                key={range.key}
                 type="button"
-                onClick={() => setSelectedRange(r.key as TimeRange)}
-                className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                  selectedRange === r.key
+                onClick={() => applyDatePreset(range.key as DatePreset)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all cursor-pointer ${
+                  datePreset === range.key
                     ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-sm'
                     : 'text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
                 }`}
               >
-                {r.label}
+                {range.label}
               </button>
             ))}
           </div>
         </div>
+
+        <div className="mb-4 p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <CalendarRange className="w-4 h-4 text-sky-500" />
+            <span className="font-semibold text-neutral-700 dark:text-neutral-300">日期区间</span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(event) => {
+                setDatePreset('custom');
+                setFromDate(event.target.value);
+              }}
+              className="h-9 px-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 text-xs text-neutral-800 dark:text-neutral-200 outline-none focus:border-sky-500/60"
+            />
+            <span>至</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(event) => {
+                setDatePreset('custom');
+                setToDate(event.target.value);
+              }}
+              className="h-9 px-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 text-xs text-neutral-800 dark:text-neutral-200 outline-none focus:border-sky-500/60"
+            />
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => applyDatePreset('all')}
+                className="h-8 px-2 rounded-lg text-[11px] text-neutral-500 hover:text-neutral-900 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+                清除
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-neutral-400">
+            {loadingWorkouts ? (
+              <>
+                <LoaderCircle className="w-3.5 h-3.5 animate-spin text-sky-500" />
+                正在读取区间记录...
+              </>
+            ) : (
+              <>
+                <span className="font-mono text-neutral-700 dark:text-neutral-200">
+                  {fromDate || '最早'} → {toDate || '今天'}
+                </span>
+                <span>·</span>
+                <span>{allWorkouts.length} 条记录</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {workoutError && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-500 flex items-center gap-2">
+            <X className="w-4 h-4" />
+            {workoutError}
+          </div>
+        )}
 
         {/* 6 Comprehensive Telemetry Tiles based on Selected Range */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
@@ -232,7 +340,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
               </span>
               <span className="text-[10px] text-neutral-400">小时</span>
             </div>
-            <span className="text-[10px] text-neutral-400 mt-1 block">共 {rangeConfig[selectedRange].workoutsCount} 场训练</span>
+            <span className="text-[10px] text-neutral-400 mt-1 block">共 {rangeWorkouts.length} 场训练</span>
           </div>
 
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
@@ -252,7 +360,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, on
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
             <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
               <Heart className="w-3.5 h-3.5 text-rose-500" />
-              <span>平均均心率</span>
+              <span>平均心率</span>
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-rose-500 dark:text-rose-400 font-mono">

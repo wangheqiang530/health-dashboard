@@ -528,6 +528,9 @@ export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: n
   const rebuiltDays = new Set<string>();
   for (const row of archives.rows) {
     try {
+      if (!row.relative_path.endsWith('.json.gz') && !row.relative_path.endsWith('.json')) {
+        continue;
+      }
       const absPath = resolveArchivePath(row.relative_path);
       const fileBuf = await fs.readFile(absPath);
       let contentStr = '';

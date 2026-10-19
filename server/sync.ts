@@ -253,7 +253,7 @@ async function executeSourceSync(
       isFullSync: isFull,
     };
   } else {
-    const syncLimit = isFull ? 500 : clampInteger(source.config.syncLimit, 20, 1, 100);
+    const syncLimit = isFull ? null : clampInteger(source.config.syncLimit, 20, 1, 100);
     const result = await syncRecentRides({
       account: source.account,
       password,

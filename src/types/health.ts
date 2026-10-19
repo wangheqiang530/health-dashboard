@@ -149,6 +149,15 @@ export interface BodyComposition {
   measuredDate?: string;
 }
 
+export type BodySegmentKey = 'trunk' | 'leftArm' | 'rightArm' | 'leftLeg' | 'rightLeg';
+
+export interface BodySegmentMeasurement {
+  muscleKg: number | null;
+  fatKg: number | null;
+  impedance20kHz: number | null;
+  impedance100kHz: number | null;
+}
+
 export interface BodyMeasurement {
   id: string;
   measuredAt: string;
@@ -171,6 +180,8 @@ export interface BodyMeasurement {
   bodyScore: number | null;
   smi: number | null;
   whr: number | null;
+  segments: Record<BodySegmentKey, BodySegmentMeasurement>;
+  segmentMuscleEstimated: boolean;
 }
 
 export interface MobilityAndGait {

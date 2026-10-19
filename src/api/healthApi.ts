@@ -43,6 +43,12 @@ export interface BackendConfig {
     bodyMeasurements: number;
     cyclingActivities: number;
   };
+  coverage: {
+    dailySummaries: DataCoverage;
+    bodyMeasurements: DataCoverage;
+    cyclingActivities: DataCoverage;
+    healthWorkouts: DataCoverage;
+  };
   storage: {
     retentionDays: number;
     archiveCount: number;
@@ -52,6 +58,12 @@ export interface BackendConfig {
   };
   recentRuns: SyncRun[];
   timezone: string;
+}
+
+export interface DataCoverage {
+  count: number;
+  earliest: string | null;
+  latest: string | null;
 }
 
 export interface ArchiveItem {
@@ -114,6 +126,29 @@ export interface DashboardResponse {
   syncInfo: AutoExportSyncInfo;
 }
 
+export type DashboardSessionDuration = 'session' | '1h' | '1d' | '7d' | '30d' | '365d';
+
+export interface DashboardSessionOption {
+  value: DashboardSessionDuration;
+  label: string;
+  description: string;
+}
+
+export interface AuthStatus {
+  authenticated: boolean;
+  expiresAt: string | null;
+  sessionDuration: DashboardSessionDuration | null;
+  defaultSessionDuration: DashboardSessionDuration;
+  initialPasswordFile: string | null;
+  sessionDurations: DashboardSessionOption[];
+}
+
+export interface AuthSettings {
+  defaultSessionDuration: DashboardSessionDuration;
+  initialPasswordFile: string | null;
+  sessionDurations: DashboardSessionOption[];
+}
+
 export interface SourceUpdatePayload {
   account: string;
   password?: string;
@@ -124,37 +159,12 @@ export interface SourceUpdatePayload {
   syncLimit?: number;
 }
 
-const ACCESS_TOKEN_KEY = 'health_dashboard_access_token';
-
-export const getAccessToken = (): string => {
-  try {
-    return sessionStorage.getItem(ACCESS_TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
-};
-
-export const setAccessToken = (token: string): void => {
-  try {
-    sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
-  } catch {
-    // Session storage can be unavailable in restricted browser contexts.
-  }
-};
-
-export const clearAccessToken = (): void => {
-  try {
-    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-  } catch {
-    // ignore
-  }
-};
-
 const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
-  const token = getAccessToken();
-  const headers = new Headers(init.headers);
-  if (token) headers.set('Authorization', `Bearer ${token}`);
-  return fetch(input, { ...init, headers }).then((response) => {
+  return fetch(input, {
+    credentials: 'same-origin',
+    ...init,
+    headers: new Headers(init.headers),
+  }).then((response) => {
     if (response.status === 401) {
       window.dispatchEvent(new Event('health-dashboard:unauthorized'));
     }
@@ -162,14 +172,72 @@ const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
   });
 };
 
-export async function verifyAccessToken(token: string): Promise<boolean> {
-  const response = await fetch('/api/v1/auth/verify', {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const response = await fetch('/api/v1/auth/status', {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
   });
-  return response.ok;
+  return parseResponse<AuthStatus>(response);
+}
+
+export async function loginDashboard(
+  password: string,
+  duration?: DashboardSessionDuration
+): Promise<{ ok: true; expiresAt: string; duration: DashboardSessionDuration }> {
+  const response = await fetch('/api/v1/auth/login', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ password, duration }),
+  });
+  return parseResponse(response);
+}
+
+export async function logoutDashboard(): Promise<void> {
+  await fetch('/api/v1/auth/logout', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  }).catch(() => undefined);
+}
+
+export async function fetchAuthSettings(): Promise<AuthSettings> {
+  const response = await apiFetch('/api/v1/auth/settings', {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse<AuthSettings>(response);
+}
+
+export async function changeDashboardPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: true; message: string }> {
+  const response = await apiFetch('/api/v1/auth/password', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  return parseResponse(response);
+}
+
+export async function updateDashboardSessionDuration(
+  duration: DashboardSessionDuration
+): Promise<{ ok: true; defaultSessionDuration: DashboardSessionDuration }> {
+  const response = await apiFetch('/api/v1/auth/session-duration', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ duration }),
+  });
+  return parseResponse(response);
 }
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
@@ -195,6 +263,22 @@ export async function fetchBodyMeasurements(): Promise<{ measurements: BodyMeasu
     headers: { Accept: 'application/json' },
   });
   return parseResponse<{ measurements: BodyMeasurement[] }>(response);
+}
+
+export async function fetchWorkouts(options: {
+  from?: string;
+  to?: string;
+  limit?: number;
+} = {}): Promise<{ workouts: DailySummary['workouts']; total: number; from: string | null; to: string | null }> {
+  const query = new URLSearchParams();
+  if (options.from) query.set('from', options.from);
+  if (options.to) query.set('to', options.to);
+  if (options.limit) query.set('limit', String(options.limit));
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  const response = await apiFetch(`/api/v1/workouts${suffix}`, {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
 }
 
 export async function fetchBackendConfig(): Promise<BackendConfig> {
@@ -232,6 +316,15 @@ export async function triggerSourceSync(
     body: JSON.stringify({ full }),
   });
   return parseResponse<{ runId: string; status: 'running' }>(response);
+}
+
+export async function fetchSourceRuns(
+  sourceId: 'fitdays' | 'igpsport'
+): Promise<{ runs: SyncRun[] }> {
+  const response = await apiFetch(`/api/v1/config/sources/${sourceId}/runs`, {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
 }
 
 export async function triggerSyncAllDevices(): Promise<{

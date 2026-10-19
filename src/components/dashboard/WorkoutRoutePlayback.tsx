@@ -25,7 +25,10 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [playSpeed, setPlaySpeed] = useState(2);
-  const [mapTileType, setMapTileType] = useState<'carto' | 'osm'>('carto');
+  const [mapTileType, setMapTileType] = useState<'carto' | 'osm' | 'none'>('osm');
+  const [tileStatus, setTileStatus] = useState<'loading' | 'ready' | 'error' | 'disabled'>(
+    'loading'
+  );
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -61,16 +64,30 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     });
     mapInstanceRef.current = map;
 
-    const tileUrl =
-      mapTileType === 'osm'
-        ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        : isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-    tileLayerRef.current = L.tileLayer(tileUrl, {
-      subdomains: 'abcd',
-      maxZoom: 19,
-    }).addTo(map);
+    if (mapTileType === 'none') {
+      setTileStatus('disabled');
+    } else {
+      const tileUrl =
+        mapTileType === 'osm'
+          ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+          : isDark
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+      setTileStatus('loading');
+      let tileErrors = 0;
+      const tileLayer = L.tileLayer(tileUrl, {
+        subdomains: mapTileType === 'osm' ? 'abc' : 'abcd',
+        maxZoom: 19,
+        crossOrigin: true,
+      });
+      tileLayer.on('tileload', () => setTileStatus('ready'));
+      tileLayer.on('tileerror', () => {
+        tileErrors += 1;
+        if (tileErrors >= 3) setTileStatus('error');
+      });
+      tileLayer.addTo(map);
+      tileLayerRef.current = tileLayer;
+    }
 
     const polyline = L.polyline(routeCoords, {
       color: '#00F5D4',
@@ -179,17 +196,6 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
         <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-xl text-[10px] font-semibold">
           <button
             type="button"
-            onClick={() => setMapTileType('carto')}
-            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
-              mapTileType === 'carto'
-                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400'
-            }`}
-          >
-            CartoDB
-          </button>
-          <button
-            type="button"
             onClick={() => setMapTileType('osm')}
             className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
               mapTileType === 'osm'
@@ -199,10 +205,68 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
           >
             OpenStreetMap
           </button>
+          <button
+            type="button"
+            onClick={() => setMapTileType('carto')}
+            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+              mapTileType === 'carto'
+                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
+                : 'text-neutral-500 dark:text-neutral-400'
+            }`}
+          >
+            CARTO
+          </button>
+          <button
+            type="button"
+            onClick={() => setMapTileType('none')}
+            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+              mapTileType === 'none'
+                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
+                : 'text-neutral-500 dark:text-neutral-400'
+            }`}
+          >
+            纯轨迹
+          </button>
         </div>
       </div>
 
-      <div ref={mapContainerRef} className="w-full h-[280px] rounded-2xl overflow-hidden" />
+      <div className="space-y-1.5">
+        <div
+          ref={mapContainerRef}
+          className="w-full h-[280px] rounded-2xl overflow-hidden border border-black/5 dark:border-white/10"
+          style={
+            mapTileType === 'none'
+              ? {
+                  backgroundImage:
+                    'linear-gradient(rgba(127,127,127,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.08) 1px, transparent 1px)',
+                  backgroundSize: '24px 24px',
+                }
+              : undefined
+          }
+        />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
+          <span>
+            底图无需 API Key · © OpenStreetMap contributors / CARTO；网络受限时可切换「纯轨迹」。
+          </span>
+          <span
+            className={
+              tileStatus === 'error'
+                ? 'text-amber-500 font-semibold'
+                : tileStatus === 'ready'
+                  ? 'text-emerald-500'
+                  : ''
+            }
+          >
+            {tileStatus === 'loading'
+              ? '底图加载中'
+              : tileStatus === 'ready'
+                ? '底图已加载'
+                : tileStatus === 'error'
+                  ? '底图加载受限，轨迹仍可查看'
+                  : '纯轨迹模式'}
+          </span>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button

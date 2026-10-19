@@ -28,7 +28,7 @@ export const config = {
     365
   ),
   publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') || null,
-  dashboardAccessToken: process.env.DASHBOARD_ACCESS_TOKEN?.trim() || null,
+  dashboardPassword: process.env.DASHBOARD_PASSWORD?.trim() || null,
   logLevel: process.env.LOG_LEVEL ?? 'info',
   dockerHubRepository: process.env.DOCKERHUB_REPOSITORY ?? 'wangheqiang/health-dashboard',
   githubRepository: process.env.GITHUB_REPOSITORY ?? 'wangheqiang530/health-dashboard',
