@@ -18,6 +18,7 @@ import {
   ExternalLink,
   CheckCircle2,
   AlertTriangle,
+  LogOut,
 } from 'lucide-react';
 import { fetchVersionInfo, triggerSyncAllDevices, type VersionInfo } from '../../api/healthApi';
 
@@ -31,6 +32,7 @@ interface NavbarProps {
   isEditingLayout: boolean;
   onToggleEditLayout: () => void;
   onOpenWizard?: () => void;
+  onLogout: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -41,6 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isEditingLayout,
   onToggleEditLayout,
   onOpenWizard,
+  onLogout,
 }) => {
   const { themeMode, setThemeMode, resolvedTheme } = useTheme();
   const { glass } = useCustomization();
@@ -169,7 +172,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                   title="点击查看 GitHub 仓库，鼠标悬停查看系统健康与运行状态"
                 >
-                  <span>v{versionInfo?.currentVersion || '0.0.8'}</span>
+                  <span>v{versionInfo?.currentVersion || '0.0.9'}</span>
                   {versionInfo?.updateAvailable ? (
                     <span className="flex items-center gap-0.5 text-[8px] text-amber-500 font-extrabold">
                       ● 新版 v{versionInfo.latestVersion}
@@ -231,7 +234,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                             容器内存
                           </span>
                           <span className="text-neutral-900 dark:text-neutral-100 font-bold">
-                            RSS {versionInfo?.system?.memory.rssMb || 78.4} MB · 堆 {versionInfo?.system?.memory.heapUsedMb || 42.1} MB
+                            RSS {versionInfo?.system?.memory.rssMb ?? '—'} MB · 堆 {versionInfo?.system?.memory.heapUsedMb ?? '—'} MB
                           </span>
                         </div>
 
@@ -270,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       <div className="pt-1.5 border-t border-black/5 dark:border-white/10 text-[9px] text-neutral-400 flex items-center justify-between font-mono">
                         <span>Node.js {versionInfo?.system?.nodeVersion || 'v24'}</span>
-                        <span>当前系统镜像: v{versionInfo?.currentVersion || '0.0.8'}</span>
+                        <span>当前系统镜像: v{versionInfo?.currentVersion || '0.0.9'}</span>
                       </div>
                     </motion.div>
                   )}
@@ -408,6 +411,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="text-[11px] hidden sm:inline">夜间</span>
             </button>
           </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="p-2 rounded-xl text-neutral-500 hover:text-rose-500 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
+            title="锁定面板并清除当前会话密钥"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

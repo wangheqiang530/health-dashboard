@@ -7,71 +7,108 @@ interface AppleTrainingLoadCardProps {
   workouts: WorkoutRecord[];
 }
 
+const loadForWorkout = (workout: WorkoutRecord): number => {
+  if (workout.durationMinutes <= 0 || workout.avgHeartRate <= 0) return 0;
+  return workout.durationMinutes * Math.pow(workout.avgHeartRate / 100, 1.8) * 1.4;
+};
+
+const dateOffset = (date: string, days: number): string => {
+  const value = new Date(`${date}T12:00:00+08:00`);
+  value.setDate(value.getDate() + days);
+  return value.toISOString().slice(0, 10);
+};
+
 export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ workouts }) => {
-  // Calculate training load points: Load = durationMin * (avgHR / 100)^1.8
-  const acuteLoadScore = workouts.length > 0
-    ? Math.round(
-        workouts.reduce((sum, w) => {
-          const hrFactor = Math.pow(Math.max(w.avgHeartRate || 110, 80) / 100, 1.8);
-          return sum + (w.durationMinutes || 30) * hrFactor * 1.4;
-        }, 0)
-      )
-    : 1350;
+  const loadByDate = new Map<string, number>();
+  workouts.forEach((workout) => {
+    if (!workout.date) return;
+    loadByDate.set(workout.date, (loadByDate.get(workout.date) || 0) + loadForWorkout(workout));
+  });
 
-  const baseline28DayScore = Math.round(acuteLoadScore * 0.92);
-  const loadRatio = parseFloat((acuteLoadScore / Math.max(baseline28DayScore, 1)).toFixed(2));
+  const loadDates = Array.from(loadByDate.keys()).sort();
+  const latestDate = loadDates[loadDates.length - 1];
+  const rollingPoints = latestDate
+    ? Array.from({ length: 14 }, (_, index) => {
+        const date = dateOffset(latestDate, index - 13);
+        const sevenStart = dateOffset(date, -6);
+        const twentyEightStart = dateOffset(date, -27);
+        const acuteValues = loadDates
+          .filter((day) => day >= sevenStart && day <= date)
+          .map((day) => loadByDate.get(day) || 0);
+        const chronicValues = loadDates
+          .filter((day) => day >= twentyEightStart && day <= date)
+          .map((day) => loadByDate.get(day) || 0);
+        const acuteAverage =
+          acuteValues.length > 0
+            ? acuteValues.reduce((sum, value) => sum + value, 0) / 7
+            : 0;
+        const chronicAverage =
+          chronicValues.length > 0
+            ? chronicValues.reduce((sum, value) => sum + value, 0) / chronicValues.length
+            : 0;
+        return { date, acuteAverage, chronicAverage };
+      })
+    : [];
 
-  // Load Status Category (Aligned with iOS 18 Training Load)
-  let statusText = '稳定维持';
-  let statusSubtext = '过去 7 天训练负荷与 28 天基线高度匹配，心肺机能平稳适应，维持现有步调。';
-  let statusBadge = '稳定 (Well-matched)';
-  let badgeColor = 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
+  const latestPoint = rollingPoints[rollingPoints.length - 1];
+  const hasLoadData = Boolean(latestPoint && latestPoint.acuteAverage > 0);
+  const ratio =
+    hasLoadData && latestPoint.chronicAverage > 0
+      ? Number((latestPoint.acuteAverage / latestPoint.chronicAverage).toFixed(2))
+      : null;
 
-  if (loadRatio > 1.35) {
-    statusText = '适度增加';
-    statusSubtext = '训练负荷显著高于 28 天基准，体能处于有效建立期，注意安排充足睡眠。';
-    statusBadge = '适度建立 (Building)';
-    badgeColor = 'bg-sky-500/15 text-sky-400 border-sky-500/30';
-  } else if (loadRatio > 1.6) {
-    statusText = '负荷过高';
-    statusSubtext = '急剧加码超出机能适应范围，过度疲劳与伤病风险上升，建议安排轻量休息日。';
-    statusBadge = '过载警示 (High Load)';
-    badgeColor = 'bg-amber-500/15 text-amber-400 border-amber-500/30';
-  } else if (loadRatio < 0.8) {
-    statusText = '减量休整';
-    statusSubtext = '训练负荷低于历史基准，正处于主动减量期或身体恢复窗口，可逐步重聚体能。';
-    statusBadge = '恢复减量 (Recovery)';
-    badgeColor = 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30';
+  let statusText = '数据不足';
+  let statusSubtext = '至少需要带平均心率的训练记录，才能计算训练负荷。';
+  let statusBadge = '暂无评估';
+  let badgeColor = 'bg-neutral-500/15 text-neutral-500 border-neutral-500/30';
+
+  if (ratio !== null) {
+    if (ratio > 1.6) {
+      statusText = '负荷明显升高';
+      statusSubtext = '最近 7 日平均负荷明显高于 28 日基线，请结合恢复情况安排训练。';
+      statusBadge = '高于基线';
+      badgeColor = 'bg-amber-500/15 text-amber-500 border-amber-500/30';
+    } else if (ratio > 1.25) {
+      statusText = '负荷增加';
+      statusSubtext = '最近 7 日平均负荷高于 28 日基线。';
+      statusBadge = '增加';
+      badgeColor = 'bg-sky-500/15 text-sky-500 border-sky-500/30';
+    } else if (ratio < 0.8) {
+      statusText = '负荷下降';
+      statusSubtext = '最近 7 日平均负荷低于 28 日基线。';
+      statusBadge = '减量';
+      badgeColor = 'bg-indigo-500/15 text-indigo-500 border-indigo-500/30';
+    } else {
+      statusText = '负荷稳定';
+      statusSubtext = '最近 7 日平均负荷与 28 日基线接近。';
+      statusBadge = '稳定';
+      badgeColor = 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30';
+    }
   }
 
-  // 28-day vs 7-day Load Curve mockup points
-  const daysPoints = [
-    { day: '9-20', acute: 160, chronic: 175 },
-    { day: '9-25', acute: 185, chronic: 178 },
-    { day: '9-30', acute: 210, chronic: 184 },
-    { day: '10-05', acute: 195, chronic: 189 },
-    { day: '10-10', acute: 230, chronic: 195 },
-    { day: '10-15', acute: 220, chronic: 198 },
-    { day: '当前', acute: 245, chronic: 204 },
-  ];
-
-  const maxPt = 260;
   const chartW = 340;
   const chartH = 65;
-  const coordsAcute = daysPoints.map((p, idx) => ({
-    x: 10 + (idx / (daysPoints.length - 1)) * (chartW - 20),
-    y: chartH - 8 - (p.acute / maxPt) * (chartH - 16),
+  const maxValue = Math.max(
+    ...rollingPoints.flatMap((point) => [point.acuteAverage, point.chronicAverage]),
+    1
+  );
+  const acuteCoords = rollingPoints.map((point, index) => ({
+    x: 10 + (index / Math.max(rollingPoints.length - 1, 1)) * (chartW - 20),
+    y: chartH - 8 - (point.acuteAverage / maxValue) * (chartH - 16),
   }));
-  const coordsChronic = daysPoints.map((p, idx) => ({
-    x: 10 + (idx / (daysPoints.length - 1)) * (chartW - 20),
-    y: chartH - 8 - (p.chronic / maxPt) * (chartH - 16),
+  const chronicCoords = rollingPoints.map((point, index) => ({
+    x: 10 + (index / Math.max(rollingPoints.length - 1, 1)) * (chartW - 20),
+    y: chartH - 8 - (point.chronicAverage / maxValue) * (chartH - 16),
   }));
-
-  const acuteD = coordsAcute.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-  const chronicD = coordsChronic.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
+  const pathFrom = (coords: Array<{ x: number; y: number }>) =>
+    coords.reduce(
+      (path, point, index) =>
+        `${path} ${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`,
+      ''
+    );
 
   return (
-    <AppleCard className="overflow-hidden border border-indigo-500/25 bg-gradient-to-br from-indigo-500/[0.04] via-indigo-500/[0.01] to-transparent dark:from-indigo-950/20 dark:via-black/40 dark:to-black/60">
+    <AppleCard className="overflow-hidden border border-indigo-500/25">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-2.5">
           <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-indigo-500 to-sky-400 text-white shadow-md shadow-indigo-500/20">
@@ -80,92 +117,83 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-neutral-900 dark:text-white m-0">
-                训练负荷评估 · Training Load
+                训练负荷评估
               </h3>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor}`}>
                 {statusBadge}
               </span>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              对标 iOS 18 健身算法 · 综合 7 天急性疲劳与 28 天慢性体能基线比率
+              基于带平均心率的实际训练记录，对比最近 7 日与 28 日日均负荷
             </p>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block font-mono">负荷应激比率 (Strain Ratio)</span>
-            <span className="text-2xl font-black font-mono text-neutral-900 dark:text-white flex items-baseline justify-end gap-1">
-              {loadRatio} <span className="text-xs font-normal text-emerald-400">× 基线</span>
-            </span>
-          </div>
+        <div className="text-right">
+          <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block font-mono">
+            负荷比率
+          </span>
+          <span className="text-2xl font-black font-mono text-neutral-900 dark:text-white">
+            {ratio ?? '—'} <span className="text-xs font-normal text-neutral-400">× 基线</span>
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
-        {/* Left: Metrics & Status Breakdown */}
         <div className="lg:col-span-7 space-y-3">
           <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed m-0 bg-black/[0.02] dark:bg-white/[0.03] p-3 rounded-2xl border border-black/5 dark:border-white/5">
             <span className="font-bold text-neutral-900 dark:text-white mr-1.5">{statusText}:</span>
             {statusSubtext}
           </p>
-
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">7 日急性负荷</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">7 日日均负荷</span>
               <span className="text-lg font-black font-mono text-neutral-900 dark:text-white block">
-                {acuteLoadScore} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">pts</span>
+                {latestPoint?.acuteAverage ? Math.round(latestPoint.acuteAverage) : '—'}
+                <span className="text-[10px] font-normal text-neutral-500 ml-1">pts</span>
               </span>
-              <span className="text-[9px] text-emerald-400 font-mono mt-0.5 block">近期训练消耗累计</span>
             </div>
-
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">28 日长期基准</span>
-              <span className="text-lg font-black font-mono text-neutral-800 dark:text-neutral-300 block">
-                {baseline28DayScore} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">pts</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">28 日日均基线</span>
+              <span className="text-lg font-black font-mono text-neutral-900 dark:text-white block">
+                {latestPoint?.chronicAverage ? Math.round(latestPoint.chronicAverage) : '—'}
+                <span className="text-[10px] font-normal text-neutral-500 ml-1">pts</span>
               </span>
-              <span className="text-[9px] text-neutral-500 dark:text-neutral-400 font-mono mt-0.5 block">机能适应稳态</span>
             </div>
-
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">均次努力程度</span>
-              <span className="text-lg font-black font-mono text-amber-400 block">
-                7.2 <span className="text-[10px] font-normal text-neutral-400">/ 10</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">有效训练记录</span>
+              <span className="text-lg font-black font-mono text-amber-500 block">
+                {workouts.filter((workout) => loadForWorkout(workout) > 0).length}
+                <span className="text-[10px] font-normal text-neutral-400 ml-1">场</span>
               </span>
-              <span className="text-[9px] text-amber-500 dark:text-amber-300 font-mono mt-0.5 block">适度中等偏高</span>
             </div>
           </div>
         </div>
 
-        {/* Right: Dual-Layer Spline Trend Line Chart */}
         <div className="lg:col-span-5 p-3 rounded-2xl bg-black/[0.03] dark:bg-black/40 border border-black/5 dark:border-white/5 space-y-2">
           <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400 font-mono">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-1 rounded-full bg-cyan-400" />
-              <span>7 日急性负荷</span>
+              <span className="w-2.5 h-1 rounded-full bg-cyan-400" /> 7 日日均
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-1 rounded-full bg-indigo-400" />
-              <span>28 日体能基准</span>
+              <span className="w-2.5 h-1 rounded-full bg-indigo-400" /> 28 日基线
             </span>
           </div>
-
-          <div className="h-16 w-full relative">
-            <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-full overflow-visible">
-              {/* Chronic line */}
-              <path d={chronicD} fill="none" stroke="#818CF8" strokeWidth="2" strokeDasharray="3 3" />
-              {/* Acute line */}
-              <path d={acuteD} fill="none" stroke="#22D3EE" strokeWidth="2.5" strokeLinecap="round" />
-              {coordsAcute.map((c, i) => (
-                <circle key={i} cx={c.x} cy={c.y} r="2.5" fill="#22D3EE" stroke="#000" strokeWidth="1" />
-              ))}
-            </svg>
-          </div>
-
-          <div className="flex justify-between items-center text-[9px] text-neutral-400 dark:text-neutral-500 font-mono px-1">
-            <span>28天前</span>
-            <span>两周前</span>
-            <span>今天</span>
+          {hasLoadData ? (
+            <div className="h-16 w-full">
+              <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-full overflow-visible">
+                <path d={pathFrom(chronicCoords)} fill="none" stroke="#818CF8" strokeWidth="2" strokeDasharray="3 3" />
+                <path d={pathFrom(acuteCoords)} fill="none" stroke="#22D3EE" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </div>
+          ) : (
+            <div className="h-16 flex items-center justify-center text-[11px] text-neutral-400">
+              暂无足够的带心率训练记录
+            </div>
+          )}
+          <div className="flex justify-between text-[9px] text-neutral-400 font-mono px-1">
+            <span>14 天前</span>
+            <span>7 天前</span>
+            <span>最近记录</span>
           </div>
         </div>
       </div>

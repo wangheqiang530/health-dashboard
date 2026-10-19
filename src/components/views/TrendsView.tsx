@@ -83,34 +83,55 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     const weeks: Record<string, number[]> = {};
     for (const d of dates) {
       const dateObj = new Date(d + 'T12:00:00+08:00');
+      const year = dateObj.getFullYear();
       const month = dateObj.getMonth() + 1;
       const dayOfMonth = dateObj.getDate();
       const weekNum = Math.ceil(dayOfMonth / 7);
-      const key = `${month}月第${weekNum}周`;
+      const key = `${year}年${month}月第${weekNum}周`;
       if (!weeks[key]) weeks[key] = [];
       const val = getter(days[d]);
-      if (val !== undefined && !isNaN(val)) weeks[key].push(val);
+      if (val !== undefined && !isNaN(val) && val > 0) weeks[key].push(val);
     }
     const res = Object.entries(weeks).slice(-6).map(([label, vals]) => ({
       label,
       value: mode === 'sum' ? Math.round(vals.reduce((a, b) => a + b, 0)) : parseFloat((vals.reduce((a, b) => a + b, 0) / (vals.length || 1)).toFixed(1)),
     }));
-    return res.length > 0 ? res : [{ label: '本周', value: 0 }];
+    return res;
   };
 
   const groupByMonth = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
     const months: Record<string, number[]> = {};
     for (const d of dates) {
-      const monthStr = `${parseInt(d.slice(5, 7), 10)}月`;
+      const monthStr = `${d.slice(0, 4)}年${parseInt(d.slice(5, 7), 10)}月`;
       if (!months[monthStr]) months[monthStr] = [];
       const val = getter(days[d]);
-      if (val !== undefined && !isNaN(val)) months[monthStr].push(val);
+      if (val !== undefined && !isNaN(val) && val > 0) months[monthStr].push(val);
     }
     const res = Object.entries(months).map(([label, vals]) => ({
       label,
       value: mode === 'sum' ? Math.round(vals.reduce((a, b) => a + b, 0)) : parseFloat((vals.reduce((a, b) => a + b, 0) / (vals.length || 1)).toFixed(1)),
     }));
-    return res.length > 0 ? res : [{ label: '10月', value: 0 }];
+    return res;
+  };
+
+  const groupByYear = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
+    const years: Record<string, number[]> = {};
+    for (const date of dates) {
+      const value = getter(days[date]);
+      if (!Number.isFinite(value) || value <= 0) continue;
+      const year = date.slice(0, 4);
+      if (!years[year]) years[year] = [];
+      years[year].push(value);
+    }
+    return Object.entries(years).map(([label, values]) => ({
+      label: `${label}年`,
+      value:
+        mode === 'sum'
+          ? Math.round(values.reduce((sum, value) => sum + value, 0))
+          : Number(
+              (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)
+            ),
+    }));
   };
 
   // Independent granularity state for each metric card
@@ -161,8 +182,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }));
   const dailyBreathing = recentDates.map((d) => ({
     label: d.slice(5),
-    value: days[d].sleep.breathingDisturbances || 0.78,
-  }));
+    value: days[d].sleep.breathingDisturbances || 0,
+  })).filter((point) => point.value > 0);
+  const dailyVo2 = recentDates
+    .map((date) => ({
+      label: date.slice(5),
+      value: days[date].vitals.vo2Max || 0,
+    }))
+    .filter((point) => point.value > 0);
+
+  const averagePoints = (points: { value: number }[]): number | null => {
+    const values = points.map((point) => point.value).filter((value) => value > 0);
+    return values.length > 0
+      ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1))
+      : null;
+  };
 
   const metrics: MetricTrendConfig[] = [
     {
@@ -171,21 +205,20 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '体能活动',
       icon: Flame,
       color: '#FA114F',
-      currentValue: `${currentDay.rings.move.current}`,
+      currentValue:
+        currentDay.rings.move.current > 0 ? `${currentDay.rings.move.current}` : '—',
       unit: 'kcal',
-      statusText: '7 日日均 610 kcal · 运动日峰值 780 kcal',
-      targetLine: 600,
-      targetLabel: '目标 600',
+      statusText:
+        averagePoints(dailyMove) === null
+          ? '当天暂无动态能量记录'
+          : `最近记录日均 ${averagePoints(dailyMove)} kcal`,
+      targetLine: currentDay.rings.move.goal || 600,
+      targetLabel: `目标 ${currentDay.rings.move.goal || 600}`,
       data: {
         day: dailyMove,
         week: groupByWeek((d) => d.rings.move.current, 'sum'),
         month: groupByMonth((d) => d.rings.move.current, 'sum'),
-        year: [
-          { label: '2023年', value: 185000 },
-          { label: '2024年', value: 212000 },
-          { label: '2025年', value: 228000 },
-          { label: '2026年', value: 245000 },
-        ],
+        year: groupByYear((d) => d.rings.move.current, 'sum'),
       },
     },
     {
@@ -194,20 +227,17 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '心肺机能',
       icon: Heart,
       color: '#FB7185',
-      currentValue: `${currentDay.vitals.restingHr}`,
+      currentValue: currentDay.vitals.restingHr > 0 ? `${currentDay.vitals.restingHr}` : '—',
       unit: 'bpm',
-      statusText: '维持 46～50 bpm 优秀区间 · 心肌效率高',
-      optimalBand: { min: 45, max: 55, label: '黄金区间' },
+      statusText:
+        averagePoints(dailyRestingHr) === null
+          ? '当天暂无静息心率记录'
+          : `最近记录均值 ${averagePoints(dailyRestingHr)} bpm`,
       data: {
         day: dailyRestingHr,
         week: groupByWeek((d) => d.vitals.restingHr, 'avg'),
         month: groupByMonth((d) => d.vitals.restingHr, 'avg'),
-        year: [
-          { label: '2023年', value: 55 },
-          { label: '2024年', value: 53 },
-          { label: '2025年', value: 50 },
-          { label: '2026年', value: 48 },
-        ],
+        year: groupByYear((d) => d.vitals.restingHr, 'avg'),
       },
     },
     {
@@ -216,21 +246,22 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '精力恢复',
       icon: Moon,
       color: '#818CF8',
-      currentValue: `${(currentDay.sleep.totalMinutes / 60).toFixed(1)}`,
+      currentValue:
+        currentDay.sleep.totalMinutes > 0
+          ? `${(currentDay.sleep.totalMinutes / 60).toFixed(1)}`
+          : '—',
       unit: '小时',
-      statusText: '日均在床 7.8h · 深度睡眠占比 19.5% 充足',
+      statusText:
+        currentDay.sleep.totalMinutes > 0
+          ? `睡眠效率 ${currentDay.sleep.efficiency}% · 深睡占比 ${currentDay.sleep.deepSleepPercent}%`
+          : '当天暂无睡眠分期记录',
       targetLine: 7.5,
-      targetLabel: '推荐 7.5h',
+      targetLabel: '参考 7.5h',
       data: {
         day: dailySleep,
         week: groupByWeek((d) => parseFloat((d.sleep.totalMinutes / 60).toFixed(1)), 'avg'),
         month: groupByMonth((d) => parseFloat((d.sleep.totalMinutes / 60).toFixed(1)), 'avg'),
-        year: [
-          { label: '2023年', value: 6.8 },
-          { label: '2024年', value: 7.1 },
-          { label: '2025年', value: 7.4 },
-          { label: '2026年', value: 7.6 },
-        ],
+        year: groupByYear((d) => parseFloat((d.sleep.totalMinutes / 60).toFixed(1)), 'avg'),
       },
     },
     {
@@ -239,29 +270,17 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '体态管理',
       icon: Scale,
       color: '#F59E0B',
-      currentValue: `${currentDay.body.weightKg}`,
+      currentValue: currentDay.body.weightKg > 0 ? `${currentDay.body.weightKg}` : '—',
       unit: 'kg',
-      statusText: '体脂率 22.9% · 骨骼肌净重 69.25 kg 稳定',
+      statusText:
+        currentDay.body.weightKg > 0
+          ? `体脂率 ${currentDay.body.bodyFatPercent}% · 数据来自体脂秤实测`
+          : '当天暂无体脂秤记录',
       data: {
         day: dailyWeight,
-        week: [
-          { label: '第37周', value: 90.6 },
-          { label: '第38周', value: 90.2 },
-          { label: '第39周', value: 89.9 },
-          { label: '本周', value: 89.8 },
-        ],
-        month: [
-          { label: '7月', value: 92.4 },
-          { label: '8月', value: 91.5 },
-          { label: '9月', value: 90.3 },
-          { label: '10月', value: 89.8 },
-        ],
-        year: [
-          { label: '2023年', value: 94.2 },
-          { label: '2024年', value: 92.5 },
-          { label: '2025年', value: 91.0 },
-          { label: '2026年', value: 89.8 },
-        ],
+        week: groupByWeek((d) => d.body.weightKg, 'avg'),
+        month: groupByMonth((d) => d.body.weightKg, 'avg'),
+        year: groupByYear((d) => d.body.weightKg, 'avg'),
       },
     },
     {
@@ -270,21 +289,22 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '自主神经',
       icon: Waves,
       color: '#A855F7',
-      currentValue: `${currentDay.vitals.hrvCurrent}`,
+      currentValue: currentDay.vitals.hrvCurrent > 0 ? `${currentDay.vitals.hrvCurrent}` : '—',
       unit: 'ms',
-      statusText: '个人基线 62 ms · 高于基线 16% 副交感恢复良好',
-      targetLine: 62,
-      targetLabel: '基线 62ms',
+      statusText:
+        currentDay.vitals.hrvCurrent > 0
+          ? currentDay.vitals.hrvBaseline > 0
+            ? `当前 ${currentDay.vitals.hrvCurrent} ms · 数据均值 ${currentDay.vitals.hrvBaseline} ms`
+            : `当前 ${currentDay.vitals.hrvCurrent} ms`
+          : '当天暂无 HRV 记录',
+      targetLine: currentDay.vitals.hrvBaseline || undefined,
+      targetLabel:
+        currentDay.vitals.hrvBaseline > 0 ? `均值 ${currentDay.vitals.hrvBaseline} ms` : undefined,
       data: {
         day: dailyHrv,
         week: groupByWeek((d) => d.vitals.hrvCurrent, 'avg'),
         month: groupByMonth((d) => d.vitals.hrvCurrent, 'avg'),
-        year: [
-          { label: '2023年', value: 54 },
-          { label: '2024年', value: 59 },
-          { label: '2025年', value: 65 },
-          { label: '2026年', value: 72 },
-        ],
+        year: groupByYear((d) => d.vitals.hrvCurrent, 'avg'),
       },
     },
     {
@@ -293,21 +313,19 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '日常步数',
       icon: Footprints,
       color: '#10B981',
-      currentValue: `${currentDay.steps.count.toLocaleString()}`,
+      currentValue: currentDay.steps.count > 0 ? currentDay.steps.count.toLocaleString() : '—',
       unit: '步',
-      statusText: '日均 10,840 步 · 周均超额达成 108%',
-      targetLine: 10000,
-      targetLabel: '目标 10k',
+      statusText:
+        averagePoints(dailySteps) === null
+          ? '当天暂无步数记录'
+          : `最近记录日均 ${Math.round(averagePoints(dailySteps) || 0).toLocaleString()} 步`,
+      targetLine: currentDay.steps.goal,
+      targetLabel: `目标 ${currentDay.steps.goal.toLocaleString()}`,
       data: {
         day: dailySteps,
         week: groupByWeek((d) => d.steps.count, 'sum'),
         month: groupByMonth((d) => d.steps.count, 'sum'),
-        year: [
-          { label: '2023年', value: 3200000 },
-          { label: '2024年', value: 3600000 },
-          { label: '2025年', value: 3850000 },
-          { label: '2026年', value: 4100000 },
-        ],
+        year: groupByYear((d) => d.steps.count, 'sum'),
       },
     },
     {
@@ -316,35 +334,17 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '心肺耐力',
       icon: Wind,
       color: '#06B6D4',
-      currentValue: `${currentDay.vitals.vo2Max || 48.6}`,
+      currentValue: currentDay.vitals.vo2Max ? `${currentDay.vitals.vo2Max}` : '—',
       unit: 'ml/kg/min',
-      statusText: '同年龄段前 15% 优异体能评级',
-      optimalBand: { min: 45, max: 55, label: '优秀段' },
+      statusText:
+        dailyVo2.length > 0
+          ? `最近 ${dailyVo2.length} 次 Apple Health 实测记录`
+          : '当天暂无 VO2 Max 记录',
       data: {
-        day: [
-          { label: '10-10', value: 48.4 },
-          { label: '10-12', value: 48.5 },
-          { label: '10-14', value: 48.5 },
-          { label: '10-16', value: 48.6 },
-        ],
-        week: [
-          { label: '第37周', value: 47.8 },
-          { label: '第38周', value: 48.1 },
-          { label: '第39周', value: 48.3 },
-          { label: '本周', value: 48.6 },
-        ],
-        month: [
-          { label: '7月', value: 46.5 },
-          { label: '8月', value: 47.2 },
-          { label: '9月', value: 48.0 },
-          { label: '10月', value: 48.6 },
-        ],
-        year: [
-          { label: '2023年', value: 43.5 },
-          { label: '2024年', value: 45.8 },
-          { label: '2025年', value: 47.4 },
-          { label: '2026年', value: 48.6 },
-        ],
+        day: dailyVo2,
+        week: groupByWeek((d) => d.vitals.vo2Max || 0, 'avg'),
+        month: groupByMonth((d) => d.vitals.vo2Max || 0, 'avg'),
+        year: groupByYear((d) => d.vitals.vo2Max || 0, 'avg'),
       },
     },
     {
@@ -353,31 +353,21 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       category: '夜间呼吸',
       icon: Sparkles,
       color: '#14B8A6',
-      currentValue: `${currentDay.sleep.breathingDisturbances ?? 0.78}`,
+      currentValue: currentDay.sleep.breathingDisturbances
+        ? `${currentDay.sleep.breathingDisturbances}`
+        : '—',
       unit: '次/小时',
-      statusText: '全周未检测到升高 · 气道极通畅 (< 5次正常)',
+      statusText:
+        currentDay.sleep.breathingDisturbances
+          ? 'Apple Health 睡眠呼吸扰动实测值'
+          : '当天暂无呼吸扰动记录',
       targetLine: 5,
-      targetLabel: '正常上限 5',
+      targetLabel: '参考上限 5',
       data: {
         day: dailyBreathing,
-        week: [
-          { label: '第37周', value: 0.85 },
-          { label: '第38周', value: 0.82 },
-          { label: '第39周', value: 0.80 },
-          { label: '本周', value: 0.78 },
-        ],
-        month: [
-          { label: '7月', value: 1.10 },
-          { label: '8月', value: 0.95 },
-          { label: '9月', value: 0.84 },
-          { label: '10月', value: 0.78 },
-        ],
-        year: [
-          { label: '2024年', value: 1.25 },
-          { label: '2025年', value: 0.98 },
-          { label: '2026年', value: 0.78 },
-          { label: '历史均', value: 0.82 },
-        ],
+        week: groupByWeek((d) => d.sleep.breathingDisturbances || 0, 'avg'),
+        month: groupByMonth((d) => d.sleep.breathingDisturbances || 0, 'avg'),
+        year: groupByYear((d) => d.sleep.breathingDisturbances || 0, 'avg'),
       },
     },
   ];
@@ -533,7 +523,11 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
                 {/* Interactive Smooth Curve SVG Chart */}
                 <div className="relative min-h-[145px] w-full bg-black/[0.02] dark:bg-white/[0.02] rounded-2xl p-2 border border-black/[0.04] dark:border-white/[0.03] flex flex-col justify-between">
-                  {currentChartType === 'bar' ? (
+                  {pointsData.length === 0 ? (
+                    <div className="w-full h-full min-h-[105px] flex items-center justify-center text-xs text-neutral-400">
+                      当前时间跨度暂无实测数据
+                    </div>
+                  ) : currentChartType === 'bar' ? (
                     <div className="w-full h-full flex items-end justify-between gap-2 px-1">
                       {pointsData.map((p, idx) => {
                         const range = maxVal - minVal || 1;
@@ -754,15 +748,15 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
               <div className="grid grid-cols-3 gap-2 pt-3 mt-3 border-t border-black/[0.05] dark:border-white/[0.05] text-[11px]">
                 <div>
                   <span className="text-neutral-400 block text-[10px]">周期均值</span>
-                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{avgVal} {m.unit}</span>
+                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{avgVal} {values.length > 0 ? m.unit : ''}</span>
                 </div>
                 <div>
                   <span className="text-neutral-400 block text-[10px]">峰值</span>
-                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{rawMax} {m.unit}</span>
+                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{values.length > 0 ? `${rawMax} ${m.unit}` : '—'}</span>
                 </div>
                 <div>
                   <span className="text-neutral-400 block text-[10px]">谷值</span>
-                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{rawMin} {m.unit}</span>
+                  <span className="font-bold text-neutral-800 dark:text-neutral-200 font-mono">{values.length > 0 ? `${rawMin} ${m.unit}` : '—'}</span>
                 </div>
               </div>
             </AppleCard>

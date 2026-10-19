@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import type { DailySummary } from '../../types/health';
+import React, { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import type { BodyComposition, BodyMeasurement, DailySummary } from '../../types/health';
+import { fetchBodyMeasurements } from '../../api/healthApi';
 import { AppleCard } from '../ui/AppleCard';
 import {
   Scale,
@@ -13,6 +14,8 @@ import {
   Layers,
   Heart,
   Calendar,
+  Clock3,
+  RefreshCw,
 } from 'lucide-react';
 import { Metric30DayModal, type Metric30DayModalData } from './Metric30DayModal';
 import { BodySilhouette } from './BodySilhouette';
@@ -28,11 +31,94 @@ interface BodyDetailsViewProps {
   onCloseManage?: () => void;
 }
 
+type MeasurementKey =
+  | 'skeletalMuscleKg'
+  | 'waterPercent'
+  | 'visceralFatLevel'
+  | 'bmrKcal'
+  | 'boneMassKg'
+  | 'proteinPercent'
+  | 'bodyAge'
+  | 'leanMassKg';
+
 const DEFAULT_BODY_SECTIONS: BodySectionConfig[] = [
-  { id: 'hero', name: '身体成分概览与平衡条', desc: '体重、体脂率、去脂净重与双色肌肉脂肪比例条', visible: true },
-  { id: 'metrics', name: '8 维智能体脂秤核心指标', desc: '骨骼肌、水分率、内脏脂肪、基础代谢、骨量等', visible: true },
-  { id: 'silhouette', name: '人体解剖节段肌脂分布图', desc: '躯干、双臂、双腿肌肉/脂肪矢量图谱及7日走势', visible: true },
+  {
+    id: 'hero',
+    name: '身体成分概览与平衡条',
+    desc: '体重、体脂率、去脂净重与肌肉脂肪比例',
+    visible: true,
+  },
+  {
+    id: 'metrics',
+    name: '体脂秤核心指标',
+    desc: '骨骼肌、水分率、内脏脂肪、基础代谢、骨量等实际记录',
+    visible: true,
+  },
+  {
+    id: 'silhouette',
+    name: '身体成分整体分布',
+    desc: '仅展示体脂秤实际提供的整身肌肉与脂肪比例',
+    visible: true,
+  },
 ];
+
+const numberValue = (value: number | null | undefined): number =>
+  Number.isFinite(value) ? Number(value) : 0;
+
+const bodyStatusLabel = (weight: number, bodyFat: number): string => {
+  if (weight <= 0 || bodyFat <= 0) return '等待体测数据';
+  if (bodyFat < 20) return '体脂率较低';
+  if (bodyFat <= 24) return '体脂率标准';
+  return '体脂率偏高';
+};
+
+const measurementToBody = (
+  measurement: BodyMeasurement,
+  trend: BodyComposition['trend']
+): BodyComposition => {
+  const weight = numberValue(measurement.weightKg);
+  const bodyFat = numberValue(measurement.bodyFatPercent);
+  return {
+    weightKg: weight,
+    bodyFatPercent: bodyFat,
+    leanMassKg: numberValue(measurement.leanMassKg),
+    bmi: numberValue(measurement.bmi),
+    fatMassKg:
+      weight > 0 && bodyFat > 0 ? Number((weight * (bodyFat / 100)).toFixed(2)) : 0,
+    statusLabel: bodyStatusLabel(weight, bodyFat),
+    trend,
+    skeletalMuscleKg: measurement.skeletalMuscleKg ?? undefined,
+    skeletalMusclePercent: measurement.skeletalMusclePercent ?? undefined,
+    waterPercent: measurement.waterPercent ?? undefined,
+    visceralFatLevel: measurement.visceralFatLevel ?? undefined,
+    bmrKcal: measurement.bmrKcal ?? undefined,
+    boneMassKg: measurement.boneMassKg ?? undefined,
+    proteinPercent: measurement.proteinPercent ?? undefined,
+    bodyAge: measurement.bodyAge ?? undefined,
+    bodyScore: measurement.bodyScore ?? undefined,
+    measurementId: measurement.id,
+    measuredAt: measurement.measuredAt,
+    measuredDate: measurement.measuredDate,
+  };
+};
+
+const formatMeasurementTime = (value: string): string =>
+  new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+
+const formatMeasurementDate = (value: string): string =>
+  new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
 
 export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   currentDay,
@@ -44,181 +130,215 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
 }) => {
   const [sectionsConfig, setSectionsConfig] = useState<BodySectionConfig[]>(() => {
     try {
-      const saved = localStorage.getItem('apple_health_body_sections_v2');
-      if (saved) return JSON.parse(saved);
-    } catch {}
+      const saved = localStorage.getItem('apple_health_body_sections_v3');
+      if (saved) return JSON.parse(saved) as BodySectionConfig[];
+    } catch {
+      // Use defaults when local preferences are unavailable.
+    }
     return DEFAULT_BODY_SECTIONS;
   });
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem('apple_health_body_sections_v2', JSON.stringify(sectionsConfig));
-    } catch {}
-  }, [sectionsConfig]);
-  const { body } = currentDay;
+  const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
+  const [measurementsLoading, setMeasurementsLoading] = useState(true);
+  const [selectedMeasurementId, setSelectedMeasurementId] = useState<string | null>(null);
   const [hoveredCardIndex, setHoveredCardIndex] = useState<number | null>(null);
   const [modalData, setModalData] = useState<Metric30DayModalData | null>(null);
-  
-  // Date selector state
   const [activeDateRange, setActiveDateRange] = useState<'today' | '7d' | '30d' | '90d' | '180d'>('today');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('apple_health_body_sections_v3', JSON.stringify(sectionsConfig));
+    } catch {
+      // Local preferences are optional.
+    }
+  }, [sectionsConfig]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchBodyMeasurements()
+      .then((result) => {
+        if (!active) return;
+        setMeasurements(
+          [...result.measurements].sort((left, right) =>
+            left.measuredAt.localeCompare(right.measuredAt)
+          )
+        );
+      })
+      .catch(() => {
+        if (active) setMeasurements([]);
+      })
+      .finally(() => {
+        if (active) setMeasurementsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const allDates = Object.keys(days).sort();
-  const latestDate = allDates[allDates.length - 1] || currentDay.date;
+  const currentDate = selectedDate || currentDay.date;
+  const measurementsForDate = useMemo(
+    () =>
+      measurements
+        .filter((measurement) => measurement.measuredDate === currentDate)
+        .sort((left, right) => right.measuredAt.localeCompare(left.measuredAt)),
+    [currentDate, measurements]
+  );
+
+  useEffect(() => {
+    if (measurementsForDate.some((measurement) => measurement.id === selectedMeasurementId)) {
+      return;
+    }
+    const fallbackId =
+      currentDay.body.measurementId &&
+      measurementsForDate.some((measurement) => measurement.id === currentDay.body.measurementId)
+        ? currentDay.body.measurementId
+        : measurementsForDate[0]?.id || null;
+    setSelectedMeasurementId(fallbackId);
+  }, [currentDay.body.measurementId, measurementsForDate, selectedMeasurementId]);
+
+  const measurementsUpToDate = useMemo(
+    () => measurements.filter((measurement) => measurement.measuredDate <= currentDate),
+    [currentDate, measurements]
+  );
+
+  const bodyTrend = useMemo(
+    () =>
+      measurementsUpToDate
+        .filter(
+          (measurement) =>
+            measurement.weightKg !== null && measurement.bodyFatPercent !== null
+        )
+        .slice(-8)
+        .map((measurement) => ({
+          date: measurement.measuredDate.slice(5),
+          weight: numberValue(measurement.weightKg),
+          bodyFat: numberValue(measurement.bodyFatPercent),
+        })),
+    [measurementsUpToDate]
+  );
+
+  const selectedMeasurement =
+    measurementsForDate.find((measurement) => measurement.id === selectedMeasurementId) || null;
+  const body = selectedMeasurement
+    ? measurementToBody(selectedMeasurement, bodyTrend)
+    : currentDay.body;
+  const effectiveDay: DailySummary = { ...currentDay, body };
+
+  const historyPoints = (key: MeasurementKey) =>
+    measurementsUpToDate
+      .filter((measurement) => measurement[key] !== null)
+      .slice(-30)
+      .map((measurement) => ({
+        date: measurement.measuredDate.slice(5),
+        value: numberValue(measurement[key]),
+        measuredAt: measurement.measuredAt,
+      }));
+
+  const latestMeasurement = selectedMeasurement ||
+    measurements.find((measurement) => measurement.id === body.measurementId) ||
+    measurementsUpToDate[measurementsUpToDate.length - 1] ||
+    null;
 
   const handleQuickRange = (rangeKey: typeof activeDateRange) => {
     setActiveDateRange(rangeKey);
     if (!onSelectDate || allDates.length === 0) return;
     if (rangeKey === 'today') {
-      onSelectDate(latestDate);
+      onSelectDate(allDates[allDates.length - 1]);
       return;
     }
-    const daysBack = rangeKey === '7d' ? 7 : rangeKey === '30d' ? 30 : rangeKey === '90d' ? 90 : 180;
-    const anchor = new Date(latestDate + 'T12:00:00+08:00');
+    const daysBack =
+      rangeKey === '7d' ? 7 : rangeKey === '30d' ? 30 : rangeKey === '90d' ? 90 : 180;
+    const anchor = new Date(`${allDates[allDates.length - 1]}T12:00:00+08:00`);
     anchor.setDate(anchor.getDate() - daysBack);
-    const targetStr = anchor.toISOString().slice(0, 10);
-    // find closest available date on or before targetStr
-    const closest = allDates.filter((d) => d <= targetStr).slice(-1)[0] || allDates[0];
+    const target = anchor.toISOString().slice(0, 10);
+    const closest = allDates.filter((date) => date <= target).slice(-1)[0] || allDates[0];
     if (closest) onSelectDate(closest);
   };
 
-    const isVisible = (id: string) => sectionsConfig.find((s) => s.id === id)?.visible !== false;
-  const leanPercent = Math.round((body.leanMassKg / Math.max(body.weightKg, 1)) * 100);
+  const isVisible = (id: string) =>
+    sectionsConfig.find((section) => section.id === id)?.visible !== false;
+
+  const leanPercent =
+    body.weightKg > 0 ? Math.round((body.leanMassKg / body.weightKg) * 100) : 0;
   const fatPercent = Math.round(body.bodyFatPercent);
-  const muscleMassVal = body.skeletalMuscleKg ?? 41.2;
-  const muscleMassPct = body.skeletalMusclePercent ?? 45.9;
-  const waterPct = body.waterPercent ?? 56.8;
-  const visceralVal = body.visceralFatLevel ?? 7;
-  const bmrVal = body.bmrKcal ?? 1780;
-  const boneVal = body.boneMassKg ?? 3.65;
-  const proteinPct = body.proteinPercent ?? 18.4;
-  const bodyAgeVal = body.bodyAge ?? 28;
 
-  // Helper to generate realistic 30-day data for modal
-  const generate30DayPoints = (baseVal: number, variance: number, decimals: number = 1) => {
-    const pts: { date: string; value: number }[] = [];
-    const anchorDate = currentDay.date || '2026-10-17';
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(`${anchorDate}T12:00:00+08:00`);
-      d.setDate(d.getDate() - i);
-      const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-      const noise = (Math.sin(i * 0.7) * variance * 0.5) + (Math.cos(i * 0.3) * variance * 0.5);
-      const val = parseFloat((baseVal + noise).toFixed(decimals));
-      pts.push({ date: dateStr, value: val });
-    }
-    return pts;
-  };
-
-  const scaleMetrics = [
+  const metrics: Array<{
+    title: string;
+    key: MeasurementKey;
+    unit: string;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    reference: string;
+  }> = [
     {
-      title: '骨骼肌量 (Muscle Mass)',
-      value: `${muscleMassVal}`,
+      title: '骨骼肌量',
+      key: 'skeletalMuscleKg',
       unit: 'kg',
-      badge: '充沛',
-      badgeColor: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
       icon: Dumbbell,
       color: '#6366F1',
-      eval: `占体重 ${muscleMassPct}% · 运动机能强劲`,
-      standard: '标准 > 34.0 kg',
-      sevenDay: [40.8, 40.9, 41.0, 41.1, 41.1, 41.2, 41.2],
-      thirtyDay: generate30DayPoints(muscleMassVal, 0.4, 1),
+      reference: '由体脂秤骨骼肌率与体重计算',
     },
     {
-      title: '身体水分率 (Body Water)',
-      value: `${waterPct}`,
+      title: '身体水分率',
+      key: 'waterPercent',
       unit: '%',
-      badge: '充足',
-      badgeColor: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
       icon: Droplets,
       color: '#0EA5E9',
-      eval: '细胞水合状态极佳 · 利于肌肉合成',
-      standard: '标准 50% ~ 65%',
-      sevenDay: [56.2, 56.4, 56.5, 56.7, 56.6, 56.8, 56.8],
-      thirtyDay: generate30DayPoints(waterPct, 0.8, 1),
+      reference: 'Fitdays 实测水分率',
     },
     {
-      title: '内脏脂肪等级 (Visceral Fat)',
-      value: `${visceralVal}`,
+      title: '内脏脂肪等级',
+      key: 'visceralFatLevel',
       unit: '级',
-      badge: '健康',
-      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
       icon: ShieldCheck,
       color: '#10B981',
-      eval: '腹腔内脏无多余脂肪沉积',
-      standard: '健康 1 ~ 9 级',
-      sevenDay: [7, 7, 7, 7, 7, 7, 7],
-      thirtyDay: generate30DayPoints(visceralVal, 0.3, 0),
+      reference: 'Fitdays 实测等级',
     },
     {
-      title: '基础代谢率 (BMR)',
-      value: bmrVal.toLocaleString(),
+      title: '基础代谢率',
+      key: 'bmrKcal',
       unit: 'kcal',
-      badge: '高效',
-      badgeColor: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
       icon: Flame,
       color: '#FA114F',
-      eval: '每日静息最低能量消耗',
-      standard: '同体重标准 1,650 kcal',
-      sevenDay: [1765, 1770, 1775, 1780, 1778, 1780, 1780],
-      thirtyDay: generate30DayPoints(bmrVal, 20, 0),
+      reference: 'Fitdays 实测基础代谢',
     },
     {
-      title: '骨量 (Bone Mineral)',
-      value: `${boneVal}`,
+      title: '骨量',
+      key: 'boneMassKg',
       unit: 'kg',
-      badge: '坚密',
-      badgeColor: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
       icon: Layers,
       color: '#F59E0B',
-      eval: '骨骼无机盐矿化程度高',
-      standard: '标准 3.1 ~ 3.8 kg',
-      sevenDay: [3.64, 3.64, 3.65, 3.65, 3.65, 3.65, 3.65],
-      thirtyDay: generate30DayPoints(boneVal, 0.05, 2),
+      reference: 'Fitdays 实测骨量',
     },
     {
-      title: '蛋白质率 (Protein)',
-      value: `${proteinPct}`,
+      title: '蛋白质率',
+      key: 'proteinPercent',
       unit: '%',
-      badge: '优良',
-      badgeColor: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
       icon: Sparkles,
       color: '#14B8A6',
-      eval: '体内高营养储备水平',
-      standard: '标准 16% ~ 20%',
-      sevenDay: [18.2, 18.2, 18.3, 18.3, 18.4, 18.4, 18.4],
-      thirtyDay: generate30DayPoints(proteinPct, 0.3, 1),
+      reference: 'Fitdays 实测蛋白质率',
     },
     {
-      title: '身体年龄 (Metabolic Age)',
-      value: `${bodyAgeVal}`,
+      title: '身体年龄',
+      key: 'bodyAge',
       unit: '岁',
-      badge: '年轻态',
-      badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
       icon: Heart,
       color: '#A855F7',
-      eval: '代谢机能较实际生理状态更年轻',
-      standard: '评估基于体脂与肌肉比',
-      sevenDay: [28, 28, 28, 28, 28, 28, 28],
-      thirtyDay: generate30DayPoints(bodyAgeVal, 0, 0),
+      reference: 'Fitdays 体脂秤估算值',
     },
     {
-      title: '去脂体重 (Lean Body Mass)',
-      value: `${body.leanMassKg}`,
+      title: '去脂体重',
+      key: 'leanMassKg',
       unit: 'kg',
-      badge: '77%',
-      badgeColor: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
       icon: Zap,
       color: '#3B82F6',
-      eval: '扣除全部脂肪后的纯净体重',
-      standard: '高瘦体重运动型体格',
-      sevenDay: [68.8, 69.0, 69.1, 69.2, 69.1, 69.2, 69.25],
-      thirtyDay: generate30DayPoints(69.0, 0.5, 1),
+      reference: 'Fitdays 实测去脂体重',
     },
   ];
 
   return (
     <div className="space-y-5">
-      {/* Top Horizontal Date Span Bar with Floating Calendar */}
       <AppleCard className="p-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -230,12 +350,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                 体脂秤数据跨度查阅
               </span>
               <span className="text-[10px] text-neutral-400">
-                当前聚焦: {selectedDate || currentDay.date} (支持历史任意长跨度回溯，共收录 {allDates.length} 天)
+                当前日期 {currentDate} · 当日 {measurementsForDate.length} 次测量 · 共收录 {allDates.length} 天
               </span>
             </div>
           </div>
 
-          {/* Horizontal Quick Range Segmented Controls */}
           <div className="flex items-center gap-2">
             <div className="flex bg-black/5 dark:bg-white/5 p-0.5 rounded-xl border border-black/5 dark:border-white/5">
               {[
@@ -244,255 +363,312 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                 { key: '30d', label: '近30天' },
                 { key: '90d', label: '近一季' },
                 { key: '180d', label: '近半年' },
-              ].map((r) => (
+              ].map((range) => (
                 <button
-                  key={r.key}
+                  key={range.key}
                   type="button"
-                  onClick={() => handleQuickRange(r.key as typeof activeDateRange)}
+                  onClick={() => handleQuickRange(range.key as typeof activeDateRange)}
                   className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    activeDateRange === r.key
+                    activeDateRange === range.key
                       ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-sm'
                       : 'text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200'
                   }`}
                 >
-                  {r.label}
+                  {range.label}
                 </button>
               ))}
             </div>
 
-            {/* Clean Modal Calendar Button */}
             <button
               type="button"
               onClick={() => setIsCalendarOpen(true)}
               className="px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-800 dark:text-neutral-200 border-black/5 dark:border-white/10 shadow-sm"
-              title="打开完整日历跨月份自由选日"
             >
               <Calendar className="w-3.5 h-3.5 text-amber-500" />
-              <span>{selectedDate || currentDay.date || '选择日历'}</span>
+              <span>{currentDate}</span>
             </button>
           </div>
         </div>
+
+        <div className="mt-3 pt-3 border-t border-black/5 dark:border-white/5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 mb-2">
+            <Clock3 className="w-3.5 h-3.5 text-amber-500" />
+            <span>当日测量明细</span>
+            {measurementsLoading && <RefreshCw className="w-3 h-3 animate-spin" />}
+          </div>
+          {measurementsForDate.length > 0 ? (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {measurementsForDate.map((measurement) => {
+                const selected = measurement.id === selectedMeasurement?.id;
+                return (
+                  <button
+                    key={measurement.id}
+                    type="button"
+                    onClick={() => setSelectedMeasurementId(measurement.id)}
+                    className={`flex-shrink-0 min-w-[128px] text-left px-3 py-2 rounded-xl border transition-all ${
+                      selected
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
+                        : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/5 dark:border-white/5 text-neutral-600 dark:text-neutral-300 hover:border-amber-500/25'
+                    }`}
+                  >
+                    <span className="block text-[10px] font-mono opacity-70">
+                      {formatMeasurementTime(measurement.measuredAt)}
+                    </span>
+                    <span className="block text-sm font-bold font-mono mt-0.5">
+                      {measurement.weightKg === null ? '—' : measurement.weightKg} kg
+                    </span>
+                    <span className="block text-[10px] mt-0.5">
+                      体脂 {measurement.bodyFatPercent === null ? '—' : `${measurement.bodyFatPercent}%`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-neutral-400">
+              {latestMeasurement
+                ? `当日没有新的体测记录，当前显示 ${formatMeasurementDate(latestMeasurement.measuredAt)} 的最近一次测量。`
+                : '尚未收到体脂秤测量记录。'}
+            </p>
+          )}
+        </div>
       </AppleCard>
 
-      {/* Hero Overview */}
       {isVisible('hero') && (
-      <AppleCard>
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 p-0.5 shadow-xl shadow-amber-500/20 flex-shrink-0">
-              <div className="w-full h-full rounded-[22px] bg-white dark:bg-neutral-950 flex items-center justify-center">
-                <Scale className="w-10 h-10 text-amber-500" />
+        <AppleCard>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 p-0.5 shadow-xl shadow-amber-500/20 flex-shrink-0">
+                <div className="w-full h-full rounded-[22px] bg-white dark:bg-neutral-950 flex items-center justify-center">
+                  <Scale className="w-10 h-10 text-amber-500" />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight m-0">
+                    身体详情 · 智能体脂秤深度分析
+                  </h2>
+                  <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
+                    {body.statusLabel}
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                  {latestMeasurement
+                    ? `最近测量：${formatMeasurementDate(latestMeasurement.measuredAt)}`
+                    : '暂无体测时间'}
+                </p>
               </div>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight m-0">
-                  身体详情 · 智能体脂秤深度分析
-                </h2>
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
-                  {body.statusLabel}
+
+            <div className="flex flex-wrap items-center gap-6 self-start md:self-auto">
+              <div className="text-right">
+                <span className="text-[11px] text-neutral-400 block">当前体重</span>
+                <span className="text-2xl font-black text-neutral-900 dark:text-white font-mono">
+                  {body.weightKg > 0 ? body.weightKg : '—'}{' '}
+                  <span className="text-xs font-normal text-neutral-400">kg</span>
                 </span>
               </div>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                悬停任意卡片查看 7 日走势，点击任意卡片弹出 30 日深度趋势分析大窗
-              </p>
+              <div className="text-right">
+                <span className="text-[11px] text-neutral-400 block">体脂率</span>
+                <span className="text-2xl font-black text-amber-500 font-mono">
+                  {body.bodyFatPercent > 0 ? body.bodyFatPercent : '—'}{' '}
+                  <span className="text-xs font-normal text-neutral-400">%</span>
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-[11px] text-neutral-400 block">去脂瘦体重</span>
+                <span className="text-2xl font-black text-indigo-500 font-mono">
+                  {body.leanMassKg > 0 ? body.leanMassKg : '—'}{' '}
+                  <span className="text-xs font-normal text-neutral-400">kg</span>
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-6 self-start md:self-auto">
-            <div className="text-right">
-              <span className="text-[11px] text-neutral-400 block">当前体重</span>
-              <span className="text-2xl font-black text-neutral-900 dark:text-white font-mono">
-                {body.weightKg} <span className="text-xs font-normal text-neutral-400">kg</span>
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-neutral-400 block">体脂率</span>
-              <span className="text-2xl font-black text-amber-500 font-mono">
-                {body.bodyFatPercent} <span className="text-xs font-normal text-neutral-400">%</span>
-              </span>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-neutral-400 block">去脂瘦体重</span>
-              <span className="text-2xl font-black text-indigo-500 font-mono">
-                {body.leanMassKg} <span className="text-xs font-normal text-neutral-400">kg</span>
-              </span>
-            </div>
+          <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
+            {body.weightKg > 0 && body.leanMassKg > 0 ? (
+              <>
+                <div className="flex justify-between items-center text-xs mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+                      去脂瘦体重: {body.leanMassKg} kg ({leanPercent}%)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">
+                      脂肪总量: {body.fatMassKg} kg ({fatPercent}%)
+                    </span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  </div>
+                </div>
+                <div className="w-full h-3 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden flex">
+                  <div
+                    style={{ width: `${leanPercent}%` }}
+                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500"
+                  />
+                  <div
+                    style={{ width: `${fatPercent}%` }}
+                    className="h-full bg-gradient-to-r from-amber-400 to-orange-400"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="py-4 text-center text-xs text-neutral-400">
+                尚无体重与体脂数据，暂不绘制身体成分比例。
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* Dual-color Proportion Balance Bar */}
-        <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
-          <div className="flex justify-between items-center text-xs mb-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-              <span className="font-semibold text-neutral-800 dark:text-neutral-200">
-                去脂瘦体重: {body.leanMassKg} kg ({leanPercent}%)
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-neutral-800 dark:text-neutral-200">
-                脂肪总量: {body.fatMassKg} kg ({fatPercent}%)
-              </span>
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            </div>
-          </div>
-          <div className="w-full h-3 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden flex">
-            <div
-              style={{ width: `${leanPercent}%` }}
-              className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-l-full"
-            />
-            <div
-              style={{ width: `${fatPercent}%` }}
-              className="h-full bg-gradient-to-r from-amber-400 to-orange-400 rounded-r-full"
-            />
-          </div>
-        </div>
-      </AppleCard>
+        </AppleCard>
       )}
 
-      {/* 8 BIA Metric Cards */}
       {isVisible('metrics') && (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {scaleMetrics.map((item, idx) => {
-          const Icon = item.icon;
-          const isHovered = hoveredCardIndex === idx;
-
-          return (
-            <div key={item.title} className="relative">
-              <AppleCard
-                onClick={() =>
-                  setModalData({
-                    title: item.title,
-                    unit: item.unit,
-                    current: item.value,
-                    eval: item.eval,
-                    standard: item.standard,
-                    points: item.thirtyDay,
-                  })
-                }
-                className="p-4 flex flex-col justify-between h-full cursor-pointer hover:border-amber-500/40 transition-all"
-              >
-                <div
-                  onMouseEnter={() => setHoveredCardIndex(idx)}
-                  onMouseLeave={() => setHoveredCardIndex(null)}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {metrics.map((metric, index) => {
+            const Icon = metric.icon;
+            const points = historyPoints(metric.key);
+            const currentValue = body[metric.key];
+            const isHovered = hoveredCardIndex === index;
+            const recent = points.slice(-7);
+            return (
+              <div key={metric.key} className="relative">
+                <AppleCard
+                  onClick={() => {
+                    if (points.length === 0) return;
+                    setModalData({
+                      title: metric.title,
+                      unit: metric.unit,
+                      current:
+                        currentValue === undefined || currentValue === null
+                          ? '—'
+                          : String(currentValue),
+                      eval: `${points.length} 次实测记录`,
+                      standard: metric.reference,
+                      points: points.map((point) => ({
+                        date: point.date,
+                        value: point.value,
+                      })),
+                    });
+                  }}
+                  className="p-4 flex flex-col justify-between h-full cursor-pointer hover:border-amber-500/40 transition-all"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div
-                      className="p-1.5 rounded-xl border flex-shrink-0"
-                      style={{
-                        backgroundColor: `${item.color}15`,
-                        borderColor: `${item.color}30`,
-                        color: item.color,
-                      }}
-                    >
-                      <Icon className="w-4 h-4" />
+                  <div
+                    onMouseEnter={() => setHoveredCardIndex(index)}
+                    onMouseLeave={() => setHoveredCardIndex(null)}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div
+                        className="p-1.5 rounded-xl border flex-shrink-0"
+                        style={{
+                          backgroundColor: `${metric.color}15`,
+                          borderColor: `${metric.color}30`,
+                          color: metric.color,
+                        }}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] text-neutral-400">
+                        {recent.length > 0 ? `${recent.length} 次记录` : '暂无数据'}
+                      </span>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${item.badgeColor}`}>
-                      {item.badge}
+                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 block mb-1">
+                      {metric.title}
                     </span>
+                    <div className="flex items-baseline gap-1 my-1">
+                      <span className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight font-mono">
+                        {currentValue === undefined || currentValue === null ? '—' : currentValue}
+                      </span>
+                      <span className="text-xs text-neutral-400 font-semibold">{metric.unit}</span>
+                    </div>
                   </div>
-
-                  <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 block mb-1">
-                    {item.title}
-                  </span>
-
-                  <div className="flex items-baseline gap-1 my-1">
-                    <span className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight font-mono">
-                      {item.value}
+                  <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 text-[10px]">
+                    <span className="text-neutral-500 dark:text-neutral-400 block truncate">
+                      {metric.reference}
                     </span>
-                    <span className="text-xs text-neutral-400 font-semibold">{item.unit}</span>
+                    <div className="flex items-center justify-between mt-1 text-neutral-400">
+                      <span>{points.length > 0 ? '点击查看实测趋势' : '等待体脂秤同步'}</span>
+                      {points.length > 0 && <span className="text-amber-500 font-medium">查看</span>}
+                    </div>
                   </div>
-                </div>
+                </AppleCard>
 
-                <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 text-[10px]">
-                  <span className="text-neutral-600 dark:text-neutral-300 block font-medium truncate">
-                    {item.eval}
-                  </span>
-                  <div className="flex items-center justify-between mt-1 text-neutral-400">
-                    <span>{item.standard}</span>
-                    <span className="text-amber-500 font-medium">看30日 ➔</span>
-                  </div>
-                </div>
-              </AppleCard>
-
-              {/* Floating 7-day Sparkline on Hover (User Comment 3: Changed to Line Chart / 折线图) */}
-              <AnimatePresence>
-                {isHovered && (
+                {isHovered && recent.length > 0 && (
                   <motion.div
                     initial={{ opacity: 0, y: 6, scale: 0.96 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 6, scale: 0.96 }}
                     className="absolute left-0 right-0 bottom-full mb-2 z-40 p-3 rounded-2xl bg-white/95 dark:bg-neutral-950/95 text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 shadow-2xl backdrop-blur-2xl pointer-events-none"
                   >
-                    <div className="flex items-center justify-between text-[11px] mb-1.5 font-bold text-amber-400">
-                      <span>7 日折线趋势 ({item.unit})</span>
-                      <span className="text-emerald-400 text-[10px]">最新 {item.sevenDay[item.sevenDay.length - 1]}</span>
+                    <div className="flex items-center justify-between text-[11px] mb-1.5 font-bold text-amber-500">
+                      <span>最近 {recent.length} 次实测</span>
+                      <span>最新 {recent[recent.length - 1].value}</span>
                     </div>
-
-                    {/* 7-Day SVG Line Chart */}
                     <div className="h-10 w-full">
-                      {(() => {
-                        const vals = item.sevenDay;
-                        const min = Math.min(...vals);
-                        const max = Math.max(...vals);
-                        const range = max - min || 1;
-                        const w = 180;
-                        const h = 32;
-                        const coords = vals.map((v, i) => ({
-                          x: 10 + (i / (vals.length - 1)) * (w - 20),
-                          y: h - 6 - ((v - min) / range) * (h - 12),
-                          v,
-                        }));
-                        const pathD = coords.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`, '');
-
-                        return (
-                          <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full overflow-visible">
-                            <path d={pathD} fill="none" stroke={item.color} strokeWidth="2.2" strokeLinecap="round" />
-                            {coords.map((c, i) => (
-                              <circle key={i} cx={c.x} cy={c.y} r="2.2" fill="#FFF" stroke={item.color} strokeWidth="1.2" />
-                            ))}
-                          </svg>
-                        );
-                      })()}
-                    </div>
-
-                    <div className="flex justify-between items-center text-[8px] text-neutral-500 dark:text-neutral-400 font-mono mt-1 px-1">
-                      <span>10-11 ({item.sevenDay[0]})</span>
-                      <span>今天 ({item.sevenDay[item.sevenDay.length - 1]})</span>
+                      {recent.length >= 2 ? (
+                        <svg viewBox="0 0 180 32" className="w-full h-full overflow-visible">
+                          {(() => {
+                            const values = recent.map((point) => point.value);
+                            const min = Math.min(...values);
+                            const max = Math.max(...values);
+                            const range = max - min || 1;
+                            const coords = recent.map((point, pointIndex) => ({
+                              x: 10 + (pointIndex / (recent.length - 1)) * 160,
+                              y: 26 - ((point.value - min) / range) * 18,
+                            }));
+                            const path = coords
+                              .map(
+                                (point, pointIndex) =>
+                                  `${pointIndex === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+                              )
+                              .join(' ');
+                            return (
+                              <>
+                                <path d={path} fill="none" stroke={metric.color} strokeWidth="2.2" />
+                                {coords.map((point, pointIndex) => (
+                                  <circle
+                                    key={pointIndex}
+                                    cx={point.x}
+                                    cy={point.y}
+                                    r="2.2"
+                                    fill="#FFF"
+                                    stroke={metric.color}
+                                    strokeWidth="1.2"
+                                  />
+                                ))}
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <div className="h-full flex items-center text-[10px] text-neutral-400">
+                          至少需要两次测量才能绘制趋势线。
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-      </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
-      {/* Human Body Silhouette Component */}
-      {isVisible('silhouette') && <BodySilhouette currentDay={currentDay} />}
+      {isVisible('silhouette') && <BodySilhouette currentDay={effectiveDay} />}
 
-      {/* 30-Day Trend Modal Dialog */}
       <Metric30DayModal data={modalData} onClose={() => setModalData(null)} />
 
-      {/* Unoccluded Date Picker Modal */}
       <CalendarDatePickerModal
         isOpen={isCalendarOpen}
         onClose={() => setIsCalendarOpen(false)}
-        selectedDate={selectedDate || currentDay.date}
+        selectedDate={currentDate}
         availableDates={allDates}
-        onSelectDate={(d) => {
-          if (onSelectDate) onSelectDate(d);
-        }}
+        onSelectDate={(date) => onSelectDate?.(date)}
         title="身体详情 · 历史体测数据日期选择"
       />
 
-      {/* Reorder and Visibility Management Modal */}
       {isManageOpen && (
         <ManageBodyModal
           isOpen={isManageOpen}
-          onClose={onCloseManage || (() => {})}
+          onClose={onCloseManage || (() => undefined)}
           sections={sectionsConfig}
           onChange={setSectionsConfig}
           onReset={() => setSectionsConfig(DEFAULT_BODY_SECTIONS)}

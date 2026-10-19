@@ -10,20 +10,12 @@ interface BodyCompositionCardProps {
 export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }) => {
   const leanPercent = Math.round((body.leanMassKg / Math.max(body.weightKg, 1)) * 100);
   const fatPercent = Math.round(body.bodyFatPercent);
-  const boneMassEst = body.boneMassKg ?? 3.65; // Estimated bone mineral content (kg)
+  const boneMassEst = body.boneMassKg;
 
-  const trendPoints = body.trend || [
-    { date: '10-11', weight: 89.50, bodyFat: 22.5 },
-    { date: '10-12', weight: 89.60, bodyFat: 22.7 },
-    { date: '10-13', weight: 90.10, bodyFat: 23.1 },
-    { date: '10-14', weight: 90.45, bodyFat: 23.5 },
-    { date: '10-15', weight: 89.90, bodyFat: 23.0 },
-    { date: '10-16', weight: 89.65, bodyFat: 22.8 },
-    { date: '10-17', weight: 89.84, bodyFat: 22.9 },
-  ];
+  const trendPoints = body.trend || [];
   const startWeight = trendPoints[0]?.weight;
   const weightDiff =
-    startWeight !== undefined ? Number((body.weightKg - startWeight).toFixed(1)) : -0.6;
+    startWeight !== undefined ? Number((body.weightKg - startWeight).toFixed(1)) : undefined;
 
   return (
     <AppleCard className="overflow-visible h-full flex flex-col justify-between relative">
@@ -53,17 +45,23 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
             <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
               <span>当前体重</span>
               <span className="flex items-center text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">
-                {weightDiff <= 0 ? (
-                  <TrendingDown className="w-3 h-3 mr-0.5" />
+                {weightDiff === undefined ? (
+                  <span>暂无周初对比</span>
                 ) : (
-                  <TrendingUp className="w-3 h-3 mr-0.5 text-amber-500" />
+                  <>
+                    {weightDiff <= 0 ? (
+                      <TrendingDown className="w-3 h-3 mr-0.5" />
+                    ) : (
+                      <TrendingUp className="w-3 h-3 mr-0.5 text-amber-500" />
+                    )}
+                    {weightDiff > 0 ? `+${weightDiff}` : `${weightDiff}`} kg vs 周初
+                  </>
                 )}
-                {weightDiff > 0 ? `+${weightDiff}` : `${weightDiff}`} kg vs 周初
               </span>
             </div>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {body.weightKg}
+                {body.weightKg > 0 ? body.weightKg : '—'}
               </span>
               <span className="text-xs text-neutral-400 font-semibold">kg</span>
             </div>
@@ -79,16 +77,20 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <Activity className="w-3.5 h-3.5" />
                   <span>最近 7 日体重变化 (kg)</span>
                 </span>
-                <span className="text-[10px] text-neutral-400 font-normal">标准: 89.2~90.4</span>
+                <span className="text-[10px] text-neutral-400 font-normal">仅显示实测记录</span>
               </div>
-              <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                {trendPoints.slice(-4).map((t) => (
-                  <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
-                    <span className="text-neutral-400 block">{t.date}</span>
-                    <span className="font-bold text-white block mt-0.5 font-mono text-xs">{t.weight}</span>
-                  </div>
-                ))}
-              </div>
+              {trendPoints.length > 0 ? (
+                <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                  {trendPoints.slice(-4).map((t) => (
+                    <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
+                      <span className="text-neutral-400 block">{t.date}</span>
+                      <span className="font-bold text-white block mt-0.5 font-mono text-xs">{t.weight}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[10px] text-neutral-400">暂无体重趋势记录</span>
+              )}
             </div>
           </div>
 
@@ -96,11 +98,11 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
           <div className="relative group/fat p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/[0.05] dark:border-white/[0.05] hover:border-amber-500/40 transition-all duration-200 cursor-pointer">
             <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
               <span>体脂率</span>
-              <span className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold">健康标准</span>
+              <span className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold">{body.statusLabel}</span>
             </div>
             <div className="flex items-baseline gap-1 mt-1">
               <span className="text-3xl font-black text-amber-500 dark:text-amber-400 tracking-tight">
-                {body.bodyFatPercent}
+                {body.bodyFatPercent > 0 ? body.bodyFatPercent : '—'}
               </span>
               <span className="text-xs text-neutral-400 font-semibold">%</span>
             </div>
@@ -116,16 +118,20 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <Activity className="w-3.5 h-3.5" />
                   <span>最近 7 日体脂率走势 (%)</span>
                 </span>
-                <span className="text-[10px] text-emerald-400 font-normal">标准 18%~24%</span>
+                <span className="text-[10px] text-emerald-400 font-normal">仅显示实测记录</span>
               </div>
-              <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                {trendPoints.slice(-4).map((t) => (
-                  <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
-                    <span className="text-neutral-400 block">{t.date}</span>
-                    <span className="font-bold text-amber-300 block mt-0.5 font-mono text-xs">{t.bodyFat}%</span>
-                  </div>
-                ))}
-              </div>
+              {trendPoints.length > 0 ? (
+                <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                  {trendPoints.slice(-4).map((t) => (
+                    <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
+                      <span className="text-neutral-400 block">{t.date}</span>
+                      <span className="font-bold text-amber-300 block mt-0.5 font-mono text-xs">{t.bodyFat}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[10px] text-neutral-400">暂无体脂趋势记录</span>
+              )}
             </div>
           </div>
         </div>
@@ -148,7 +154,7 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
               <div className="absolute left-0 bottom-full mb-2 z-50 opacity-0 group-hover/muscle-seg:opacity-100 transition-opacity pointer-events-none p-2.5 rounded-2xl bg-neutral-950/95 text-white text-[11px] border border-indigo-500/40 shadow-2xl backdrop-blur-xl w-60">
                 <div className="flex items-center justify-between text-indigo-300 font-bold mb-1.5 border-b border-white/10 pb-1">
                   <span>💪 去脂瘦体重 7 日趋势</span>
-                  <span className="text-emerald-400 text-[10px]">占比 {leanPercent}% (充沛)</span>
+                  <span className="text-emerald-400 text-[10px]">占比 {leanPercent}%</span>
                 </div>
                 <div className="flex items-end justify-between h-9 gap-1 pt-1">
                   {trendPoints.slice(-5).map((t) => {
@@ -199,7 +205,7 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
             </span>
             <span className="flex items-center gap-1 font-medium text-amber-500 dark:text-amber-400">
               <span className="w-2 h-2 rounded-full bg-amber-500" />
-              脂肪量 {body.fatMassKg} kg · 骨量 ≈ {boneMassEst} kg
+              脂肪量 {body.fatMassKg} kg{boneMassEst ? ` · 骨量 ${boneMassEst} kg` : ''}
             </span>
           </div>
         </div>
@@ -218,7 +224,9 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
               <span>BMI 指数：{body.bmi}</span>
               <span className="text-neutral-400 font-normal">标准: 18.5~23.9</span>
             </div>
-            <div className="text-neutral-300">高瘦体重比率，体脂率处于标准区间，肌肉型体格。</div>
+            <div className="text-neutral-300">
+              {body.weightKg > 0 ? '仅展示本次体脂秤实测值。' : '暂无体测数据。'}
+            </div>
           </div>
         </div>
 
@@ -227,7 +235,7 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
           <span className="text-neutral-500 dark:text-neutral-400">肌肉量等级</span>
           <span className="font-bold text-indigo-500 dark:text-indigo-400 flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
-            充沛 (77%)
+            {body.skeletalMusclePercent ? `${body.skeletalMusclePercent}%` : '—'}
           </span>
         </div>
       </div>

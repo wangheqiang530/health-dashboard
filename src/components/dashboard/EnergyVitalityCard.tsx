@@ -26,6 +26,8 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
         return 'from-amber-500/20 to-orange-500/20 text-amber-500 dark:text-amber-400 border-amber-500/30';
       case '需休整':
         return 'from-rose-500/20 to-red-500/20 text-rose-500 dark:text-rose-400 border-rose-500/30';
+      case '数据不足':
+        return 'from-neutral-500/10 to-neutral-500/10 text-neutral-500 dark:text-neutral-400 border-neutral-500/20';
     }
   };
 
@@ -98,7 +100,7 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                 transition={{ duration: 0.8, delay: 0.2 }}
                 className="text-4xl font-black tracking-tight text-neutral-900 dark:text-white"
               >
-                {vitality.score}
+                {vitality.score > 0 ? vitality.score : '—'}
               </motion.span>
               <span className="text-[11px] font-medium text-neutral-400 -mt-0.5">
                 / 100 分
@@ -174,7 +176,7 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span className="text-[10px] text-neutral-400">%</span>
                 </div>
                 <div className="text-[10px] text-neutral-400 mt-0.5">
-                  修复良好
+                  {vitality.sleepContribution > 0 ? '睡眠效率' : '等待睡眠数据'}
                 </div>
               </div>
 
@@ -187,7 +189,7 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span className="text-base font-bold text-emerald-500 dark:text-emerald-400">{vitality.stressLevel}</span>
                 </div>
                 <div className="text-[10px] text-neutral-400 mt-0.5">
-                  副交感占优
+                  {vitality.stressLevel === '数据不足' ? '等待 HRV 数据' : '基于 HRV 估算'}
                 </div>
               </div>
             </div>

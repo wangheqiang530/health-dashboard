@@ -94,7 +94,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
 
             <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
               <Sparkles className="w-3 h-3 text-indigo-400" />
-              得分 {sleep.score}
+              得分 {sleep.score > 0 ? sleep.score : '—'}
             </span>
           </div>
         </div>
@@ -106,11 +106,11 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mb-4 gap-2">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-extrabold tracking-tight text-neutral-900 dark:text-white">
-                  {hours}
+                {sleep.totalMinutes > 0 ? hours : '—'}
                 </span>
                 <span className="text-sm text-neutral-400 font-medium">小时</span>
                 <span className="text-3xl font-extrabold tracking-tight text-neutral-900 dark:text-white ml-1">
-                  {minutes}
+                {sleep.totalMinutes > 0 ? minutes : '—'}
                 </span>
                 <span className="text-sm text-neutral-400 font-medium">分钟</span>
                 <span className="text-xs text-neutral-400 ml-2 font-normal">
@@ -133,32 +133,45 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             {/* Hypnogram / Multi-segment Sleep Stage Timeline */}
             <div className="mb-4">
               <div className="relative w-full h-8 rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5">
-                {sleep.timeline.map((seg, idx) => {
-                  const widthPct = (seg.durationMinutes / Math.max(sleep.totalMinutes, 1)) * 100;
-                  const stageCfg = stageConfigs.find((s) => s.key === seg.stage);
-                  const isHovered = activeStage === seg.stage;
+                {sleep.timeline.length > 0
+                  ? sleep.timeline.map((seg, idx) => {
+                      const widthPct =
+                        (seg.durationMinutes / Math.max(totalStageMinutes, 1)) * 100;
+                      const stageCfg = stageConfigs.find((s) => s.key === seg.stage);
+                      const isHovered = activeStage === seg.stage;
 
-                  return (
-                    <motion.div
-                      key={idx}
-                      onMouseEnter={() => setActiveStage(seg.stage)}
-                      onMouseLeave={() => setActiveStage(null)}
-                      style={{
-                        width: `${widthPct}%`,
-                        backgroundColor: stageCfg?.color || '#888',
-                        opacity: activeStage && !isHovered ? 0.35 : 0.95,
-                      }}
-                      className="h-full rounded-sm transition-all duration-200 cursor-pointer relative group"
-                      whileHover={{ scaleY: 1.1 }}
-                    />
-                  );
-                })}
+                      return (
+                        <motion.div
+                          key={idx}
+                          onMouseEnter={() => setActiveStage(seg.stage)}
+                          onMouseLeave={() => setActiveStage(null)}
+                          style={{
+                            width: `${widthPct}%`,
+                            backgroundColor: stageCfg?.color || '#888',
+                            opacity: activeStage && !isHovered ? 0.35 : 0.95,
+                          }}
+                          className="h-full rounded-sm transition-all duration-200 cursor-pointer relative group"
+                          whileHover={{ scaleY: 1.1 }}
+                        />
+                      );
+                    })
+                  : stageConfigs.map((cfg) => (
+                      <div
+                        key={cfg.key}
+                        style={{
+                          width: `${(cfg.minutes / Math.max(totalStageMinutes, 1)) * 100}%`,
+                          backgroundColor: cfg.color,
+                        }}
+                        className="h-full rounded-sm"
+                        title={`${cfg.label} ${cfg.minutes} 分钟`}
+                      />
+                    ))}
               </div>
 
               {/* Time Axis Labels */}
               <div className="flex justify-between items-center text-[10px] text-neutral-400 mt-1 px-1 font-mono">
                 <span>{sleep.bedTime}</span>
-                <span>夜间修护分期</span>
+                <span>{sleep.timeline.length > 0 ? '夜间修护分期' : '睡眠分期汇总'}</span>
                 <span>{sleep.wakeTime}</span>
               </div>
             </div>
@@ -287,7 +300,9 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
           <Wind className="w-3.5 h-3.5 text-sky-400" />
           <div>
             <span className="text-neutral-400 text-[11px] block">呼吸频率</span>
-            <span className="font-semibold text-neutral-900 dark:text-white">{sleep.respiratoryRate} 次/分</span>
+            <span className="font-semibold text-neutral-900 dark:text-white">
+              {sleep.respiratoryRate > 0 ? `${sleep.respiratoryRate} 次/分` : '—'}
+            </span>
           </div>
         </div>
 
@@ -295,7 +310,9 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
           <HeartPulse className="w-3.5 h-3.5 text-rose-400" />
           <div>
             <span className="text-neutral-400 text-[11px] block">睡眠平均 HRV</span>
-            <span className="font-semibold text-neutral-900 dark:text-white">{sleep.hrvSleepAvg} ms</span>
+            <span className="font-semibold text-neutral-900 dark:text-white">
+              {sleep.hrvSleepAvg > 0 ? `${sleep.hrvSleepAvg} ms` : '—'}
+            </span>
           </div>
         </div>
 
@@ -303,7 +320,10 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
           <Moon className="w-3.5 h-3.5 text-indigo-400" />
           <div>
             <span className="text-neutral-400 text-[11px] block">睡眠效率</span>
-            <span className="font-semibold text-neutral-900 dark:text-white">{sleep.efficiency}% (在床 {Math.floor(sleep.inBedMinutes / 60)}h)</span>
+            <span className="font-semibold text-neutral-900 dark:text-white">
+              {sleep.efficiency > 0 ? `${sleep.efficiency}%` : '—'}
+              {sleep.inBedMinutes > 0 ? ` (在床 ${Math.floor(sleep.inBedMinutes / 60)}h)` : ''}
+            </span>
           </div>
         </div>
 
@@ -312,7 +332,9 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
           <div>
             <span className="text-neutral-400 text-[11px] block">呼吸扰动指数</span>
             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-              {sleep.breathingDisturbances !== undefined ? sleep.breathingDisturbances : '0.78'} 次/时 (通畅)
+              {sleep.breathingDisturbances
+                ? `${sleep.breathingDisturbances} 次/时`
+                : '暂无数据'}
             </span>
           </div>
         </div>

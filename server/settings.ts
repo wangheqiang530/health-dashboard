@@ -1,11 +1,15 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { config } from './config.ts';
 import { decryptSecret, encryptSecret } from './crypto.ts';
 import { pool } from './db.ts';
 
 const HAE_KEY_SETTING = 'hae_api_key';
+const DASHBOARD_ACCESS_TOKEN_SETTING = 'dashboard_access_token';
 const ARCHIVE_RETENTION_SETTING = 'archive_retention_days';
 let cachedHaeApiKey: string | null = null;
+let cachedDashboardAccessToken: string | null = null;
 
 const readEncryptedSetting = async (key: string): Promise<string | null> => {
   const result = await pool.query<{ encrypted_value: string }>(
@@ -63,6 +67,51 @@ export async function ensureHaeApiKey(): Promise<string> {
 
 export async function getHaeApiKey(): Promise<string> {
   return ensureHaeApiKey();
+}
+
+const writeDashboardAccessTokenFile = async (token: string): Promise<void> => {
+  const tokenPath = path.join(config.dataDir, 'dashboard-access-token.txt');
+  await fs.mkdir(path.dirname(tokenPath), { recursive: true });
+  await fs.writeFile(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(tokenPath, 0o600);
+};
+
+export async function ensureDashboardAccessToken(): Promise<string> {
+  if (cachedDashboardAccessToken) return cachedDashboardAccessToken;
+
+  if (config.dashboardAccessToken) {
+    await pool.query(
+      `INSERT INTO app_settings (key, encrypted_value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET
+         encrypted_value = EXCLUDED.encrypted_value,
+         updated_at = NOW()`,
+      [DASHBOARD_ACCESS_TOKEN_SETTING, encryptSecret(config.dashboardAccessToken)]
+    );
+    cachedDashboardAccessToken = config.dashboardAccessToken;
+    await writeDashboardAccessTokenFile(cachedDashboardAccessToken);
+    return cachedDashboardAccessToken;
+  }
+
+  const existing = await pool.query<{ encrypted_value: string }>(
+    'SELECT encrypted_value FROM app_settings WHERE key = $1',
+    [DASHBOARD_ACCESS_TOKEN_SETTING]
+  );
+  if (existing.rows[0]) {
+    cachedDashboardAccessToken = decryptSecret(existing.rows[0].encrypted_value);
+    await writeDashboardAccessTokenFile(cachedDashboardAccessToken);
+    return cachedDashboardAccessToken;
+  }
+
+  const generated = randomBytes(24).toString('hex');
+  await pool.query(
+    `INSERT INTO app_settings (key, encrypted_value, updated_at)
+     VALUES ($1, $2, NOW())`,
+    [DASHBOARD_ACCESS_TOKEN_SETTING, encryptSecret(generated)]
+  );
+  cachedDashboardAccessToken = generated;
+  await writeDashboardAccessTokenFile(generated);
+  return cachedDashboardAccessToken;
 }
 
 export async function getArchiveRetentionDays(): Promise<number> {

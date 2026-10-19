@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.8-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.9-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -11,22 +11,31 @@
 
 ![综合看板预览](docs/images/overview.png)
 
+## 🆕 v0.0.9 更新
+
+- **数据真实性**：移除 HAE、Apple Health ZIP 与前端卡片中的固定回退值、模拟趋势、伪 GPS 路线和伪功率区间。
+- **面板访问密钥**：除健康检查与 HAE Webhook 外，业务 API 统一要求 Bearer Token；新增登录页、会话锁定与归档鉴权下载。
+- **身体详情**：同一天多次体测默认显示最新一次，并新增按时间切换的测量明细；支持实际测量历史趋势。
+- **Apple 三环**：主圆环与周记录统一使用同一套 WebGL 着色器。
+- **FIT 导入**：使用 Garmin 官方 FIT SDK 解析真实会话、里程、功率、心率区间与 GPS 轨迹，拒绝将固定数值写入数据库。
+- **安全加固**：移除 ZIP 导入本地路径读取、FIT 文件名路径穿越和未鉴权归档下载。
+
 ---
 
 ## ✨ 为什么选择 Health Dashboard？
 
 * 🍏 **颜值即正义 · 原生 Apple 级交互**  
-  深度还原 Apple Fitness 经典三色健身圆环合盖动画、身体状态能量电池（0-100分）、24小时全天心率流光曲线，以及支持躯干与四肢 5 大节段解剖透视的 8 电极体成分分析。
+  深度还原 Apple Fitness 经典三色健身圆环合盖动画、身体状态能量电池、24 小时心率曲线与体脂秤实测身体成分。缺少数据时明确留空，不生成模拟体征或推断节段。
 * 💾 **全要素纯本地持久化 · NAS 深度友好**  
   摒弃难以管理的 Docker 内部匿名卷，**数据库实体文件、运行日志、每日自动压缩 SQL 冷备、采集原始流通通落盘在宿主机本地 `./data` 目录**。在群晖/威联通/Unraid 上不仅一眼可见，更支持直接文件级冷备迁移。
 * 🚀 **超轻量流式解包引擎 · 轻松吞吐 G 级大包**  
   很多健康面板在导入 iPhone 官方“导出健康数据.zip”（常常解压出 800MB+ 的 XML）时容易 OOM 崩溃。本项目自研流式事件解析器，几秒内静默消化数百万行健康记录，内存占用极度克制。
 * 🔄 **多端静默汇流 · 告别手动记账**  
   * **iOS 健康**：支持 Health Auto Export 自动化 Webhook 实时接收，支持全量官方 ZIP 拖拽导入；
-  * **Fitdays 智能体脂秤**：云端静默抓取，保留 8 维指标、BMI 以及 5 节段解剖肌脂分布；
+  * **Fitdays 智能体脂秤**：云端静默抓取体重、BMI、体脂率、骨骼肌率、水分率等整身指标；同一天多次测量默认取最新一次，并可在身体详情中切换；
   * **iGPSPORT 码表**：骑行活动自动同步，不仅有里程、时速、爬升、踏频与心率区间，还自动归档原汁原味的 `.fit` 轨迹源文件。
 * 🔒 **隐私至上 · 100% 数据主权**  
-  没有第三方埋点，没有厂商云端分析，所有外部同步密码均通过 **AES-256-GCM** 加密后保存在你自己的本地数据库中。
+  没有第三方埋点，没有厂商云端分析。面板业务 API 默认要求 Bearer 访问密钥，HAE Webhook 使用独立 API Key；所有外部同步密码均通过 **AES-256-GCM** 加密后保存在本地数据库。
 
 ---
 
@@ -63,7 +72,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.8
+    image: wangheqiang/health-dashboard:0.0.9
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -102,6 +111,15 @@ docker compose up -d
 
 启动完成后，打开浏览器访问：`http://<NAS或服务器IP>:8443`，立即体验！
 
+首次启动时服务端会自动生成面板访问密钥，保存在宿主机：
+
+```bash
+cat ./data/dashboard-access-token.txt
+```
+
+在登录页输入该密钥后才会加载健康数据。也可以在 Compose 中显式设置
+`DASHBOARD_ACCESS_TOKEN`。HAE Webhook 使用另一把独立密钥，不共用面板登录密钥。
+
 ---
 
 ## 📂 本地持久化文件全景 (NAS Directory Structure)
@@ -127,7 +145,7 @@ docker compose up -d
 系统启动后，在右上角进入 **设置中心 (Settings)** 即可直观配置各数据源：
 
 ### 1. iOS 苹果健康
-* **自动化无感上报**：在 iPhone 安装 *Health Auto Export* App，设置 REST API Webhook 地址为 `http://<你的IP>:8443/api/v1/hae/webhook`，填入面板生成的专属 API Key，每晚即可自动静默上报；
+* **自动化无感上报**：在 iPhone 安装 *Health Auto Export* App，设置 REST API Webhook 地址为 `http://<你的IP>:8443/api/v1/health-auto-export`，在 `X-Api-Key` Header 填入配置中心展示的专属 API Key；
 * **历史全量导入**：在 iPhone“健康”App 点击右上角头像 ➔“导出所有健康数据”➔ 将生成的 `导出.zip` 在看板设置页直接点击“导入苹果健康 ZIP 包”，数秒即可完整回溯多年历史！
 
 ### 2. Fitdays (沃莱) 智能体脂秤
@@ -216,7 +234,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.2
+    image: wangheqiang/health-dashboard:0.0.9
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -226,12 +244,13 @@ services:
     environment:
       DATABASE_URL: postgresql://health:HealthSecretPassword2026!@db:5432/health_dashboard
       APP_ENCRYPTION_KEY: efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a
+      DASHBOARD_ACCESS_TOKEN: ""
       PUBLIC_BASE_URL: ""
       TZ: Asia/Shanghai
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.2
+      APP_VERSION: 0.0.9
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -322,7 +341,8 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `0.0.2` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `0.0.9` | 当前发布的容器镜像版本号 |
+| `DASHBOARD_ACCESS_TOKEN` | 自动生成 | 面板业务 API 的 Bearer 访问密钥；留空时生成到 `data/dashboard-access-token.txt` |
 | `BACKUP_RETENTION_DAYS` | `365` | 本地原始备份（ZIP / gzip / FIT）滚动保留天数（默认 1 年） |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |
 | `TZ` | `Asia/Shanghai` | 系统与 Cron 调度时区 |
@@ -342,9 +362,11 @@ http://192.168.1.20:8443
 ```http
 # 获取当日全维度健康档案（三环、身体状态、心率、睡眠、体脂、运动明细）
 GET http://<NAS_IP>:8443/api/v1/dashboard
+Authorization: Bearer <data/dashboard-access-token.txt 中的密钥>
 
 # 按指定时间段过滤数据
 GET http://<NAS_IP>:8443/api/v1/dashboard?from=2026-10-01&to=2026-10-18
+Authorization: Bearer <data/dashboard-access-token.txt 中的密钥>
 ```
 
 **场景示例**：在 Dify / FastGPT 中添加 HTTP 工具，挂载该 API，即可让大模型轻松回答：“分析我最近一周的睡眠深度与心率负荷”、“我本周骑行与力量训练的卡路里总消耗是多少并给出补剂建议”。
@@ -374,7 +396,7 @@ GET http://<NAS_IP>:8443/api/v1/dashboard?from=2026-10-01&to=2026-10-18
 ## 路线图 (Roadmap)
 
 - [x] iOS 健康 App 官方 `导出.zip` 流式解析与本地持久化归档
-- [x] Fitdays 沃莱 8 电极体脂秤 8 维指标与 5 节段解剖肌脂分布
+- [x] Fitdays 沃莱体脂秤整身指标、同一天多次测量切换与实测历史趋势
 - [x] iGPSPORT 码表全量骑行活动、踏频、气压计爬升与原始 `.fit` 归档
 - [x] 全页面历史任意日期日历选择与全屏数据联动
 - [x] 交互折线图垂直十字探针与悬停数据标注
@@ -387,6 +409,7 @@ GET http://<NAS_IP>:8443/api/v1/dashboard?from=2026-10-01&to=2026-10-18
 ## 安全与隐私说明
 
 - **无外泄风险**：所有个人体征指标与运动轨迹仅存储于您自己的 PostgreSQL 数据库和本地归档目录。
+- **双层接口密钥**：面板业务 API 使用 Bearer 访问密钥，Health Auto Export Webhook 使用独立 `X-Api-Key`。
 - **敏感凭据加密**：三方数据源密码与 Webhook API Key 使用 `AES-256-GCM` 硬件级强加密落盘。
 - **开源安全发布**：发布版本默认 0 数据，不含任何内置账号密码或演示测试数据。
 

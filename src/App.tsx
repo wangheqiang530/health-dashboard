@@ -18,10 +18,11 @@ import { QuickMetricsGrid } from './components/dashboard/QuickMetricsGrid';
 import { AutoExportHubModal } from './components/dashboard/AutoExportHubModal';
 import { HAEImportModal } from './components/dashboard/HAEImportModal';
 import { EditModuleRibbon } from './components/dashboard/EditModuleRibbon';
-import { fetchDashboard } from './api/healthApi';
+import { clearAccessToken, fetchDashboard } from './api/healthApi';
 import { createEmptyDailySummary } from './utils/emptyData';
 import { OnboardingWizardModal } from './components/dashboard/OnboardingWizardModal';
 import { CrossDomainInsightsCard } from './components/dashboard/CrossDomainInsightsCard';
+import { AccessTokenGate } from './components/auth/AccessTokenGate';
 
 // 5 Dedicated Views for the 5 Tabs
 import { TrendsView } from './components/views/TrendsView';
@@ -293,6 +294,10 @@ function DashboardContent() {
           isEditingLayout={isEditingLayout}
           onToggleEditLayout={() => setIsEditingLayout((prev) => !prev)}
           onOpenWizard={() => setIsOnboardingOpen(true)}
+          onLogout={() => {
+            clearAccessToken();
+            window.dispatchEvent(new Event('health-dashboard:unauthorized'));
+          }}
         />
 
         {/* View Tabs Content */}
@@ -492,7 +497,11 @@ function DashboardContent() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <WorkoutsView days={daysData} currentDay={currentDay} />
+              <WorkoutsView
+                days={daysData}
+                currentDay={currentDay}
+                onRefreshData={() => void refreshDashboard(false)}
+              />
             </motion.div>
           )}
 
@@ -611,7 +620,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <CustomizationProvider>
-        <DashboardContent />
+        <AccessTokenGate>
+          <DashboardContent />
+        </AccessTokenGate>
       </CustomizationProvider>
     </ThemeProvider>
   );

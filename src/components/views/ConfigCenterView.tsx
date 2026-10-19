@@ -100,7 +100,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 </h2>
                 <span className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  API 状态: 在线 (200 OK)
+                  API 状态: {syncInfo.status === 'online' ? '在线' : syncInfo.status === 'syncing' ? '同步中' : '离线'}
                 </span>
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
@@ -592,7 +592,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                     导出大屏健康数据备份 (.json)
                   </h4>
                   <p className="text-[11px] text-neutral-400 mt-0.5">
-                    将当前收录的全部 8 天每日健康摘要、体脂与运动数据下载到本地
+                    将当前收录的 {Object.keys(days).length} 天每日健康摘要、体脂与运动数据下载到本地
                   </p>
                 </div>
               </div>

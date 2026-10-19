@@ -1,4 +1,4 @@
-import type { AutoExportSyncInfo, DailySummary } from '../types/health';
+import type { AutoExportSyncInfo, BodyMeasurement, DailySummary } from '../types/health';
 
 export interface DataSourceConfig {
   id: 'hae' | 'fitdays' | 'igpsport';
@@ -124,23 +124,81 @@ export interface SourceUpdatePayload {
   syncLimit?: number;
 }
 
+const ACCESS_TOKEN_KEY = 'health_dashboard_access_token';
+
+export const getAccessToken = (): string => {
+  try {
+    return sessionStorage.getItem(ACCESS_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
+export const setAccessToken = (token: string): void => {
+  try {
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
+  } catch {
+    // Session storage can be unavailable in restricted browser contexts.
+  }
+};
+
+export const clearAccessToken = (): void => {
+  try {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+};
+
+const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+  const token = getAccessToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return fetch(input, { ...init, headers }).then((response) => {
+    if (response.status === 401) {
+      window.dispatchEvent(new Event('health-dashboard:unauthorized'));
+    }
+    return response;
+  });
+};
+
+export async function verifyAccessToken(token: string): Promise<boolean> {
+  const response = await fetch('/api/v1/auth/verify', {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return response.ok;
+}
+
 const parseResponse = async <T>(response: Response): Promise<T> => {
   const body = (await response.json().catch(() => ({}))) as { error?: string } & T;
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('UNAUTHORIZED');
+    }
     throw new Error(body.error || `请求失败 (HTTP ${response.status})`);
   }
   return body;
 };
 
 export async function fetchDashboard(): Promise<DashboardResponse> {
-  const response = await fetch('/api/v1/dashboard', {
+  const response = await apiFetch('/api/v1/dashboard', {
     headers: { Accept: 'application/json' },
   });
   return parseResponse<DashboardResponse>(response);
 }
 
+export async function fetchBodyMeasurements(): Promise<{ measurements: BodyMeasurement[] }> {
+  const response = await apiFetch('/api/v1/body/measurements', {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse<{ measurements: BodyMeasurement[] }>(response);
+}
+
 export async function fetchBackendConfig(): Promise<BackendConfig> {
-  const response = await fetch('/api/v1/config', {
+  const response = await apiFetch('/api/v1/config', {
     headers: { Accept: 'application/json' },
   });
   return parseResponse<BackendConfig>(response);
@@ -150,7 +208,7 @@ export async function updateDataSource(
   sourceId: 'fitdays' | 'igpsport',
   payload: SourceUpdatePayload
 ): Promise<{ source: DataSourceConfig }> {
-  const response = await fetch(`/api/v1/config/sources/${sourceId}`, {
+  const response = await apiFetch(`/api/v1/config/sources/${sourceId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -165,7 +223,7 @@ export async function triggerSourceSync(
   sourceId: 'fitdays' | 'igpsport',
   full = false
 ): Promise<{ runId: string; status: 'running' }> {
-  const response = await fetch(`/api/v1/config/sources/${sourceId}/sync`, {
+  const response = await apiFetch(`/api/v1/config/sources/${sourceId}/sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -212,7 +270,7 @@ export async function triggerSyncAllDevices(): Promise<{
 export async function testDataSource(
   sourceId: 'hae' | 'fitdays' | 'igpsport'
 ): Promise<SourceTestResult> {
-  const response = await fetch(`/api/v1/config/sources/${sourceId}/test`, {
+  const response = await apiFetch(`/api/v1/config/sources/${sourceId}/test`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -227,7 +285,7 @@ export async function updateArchiveRetention(retentionDays: number): Promise<{
   retentionDays: number;
   storage: BackendConfig['storage'];
 }> {
-  const response = await fetch('/api/v1/config/storage', {
+  const response = await apiFetch('/api/v1/config/storage', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -239,7 +297,7 @@ export async function updateArchiveRetention(retentionDays: number): Promise<{
 }
 
 export async function fetchVersionInfo(): Promise<VersionInfo> {
-  const response = await fetch('/api/v1/version', {
+  const response = await apiFetch('/api/v1/version', {
     headers: { Accept: 'application/json' },
   });
   return parseResponse<VersionInfo>(response);
@@ -256,7 +314,7 @@ export async function importHaePayload(payload: unknown): Promise<{
   archivePath: string;
 }> {
   const config = await fetchBackendConfig();
-  const response = await fetch('/api/v1/health-auto-export', {
+  const response = await apiFetch('/api/v1/health-auto-export', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -280,7 +338,7 @@ export async function importAppleHealthZip(file: File): Promise<{
   const formData = new FormData();
   formData.append('file', file, file.name);
 
-  const response = await fetch('/api/v1/config/import/apple-health-zip', {
+  const response = await apiFetch('/api/v1/config/import/apple-health-zip', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -291,22 +349,40 @@ export async function importAppleHealthZip(file: File): Promise<{
 }
 
 export async function deleteArchiveFile(archiveId: string): Promise<{ ok: true; deletedArchiveId: string }> {
-  const response = await fetch(`/api/v1/config/archives/${archiveId}`, {
+  const response = await apiFetch(`/api/v1/config/archives/${archiveId}`, {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });
   return parseResponse(response);
 }
 
+export async function downloadArchiveFile(
+  archiveId: string
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await apiFetch(`/api/v1/config/archives/${archiveId}/download`, {
+    headers: { Accept: 'application/octet-stream' },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(response.status === 401 ? 'UNAUTHORIZED' : body.error || '下载备份失败');
+  }
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return {
+    blob: await response.blob(),
+    filename: match?.[1] || `health-dashboard-${archiveId}`,
+  };
+}
+
 export async function fetchSystemLogs(): Promise<{ lines: string[]; totalBytes: number; logFilePath: string }> {
-  const response = await fetch('/api/v1/config/logs', {
+  const response = await apiFetch('/api/v1/config/logs', {
     headers: { Accept: 'application/json' },
   });
   return parseResponse(response);
 }
 
 export async function clearSystemLogs(): Promise<{ ok: boolean }> {
-  const response = await fetch('/api/v1/config/logs', {
+  const response = await apiFetch('/api/v1/config/logs', {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   });
@@ -323,7 +399,7 @@ export async function uploadFitFile(file: File): Promise<{
   const formData = new FormData();
   formData.append('file', file, file.name);
 
-  const response = await fetch('/api/v1/workouts/upload-fit', {
+  const response = await apiFetch('/api/v1/workouts/upload-fit', {
     method: 'POST',
     headers: { Accept: 'application/json' },
     body: formData,

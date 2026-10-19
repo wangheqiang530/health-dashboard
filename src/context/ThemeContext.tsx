@@ -54,9 +54,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (resolvedTheme === 'dark') {
       root.classList.add('dark');
       root.classList.remove('light');
+      root.style.colorScheme = 'dark';
     } else {
       root.classList.add('light');
       root.classList.remove('dark');
+      root.style.colorScheme = 'light';
     }
     try {
       localStorage.setItem('apple_health_theme_mode', themeMode);

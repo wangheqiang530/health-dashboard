@@ -14,12 +14,12 @@ export interface ActivityRings {
 
 export interface VitalityScore {
   score: number;         // 0 - 100
-  label: '优异' | '良好' | '充沛' | '轻度疲倦' | '需休整';
+  label: '优异' | '良好' | '充沛' | '轻度疲倦' | '需休整' | '数据不足';
   statusDescription: string;
-  hrvStatus: '高于基线' | '正常基线' | '低于基线';
+  hrvStatus: '高于基线' | '正常基线' | '低于基线' | '数据不足';
   restingHrDiff: number;
   sleepContribution: number;
-  stressLevel: '低压力' | '适中' | '偏高';
+  stressLevel: '低压力' | '适中' | '偏高' | '数据不足';
 }
 
 export interface SleepStageSegment {
@@ -100,6 +100,7 @@ export interface WorkoutRecord {
   id: string;
   name: string;
   category: 'running' | 'cycling' | 'strength' | 'hiit' | 'walking' | 'swimming';
+  source?: 'hae' | 'igpsport' | 'fit';
   date?: string;
   startTime: string;
   durationMinutes: number;
@@ -143,6 +144,33 @@ export interface BodyComposition {
   proteinPercent?: number;
   bodyAge?: number;
   bodyScore?: number;
+  measurementId?: string;
+  measuredAt?: string;
+  measuredDate?: string;
+}
+
+export interface BodyMeasurement {
+  id: string;
+  measuredAt: string;
+  measuredDate: string;
+  weightKg: number | null;
+  bmi: number | null;
+  bodyFatPercent: number | null;
+  skeletalMuscleKg: number | null;
+  skeletalMusclePercent: number | null;
+  musclePercent: number | null;
+  leanMassKg: number | null;
+  visceralFatLevel: number | null;
+  waterPercent: number | null;
+  boneMassKg: number | null;
+  bmrKcal: number | null;
+  subcutaneousFatPercent: number | null;
+  proteinPercent: number | null;
+  bodyAge: number | null;
+  heartRate: number | null;
+  bodyScore: number | null;
+  smi: number | null;
+  whr: number | null;
 }
 
 export interface MobilityAndGait {

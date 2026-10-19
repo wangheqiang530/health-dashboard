@@ -25,11 +25,12 @@ import {
 interface WorkoutsViewProps {
   days: Record<string, DailySummary>;
   currentDay: DailySummary;
+  onRefreshData: () => void;
 }
 
 type TimeRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
-export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
+export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days, currentDay, onRefreshData }) => {
   const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
   const [filterCategory, setFilterCategory] = useState<'all' | 'cycling' | 'strength' | 'walking'>('all');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
@@ -46,6 +47,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
     try {
       const res = await uploadFitFile(file);
       setFitUploadMessage(res.message);
+      onRefreshData();
       setTimeout(() => setFitUploadMessage(null), 4000);
     } catch (err) {
       setFitUploadMessage(`上传失败: ${err instanceof Error ? err.message : String(err)}`);
@@ -66,7 +68,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
     return w.category === filterCategory;
   });
 
-  const latestDate = Object.keys(days).sort().slice(-1)[0] || '2026-10-17';
+  const latestDate = Object.keys(days).sort().slice(-1)[0] || currentDay.date;
   const getCutoffDate = (daysAgo: number) => {
     const d = new Date(latestDate + 'T12:00:00+08:00');
     d.setDate(d.getDate() - daysAgo);
@@ -78,29 +80,38 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
     if (selectedRange === 'week') return wDate >= getCutoffDate(7);
     if (selectedRange === 'month') return wDate >= getCutoffDate(30);
     if (selectedRange === 'quarter') return wDate >= getCutoffDate(90);
-    if (selectedRange === 'year') return wDate >= '2026-01-01';
+    if (selectedRange === 'year') return wDate >= `${latestDate.slice(0, 4)}-01-01`;
     return true;
   });
 
-  const rangeWorkouts = rangeFilteredWorkouts.length > 0 ? rangeFilteredWorkouts : allWorkouts;
+  const rangeWorkouts = rangeFilteredWorkouts;
 
   const totalKcal = rangeWorkouts.reduce((acc, cur) => acc + (cur.activeCalories || 0), 0);
   const totalCyclingKm = rangeWorkouts
     .filter((w) => w.category === 'cycling')
     .reduce((acc, cur) => acc + (cur.distanceKm || 0), 0)
     .toFixed(1);
+  const totalCyclingMinutes = rangeWorkouts
+    .filter((w) => w.category === 'cycling')
+    .reduce((acc, cur) => acc + (cur.durationMinutes || 0), 0);
   const totalDurationMinutes = rangeWorkouts.reduce((acc, cur) => acc + (cur.durationMinutes || 0), 0);
   const totalElevationGain = rangeWorkouts.reduce((acc, cur) => acc + (cur.elevationGainM || 0), 0);
+  const heartRateWorkouts = rangeWorkouts.filter((w) => w.avgHeartRate > 0);
   const avgHeartRate =
-    rangeWorkouts.filter((w) => w.avgHeartRate > 0).length > 0
+    heartRateWorkouts.length > 0
       ? Math.round(
-          rangeWorkouts.reduce((acc, cur) => acc + (cur.avgHeartRate || 0), 0) /
-            rangeWorkouts.filter((w) => w.avgHeartRate > 0).length
+          heartRateWorkouts.reduce((acc, cur) => acc + cur.avgHeartRate, 0) /
+            heartRateWorkouts.length
         )
-      : 124;
+      : 0;
   const maxHeartRate =
-    rangeWorkouts.length > 0 ? Math.max(...rangeWorkouts.map((w) => w.maxHeartRate || 0)) : 172;
-  const estimatedFatBurnedG = Math.round(totalKcal / 7.7);
+    rangeWorkouts.length > 0
+      ? Math.max(...rangeWorkouts.map((w) => w.maxHeartRate || 0))
+      : 0;
+  const averageCyclingSpeed =
+    totalCyclingMinutes > 0 && Number(totalCyclingKm) > 0
+      ? (Number(totalCyclingKm) / (totalCyclingMinutes / 60)).toFixed(1)
+      : null;
   const periodFood = getCalorieFoodEquivalents(totalKcal);
 
   const rangeConfig: Record<TimeRange, { label: string; workoutsCount: number }> = {
@@ -186,7 +197,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
               </span>
               <span className="text-[10px] text-neutral-400">kcal</span>
             </div>
-            <span className="text-[10px] text-emerald-500 mt-1 block font-medium">燃脂 ≈ {estimatedFatBurnedG}g</span>
+            <span className="text-[10px] text-neutral-400 mt-1 block font-medium">
+              {rangeWorkouts.length > 0 ? `${rangeWorkouts.length} 场训练累计` : '当前周期无训练记录'}
+            </span>
             <span className="text-[10px] text-amber-400 mt-0.5 truncate block font-sans" title={`等效食物: ≈ ${periodFood.description}`}>
               ≈ {periodFood.emojis} {periodFood.description}
             </span>
@@ -203,7 +216,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
               </span>
               <span className="text-[10px] text-neutral-400">km</span>
             </div>
-            <span className="text-[10px] text-teal-400 mt-1 block font-medium">均速 28.3 km/h</span>
+            <span className="text-[10px] text-teal-400 mt-1 block font-medium">
+              {averageCyclingSpeed ? `均速 ${averageCyclingSpeed} km/h` : '暂无骑行速度数据'}
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
@@ -227,7 +242,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-amber-500 font-mono">
-                {totalElevationGain}
+                {totalElevationGain > 0 ? totalElevationGain : '—'}
               </span>
               <span className="text-[10px] text-neutral-400">m</span>
             </div>
@@ -241,11 +256,13 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-rose-500 dark:text-rose-400 font-mono">
-                {avgHeartRate}
+                {avgHeartRate > 0 ? avgHeartRate : '—'}
               </span>
               <span className="text-[10px] text-neutral-400">bpm</span>
             </div>
-            <span className="text-[10px] text-emerald-500 mt-1 block font-medium">Zone 2 有氧燃脂</span>
+            <span className="text-[10px] text-neutral-400 mt-1 block font-medium">
+              {avgHeartRate > 0 ? '训练平均心率实测' : '暂无心率数据'}
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
@@ -255,11 +272,13 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white font-mono">
-                {maxHeartRate}
+                {maxHeartRate > 0 ? maxHeartRate : '—'}
               </span>
               <span className="text-[10px] text-neutral-400">bpm</span>
             </div>
-            <span className="text-[10px] text-neutral-400 mt-1 block">乳酸阈值冲刺</span>
+            <span className="text-[10px] text-neutral-400 mt-1 block">
+              {maxHeartRate > 0 ? '训练峰值心率实测' : '暂无心率数据'}
+            </span>
           </div>
         </div>
       </AppleCard>
@@ -331,10 +350,15 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
 
         {/* Workouts Feed: Hover expands drawer, click opens full modal */}
         <div className="space-y-3">
+          {filtered.length === 0 && (
+            <div className="py-10 text-center text-sm text-neutral-400">
+              当前筛选条件下暂无运动记录。
+            </div>
+          )}
           {filtered.map((w) => {
             const Icon = getCategoryIcon(w.category);
             const isHovered = hoveredWorkoutId === w.id;
-            const isIgpsport = w.id.startsWith('igpsport') || w.category === 'cycling';
+            const isIgpsport = w.source === 'igpsport' || w.id.startsWith('igpsport');
             const food = getCalorieFoodEquivalents(w.activeCalories);
 
             return (
@@ -387,7 +411,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {w.date || (w.id.startsWith('w-') ? w.id.slice(2, 12) : '')}
+                          {w.date || '—'}
                         </span>
                         <span>•</span>
                         <span>{w.startTime}</span>
@@ -412,7 +436,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       </div>
                       <div className="flex items-center gap-1 justify-end text-xs text-neutral-400 mt-0.5">
                         <Heart className="w-3 h-3 text-rose-500" />
-                        <span>均心率 {w.avgHeartRate} bpm</span>
+                        <span>均心率 {w.avgHeartRate > 0 ? `${w.avgHeartRate} bpm` : '—'}</span>
                       </div>
                     </div>
 
@@ -435,12 +459,14 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-2">
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
                           <span className="text-neutral-400 block text-[10px]">峰值心率</span>
-                          <span className="font-bold text-rose-500 font-mono text-sm">{w.maxHeartRate} bpm</span>
+                          <span className="font-bold text-rose-500 font-mono text-sm">{w.maxHeartRate > 0 ? `${w.maxHeartRate} bpm` : '—'}</span>
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
                           <span className="text-neutral-400 block text-[10px]">平均速度 / 配速</span>
                           <span className="font-bold text-neutral-900 dark:text-white font-mono text-sm">
-                            {w.category === 'cycling' ? `${((w.distanceKm || 1) / (w.durationMinutes / 60)).toFixed(1)} km/h` : w.paceAvg || '5\'15"'}
+                            {w.category === 'cycling' && w.distanceKm && w.durationMinutes > 0
+                              ? `${(w.distanceKm / (w.durationMinutes / 60)).toFixed(1)} km/h`
+                              : w.paceAvg || '—'}
                           </span>
                         </div>
                         <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
@@ -450,11 +476,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                           <span className="font-bold text-[#A1FF00] font-mono text-sm flex items-center gap-1">
                             {w.cadenceAvg
                               ? `${w.cadenceAvg} ${w.category === 'cycling' ? 'rpm' : 'spm'}`
-                              : w.category === 'cycling'
-                                ? '84 rpm'
-                                : w.category === 'strength'
-                                  ? '综合肌群'
-                                  : '-'}
+                              : '—'}
                             {w.avgPower && <span className="text-amber-400 font-normal text-xs">({w.avgPower}W)</span>}
                           </span>
                         </div>
@@ -469,13 +491,17 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
                       {/* Heart Rate Zones Mini Bar */}
                       <div className="flex items-center gap-2 text-[10px] text-neutral-400 pt-1">
                         <span>心率区间:</span>
-                        <div className="flex-1 h-2 rounded-full overflow-hidden flex bg-white/10">
-                          <div style={{ width: `${w.hrZones.zone1}%` }} className="h-full bg-sky-400" title="Zone 1" />
-                          <div style={{ width: `${w.hrZones.zone2}%` }} className="h-full bg-emerald-400" title="Zone 2" />
-                          <div style={{ width: `${w.hrZones.zone3}%` }} className="h-full bg-yellow-400" title="Zone 3" />
-                          <div style={{ width: `${w.hrZones.zone4}%` }} className="h-full bg-orange-400" title="Zone 4" />
-                          <div style={{ width: `${w.hrZones.zone5}%` }} className="h-full bg-rose-500" title="Zone 5" />
-                        </div>
+                        {Object.values(w.hrZones).some((value) => value > 0) ? (
+                          <div className="flex-1 h-2 rounded-full overflow-hidden flex bg-white/10">
+                            <div style={{ width: `${w.hrZones.zone1}%` }} className="h-full bg-sky-400" title="Zone 1" />
+                            <div style={{ width: `${w.hrZones.zone2}%` }} className="h-full bg-emerald-400" title="Zone 2" />
+                            <div style={{ width: `${w.hrZones.zone3}%` }} className="h-full bg-yellow-400" title="Zone 3" />
+                            <div style={{ width: `${w.hrZones.zone4}%` }} className="h-full bg-orange-400" title="Zone 4" />
+                            <div style={{ width: `${w.hrZones.zone5}%` }} className="h-full bg-rose-500" title="Zone 5" />
+                          </div>
+                        ) : (
+                          <span className="flex-1">未提供心率区间明细</span>
+                        )}
                         <span className="text-amber-500 font-bold">点击打开完整体能报告 ➔</span>
                       </div>
                     </motion.div>

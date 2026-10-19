@@ -13,6 +13,7 @@ interface DailyRow {
 }
 
 interface BodyRow {
+  id: string;
   measured_date: string;
   measured_at: Date;
   weight_kg: string | null;
@@ -48,6 +49,10 @@ interface CyclingRow {
   calories: string | null;
   local_date: string;
   local_start_time: string;
+  raw_record: {
+    heartRateZones?: WorkoutRecord['hrZones'];
+    routePoints?: Array<{ lat: number; lon: number }>;
+  };
 }
 
 interface HaeStatusRow {
@@ -69,15 +74,15 @@ const buildBodyComposition = (
   const leanMass = numberOrNull(latest.lean_body_mass_kg) ?? weight * (1 - bodyFat / 100);
   const bmi = numberOrNull(latest.bmi) ?? current.bmi;
   const skeletalMuscleRate =
-    numberOrNull(latest.skeletal_muscle_rate) ?? current.skeletalMusclePercent ?? 44.1;
+    numberOrNull(latest.skeletal_muscle_rate) ?? current.skeletalMusclePercent ?? 0;
   const skeletalMuscleKg = Number((weight * (skeletalMuscleRate / 100)).toFixed(2));
-  const waterRate = numberOrNull(latest.water_rate) ?? current.waterPercent ?? 56.8;
-  const visceralFat = numberOrNull(latest.visceral_fat_level) ?? current.visceralFatLevel ?? 7;
-  const bmr = numberOrNull(latest.bmr_kcal) ?? current.bmrKcal ?? 1780;
-  const boneMass = numberOrNull(latest.bone_mass_kg) ?? current.boneMassKg ?? 3.65;
-  const proteinRate = numberOrNull(latest.protein_rate) ?? current.proteinPercent ?? 18.4;
-  const bodyAge = latest.body_age ?? current.bodyAge ?? 28;
-  const bodyScore = numberOrNull(latest.score) ?? current.bodyScore ?? 76;
+  const waterRate = numberOrNull(latest.water_rate) ?? current.waterPercent ?? 0;
+  const visceralFat = numberOrNull(latest.visceral_fat_level) ?? current.visceralFatLevel ?? 0;
+  const bmr = numberOrNull(latest.bmr_kcal) ?? current.bmrKcal ?? 0;
+  const boneMass = numberOrNull(latest.bone_mass_kg) ?? current.boneMassKg ?? 0;
+  const proteinRate = numberOrNull(latest.protein_rate) ?? current.proteinPercent ?? 0;
+  const bodyAge = latest.body_age ?? current.bodyAge ?? 0;
+  const bodyScore = numberOrNull(latest.score) ?? current.bodyScore ?? 0;
 
   return {
     weightKg: Number(weight.toFixed(2)),
@@ -94,19 +99,26 @@ const buildBodyComposition = (
     proteinPercent: Number(proteinRate.toFixed(1)),
     bodyAge,
     bodyScore,
+    measurementId: latest.id,
+    measuredAt: latest.measured_at.toISOString(),
+    measuredDate: latest.measured_date,
     statusLabel:
-      bodyFat < 20
+      weight <= 0 || bodyFat <= 0
+        ? '等待体测数据'
+        : bodyFat < 20
         ? '体型精壮 · 骨骼肌卓越'
         : bodyFat <= 24
           ? '健康标准 · 骨骼肌充沛'
           : '肌肉型超重',
     trend:
       trendRows.length > 0
-        ? trendRows.map((row) => ({
-            date: row.measured_date.slice(5),
-            weight: numberOrNull(row.weight_kg) ?? 0,
-            bodyFat: numberOrNull(row.body_fat_rate) ?? 0,
-          }))
+        ? trendRows
+            .filter((row) => row.weight_kg !== null && row.body_fat_rate !== null)
+            .map((row) => ({
+              date: row.measured_date.slice(5),
+              weight: numberOrNull(row.weight_kg) ?? 0,
+              bodyFat: numberOrNull(row.body_fat_rate) ?? 0,
+            }))
         : current.trend,
   };
 };
@@ -117,6 +129,7 @@ const timeToMinutes = (value: string): number => {
 };
 
 const cyclingToWorkout = (row: CyclingRow): WorkoutRecord => {
+  const isFitImport = row.external_id.startsWith('fit-');
   const activeCalories = Math.round(numberOrNull(row.calories) || 0);
   const durationSeconds =
     row.moving_time_sec ||
@@ -126,14 +139,15 @@ const cyclingToWorkout = (row: CyclingRow): WorkoutRecord => {
   const avgSpeedKmh = numberOrNull(row.avg_speed_kmh);
 
   return {
-    id: `igpsport-${row.external_id}`,
+    id: isFitImport ? row.external_id : `igpsport-${row.external_id}`,
     name: row.title,
     category: 'cycling',
+    source: isFitImport ? 'fit' : 'igpsport',
     date: row.local_date,
     startTime: row.local_start_time,
     durationMinutes,
     activeCalories,
-    totalCalories: Math.round(activeCalories * 1.08),
+    totalCalories: activeCalories,
     avgHeartRate: row.avg_heart_rate || 0,
     maxHeartRate: row.max_heart_rate || 0,
     distanceKm,
@@ -144,7 +158,14 @@ const cyclingToWorkout = (row: CyclingRow): WorkoutRecord => {
         : undefined,
     cadenceAvg: row.avg_cadence || undefined,
     elevationGainM: Math.round(numberOrNull(row.ascent_m) || 0) || undefined,
-    hrZones: { zone1: 15, zone2: 40, zone3: 30, zone4: 12, zone5: 3 },
+    hrZones: row.raw_record?.heartRateZones || {
+      zone1: 0,
+      zone2: 0,
+      zone3: 0,
+      zone4: 0,
+      zone5: 0,
+    },
+    routeGpxPoints: row.raw_record?.routePoints,
   };
 };
 
@@ -194,6 +215,7 @@ export async function getDashboardData(options: {
   const lastDay = dailyRows.rows[dailyRows.rows.length - 1].day;
   const bodyRows = await pool.query<BodyRow>(
     `SELECT
+       id::text,
        to_char(measured_date, 'YYYY-MM-DD') AS measured_date,
        measured_at, weight_kg, bmi, body_fat_rate, lean_body_mass_kg,
        skeletal_muscle_rate, muscle_rate, visceral_fat_level, water_rate,
@@ -208,6 +230,7 @@ export async function getDashboardData(options: {
        external_id, title, device, started_at, ended_at, moving_time_sec, distance_km,
        avg_speed_kmh, avg_heart_rate, max_heart_rate, avg_cadence, avg_power, max_power, ascent_m,
        calories,
+       raw_record,
        to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS local_date,
        to_char(started_at AT TIME ZONE $3, 'HH24:MI') AS local_start_time
      FROM cycling_activities

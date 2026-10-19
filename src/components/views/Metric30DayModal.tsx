@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 export interface Metric30DayModalData {
   title: string;
@@ -17,6 +18,8 @@ interface Metric30DayModalProps {
 }
 
 export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClose }) => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   if (!data) return null;
 
   const pts = data.points;
@@ -49,12 +52,20 @@ export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClos
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 16 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl apple-glass-dark p-6 md:p-8 z-10 border border-white/10 shadow-2xl text-white"
+          className={`relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 md:p-8 z-10 border shadow-2xl backdrop-blur-2xl ${
+            isDark
+              ? 'bg-[#11141b]/95 border-white/10 text-white'
+              : 'bg-white/95 border-black/10 text-neutral-900'
+          }`}
         >
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition-all cursor-pointer"
+            className={`absolute top-5 right-5 p-2 rounded-full transition-all cursor-pointer ${
+              isDark
+                ? 'bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white'
+                : 'bg-black/5 hover:bg-black/10 text-neutral-500 hover:text-neutral-900'
+            }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -65,7 +76,7 @@ export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClos
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold tracking-tight text-white mb-1">
+          <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1">
             {data.title} · 最近 30 日连续走势
           </h2>
           <div className="flex items-baseline gap-2 mb-4">
@@ -75,7 +86,9 @@ export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClos
           </div>
 
           {/* 30-Day SVG Spline Chart */}
-          <div className="h-44 w-full bg-black/40 rounded-2xl p-3 border border-white/10 mb-5 relative overflow-hidden">
+          <div className={`h-44 w-full rounded-2xl p-3 border mb-5 relative overflow-hidden ${
+            isDark ? 'bg-black/40 border-white/10' : 'bg-black/[0.03] border-black/5'
+          }`}>
             <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full overflow-visible">
               <defs>
                 <linearGradient id="modal30Grad" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -90,37 +103,37 @@ export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClos
               ))}
             </svg>
             <div className="flex justify-between items-center text-[10px] text-neutral-400 font-mono mt-1 px-2">
-              <span>30天前 ({data.points[0]?.date})</span>
-              <span>15天前</span>
-              <span>今天 ({data.points[data.points.length - 1]?.date})</span>
+              <span>最早 ({data.points[0]?.date})</span>
+              <span>共 {data.points.length} 次实测</span>
+              <span>最新 ({data.points[data.points.length - 1]?.date})</span>
             </div>
           </div>
 
           {/* 30-Day Statistics Grid */}
           <div className="grid grid-cols-3 gap-3 mb-4 text-xs">
-            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
-              <span className="text-[10px] text-neutral-400 block mb-1">30日均值</span>
-              <span className="text-base font-bold text-white font-mono">
+            <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/[0.05]">
+              <span className="text-[10px] text-neutral-400 block mb-1">实测均值</span>
+              <span className="text-base font-bold text-neutral-900 dark:text-white font-mono">
                 {(data.points.reduce((a, b) => a + b.value, 0) / data.points.length).toFixed(1)} {data.unit}
               </span>
             </div>
-            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
-              <span className="text-[10px] text-neutral-400 block mb-1">30日最高</span>
-              <span className="text-base font-bold text-white font-mono">
+            <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/[0.05]">
+              <span className="text-[10px] text-neutral-400 block mb-1">最高记录</span>
+              <span className="text-base font-bold text-neutral-900 dark:text-white font-mono">
                 {max} {data.unit}
               </span>
             </div>
-            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.05]">
-              <span className="text-[10px] text-neutral-400 block mb-1">30日最低</span>
-              <span className="text-base font-bold text-white font-mono">
+            <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/[0.05]">
+              <span className="text-[10px] text-neutral-400 block mb-1">最低记录</span>
+              <span className="text-base font-bold text-neutral-900 dark:text-white font-mono">
                 {min} {data.unit}
               </span>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.05] text-[11px] text-neutral-300">
-            <span className="font-semibold text-white block mb-0.5">参考标准评估与医学建议</span>
-            <span>{data.standard}。当前指标长期保持高度稳定，与高强度运动及规律作息完美正相关。</span>
+          <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/[0.05] text-[11px] text-neutral-600 dark:text-neutral-300">
+            <span className="font-semibold text-neutral-900 dark:text-white block mb-0.5">数据说明</span>
+            <span>{data.standard}。趋势仅来自体脂秤实测记录，不包含推断或补齐数据。</span>
           </div>
         </motion.div>
       </div>

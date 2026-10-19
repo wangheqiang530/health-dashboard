@@ -14,6 +14,9 @@ importers:
       '@fastify/static':
         specifier: ^10.1.6
         version: 10.1.6
+      '@garmin/fitsdk':
+        specifier: 21.218.0
+        version: 21.218.0
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
@@ -293,6 +296,9 @@ packages:
 
   '@fastify/static@10.1.6':
     resolution: {integrity: sha512-f3x9XisI+y6AIhIfA/+Q3SFsuXeqNNk5HQh5htgHsPxmMLb4pLFskV6eFaLSW3IbI4azrS5np+/tkzXNH99LyQ==}
+
+  '@garmin/fitsdk@21.218.0':
+    resolution: {integrity: sha512-Jbhedp3AJ/xJBSuiPBlPpwH5QISXd+GYtfnAUZ3u68hUqkzHiRWUhla8xj4tW/05w6gKsErEt+7GQCFap+a2kQ==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1436,6 +1442,8 @@ snapshots:
       fastify-plugin: 6.0.1
       fastq: 1.20.3
       glob: 13.0.6
+
+  '@garmin/fitsdk@21.218.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

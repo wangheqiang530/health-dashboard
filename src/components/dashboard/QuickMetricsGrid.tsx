@@ -9,7 +9,8 @@ interface QuickMetricsGridProps {
 
 export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) => {
   const { steps, vitals, mindfulMinutes } = summary;
-  const stepPercent = Math.min(Math.round((steps.count / steps.goal) * 100), 150);
+  const stepPercent =
+    steps.goal > 0 ? Math.min(Math.round((steps.count / steps.goal) * 100), 150) : 0;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -24,10 +25,10 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {steps.count.toLocaleString()}
+            {steps.count > 0 ? steps.count.toLocaleString() : '—'}
           </div>
           <div className="text-[11px] text-neutral-400 mt-0.5">
-            {steps.distanceKm} 公里
+            {steps.distanceKm > 0 ? `${steps.distanceKm} 公里` : '暂无距离数据'}
           </div>
         </div>
         <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full mt-3 overflow-hidden">
@@ -49,10 +50,10 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {vitals.spo2}%
+            {vitals.spo2 > 0 ? `${vitals.spo2}%` : '—'}
           </div>
           <div className="text-[11px] text-emerald-400 mt-0.5 font-medium">
-            含氧充足正常
+            {vitals.spo2 > 0 ? 'Apple Health 实测均值' : '等待血氧数据'}
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
@@ -71,14 +72,16 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {vitals.wristTemperatureDiff > 0 ? `+${vitals.wristTemperatureDiff}` : vitals.wristTemperatureDiff}°C
+            {vitals.wristTemperatureAbs
+              ? `${vitals.wristTemperatureAbs}°C`
+              : '—'}
           </div>
           <div className="text-[11px] text-teal-400 mt-0.5 font-medium">
-            基线平稳无波动
+            {vitals.wristTemperatureAbs ? '睡眠腕温实测值' : '等待腕温数据'}
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
-          相对基线温度
+          Apple Watch 睡眠腕温
         </div>
       </AppleCard>
 
@@ -93,10 +96,10 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {vitals.vo2Max}
+            {vitals.vo2Max ?? '—'}
           </div>
           <div className="text-[11px] text-indigo-300 mt-0.5 font-medium">
-            高于平均水平
+            {vitals.vo2Max ? 'Apple Health 实测记录' : '等待 VO2 Max 数据'}
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
@@ -115,14 +118,17 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {steps.flightsClimbed} <span className="text-sm font-normal text-neutral-400">层</span>
+            {steps.flightsClimbed > 0 ? steps.flightsClimbed : '—'}{' '}
+            <span className="text-sm font-normal text-neutral-400">层</span>
           </div>
           <div className="text-[11px] text-emerald-400 mt-0.5 font-medium">
-            超日常 10 层
+            {steps.flightsClimbed > 0 ? 'Apple Health 爬楼记录' : '等待爬楼数据'}
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
-          ≈ {Math.round((steps.flightsClimbed || 0) * 3)} 米海拔升降
+          {steps.flightsClimbed > 0
+            ? `≈ ${Math.round(steps.flightsClimbed * 3)} 米海拔升降`
+            : '暂无爬楼数据'}
         </div>
       </AppleCard>
 
@@ -137,14 +143,15 @@ export const QuickMetricsGrid: React.FC<QuickMetricsGridProps> = ({ summary }) =
         </div>
         <div>
           <div className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {mindfulMinutes} <span className="text-sm font-normal text-neutral-400">分钟</span>
+            {mindfulMinutes > 0 ? mindfulMinutes : '—'}{' '}
+            <span className="text-sm font-normal text-neutral-400">分钟</span>
           </div>
           <div className="text-[11px] text-purple-300 mt-0.5 font-medium">
-            心率趋于舒缓
+            {mindfulMinutes > 0 ? 'Apple Health 正念记录' : '等待正念数据'}
           </div>
         </div>
         <div className="text-[10px] text-neutral-500 mt-3">
-          心率平均 62 bpm
+          来自正念会话累计
         </div>
       </AppleCard>
     </div>

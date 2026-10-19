@@ -14,9 +14,10 @@ interface WorkoutDetailModalProps {
 export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout, onClose }) => {
   if (!workout) return null;
 
-  const isIgpsport = workout.id.startsWith('igpsport') || workout.category === 'cycling';
+  const isIgpsport = workout.source === 'igpsport' || workout.id.startsWith('igpsport');
   const foodEquiv = getCalorieFoodEquivalents(workout.activeCalories);
-  const hasGpsOrCycling = Boolean(workout.routeGpxPoints?.length || workout.category === 'cycling' || workout.distanceKm);
+  const hasRoute = Boolean(workout.routeGpxPoints?.length);
+  const hasHrZones = Object.values(workout.hrZones).some((value) => value > 0);
 
   return (
     <AnimatePresence>
@@ -50,7 +51,11 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
           <div className="mb-6">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-[#A1FF00] tracking-wider uppercase">
-                {isIgpsport ? 'iGPSPORT 迹驰码表训练记录' : 'Apple Watch 运动体能记录'}
+                {isIgpsport
+                  ? 'iGPSPORT 迹驰码表训练记录'
+                  : workout.source === 'fit'
+                    ? 'FIT 文件导入记录'
+                    : 'Apple Health 运动记录'}
               </span>
               <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                 isIgpsport
@@ -67,16 +72,16 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               <span>开始时间: {workout.startTime}</span>
               <span>•</span>
               <span>时长: {workout.durationMinutes} 分钟</span>
-              {hasGpsOrCycling && (
+              {hasRoute && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  附 GPS 运动轨迹与全回放
+                  附 GPS 轨迹
                 </span>
               )}
             </div>
           </div>
 
           {/* GPS Trail Map & Live Playback Component */}
-          {hasGpsOrCycling && (
+          {hasRoute && (
             <div className="mb-6">
               <WorkoutRoutePlayback workout={workout} />
             </div>
@@ -135,12 +140,12 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/[0.06]">
                 <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   <Gauge className="w-4 h-4 text-[#A1FF00]" />
-                  <span>平均速度 / 配速</span>
+                  <span>{workout.category === 'cycling' ? '平均速度' : '平均配速'}</span>
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-extrabold text-neutral-900 dark:text-white">
                     {workout.category === 'cycling'
-                      ? workout.paceAvg || (workout.distanceKm && workout.durationMinutes > 0
+                      ? (workout.distanceKm && workout.durationMinutes > 0
                           ? `${(workout.distanceKm / (workout.durationMinutes / 60)).toFixed(1)} km/h`
                           : '-')
                       : workout.paceAvg || '-'}
@@ -188,11 +193,13 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-extrabold text-neutral-900 dark:text-white">
-                    {workout.avgPower || 195}
+                    {workout.avgPower ?? '—'}
                   </span>
                   <span className="text-xs text-neutral-400">W</span>
                 </div>
-                <span className="text-[10px] text-neutral-400 dark:text-neutral-500">TSS: {workout.tss || 42}</span>
+                <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
+                  TSS: {workout.tss ?? '—'}
+                </span>
               </div>
             )}
           </div>
@@ -202,6 +209,7 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
             <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-3">
               心率区间分布 (Apple Fitness Heart Rate Zones)
             </h4>
+            {hasHrZones ? (
             <div className="space-y-2">
               {[
                 { zone: '区间 1', name: '热身 / 恢复', pct: workout.hrZones.zone1, color: '#38BDF8' },
@@ -223,6 +231,9 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                 </div>
               ))}
             </div>
+            ) : (
+              <p className="text-xs text-neutral-400">当前记录未提供心率区间明细。</p>
+            )}
           </div>
 
           {/* Coggan 7-Zone Power Distribution for Cycling Workouts */}
@@ -233,31 +244,13 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                   <Zap className="w-3.5 h-3.5 text-amber-400" />
                   <span>Coggan 经典功率区间 (Power Zones Z1 ~ Z7)</span>
                 </h4>
-                <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono">FTP 基准: 220W · NP: {workout.normalizedPower || 205}W</span>
+                <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono">
+                  NP: {workout.normalizedPower ? `${workout.normalizedPower}W` : '—'}
+                </span>
               </div>
-              <div className="space-y-2">
-                {[
-                  { zone: 'Z1', name: '主动恢复 (<55%)', pct: 12, color: '#94A3B8' },
-                  { zone: 'Z2', name: '有氧耐力 (56-75%)', pct: 38, color: '#38BDF8' },
-                  { zone: 'Z3', name: '节奏区间 (76-90%)', pct: 26, color: '#4ADE80' },
-                  { zone: 'Z4', name: '乳酸阈值 (91-105%)', pct: 14, color: '#FACC15' },
-                  { zone: 'Z5', name: '最大摄氧量 (106-120%)', pct: 6, color: '#FB923C' },
-                  { zone: 'Z6', name: '无氧能力 (121-150%)', pct: 3, color: '#F43F5E' },
-                  { zone: 'Z7', name: '神经肌肉爆发 (>150%)', pct: 1, color: '#E11D48' },
-                ].map((pz) => (
-                  <div key={pz.zone} className="flex items-center gap-3 text-xs">
-                    <span className="w-8 font-mono font-bold text-amber-500 dark:text-amber-300">{pz.zone}</span>
-                    <span className="w-28 text-neutral-700 dark:text-neutral-300 truncate text-[11px]">{pz.name}</span>
-                    <div className="flex-1 h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pz.pct}%`, backgroundColor: pz.color }}
-                      />
-                    </div>
-                    <span className="w-10 text-right font-mono font-bold text-neutral-900 dark:text-white">{pz.pct}%</span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-neutral-400">
+                当前数据源未提供逐秒功率，因此不生成 Coggan 功率区间分布。
+              </p>
             </div>
           )}
 

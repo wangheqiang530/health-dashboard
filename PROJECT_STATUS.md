@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.8)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.9)
 
 ## 1. 核心模块与实现状态
 
@@ -19,16 +19,19 @@
 
 ## 2. 数据库表架构设计 (PostgreSQL)
 
-已在 `server/db/schema.ts` 中定义并由自动化 Migration 初始化，包含 8 张核心表：
+数据库由 `server/migrations/001_init.sql` 与 `server/migrations/002_archives.sql`
+自动初始化，当前核心表为：
 
-1. `users`: 用户表（支持单用户与未来多用户扩展）
-2. `metrics_daily`: 每日汇总体征指标（步数、总卡路里、站立时长、静息心率、平均 HRV）
-3. `metrics_samples`: 高频时序采样点（每分钟/每小时心率、血氧、体温、分期数据）
-4. `sleep_sessions`: 睡眠会话表（入睡时间、醒来时间、各睡眠阶段详细时长）
-5. `body_composition`: 体脂秤全量身体成分记录（关联 Fitdays 数据）
-6. `workouts`: 运动健身记录（跑步、骑行、徒步、力量训练等）
-7. `workout_routes`: 运动 GPS 轨迹路线数据（经纬度坐标序列、海拔剖面）
-8. `sync_logs`: 各数据源的历史同步日志（包大小、耗时、状态、错误信息）
+1. `data_sources`：数据源开关、账号、加密密码、Cron 与同步状态
+2. `daily_summaries`：按天聚合的健康摘要 JSON
+3. `health_metric_points`：HAE 原始指标点
+4. `health_workouts`：HAE 运动记录
+5. `hae_imports`：HAE 导入批次与原始载荷
+6. `body_measurements`：Fitdays 每次体测记录，支持同一天多次测量
+7. `cycling_activities`：iGPSPORT/FIT 骑行活动与轨迹元数据
+8. `sync_runs`：手动与定时同步任务日志
+9. `source_archive_files`：原始来源归档文件索引
+10. `app_settings`：加密保存的 HAE Key、面板访问密钥与保留策略
 
 ---
 
@@ -36,7 +39,10 @@
 
 - **构建验证**：前端 `pnpm build` 与服务端 `tsc` 校验 100% 通过，类型检查无错误。
 - **代码规范**：通过 `oxlint` 快速代码质量扫描。
+- **数据真实性**：HAE、Apple Health ZIP、FIT 与体脂详情均不再填充固定模拟值；缺数据时显示空状态。
+- **访问控制**：业务 API 已启用 Bearer 面板密钥，HAE Webhook 使用独立 `X-Api-Key`。
+- **FIT 解析**：使用 `@garmin/fitsdk` 解析实际会话、功率、心率区间与 GPS 轨迹。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.8`（多平台构建，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.9`（多平台构建，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

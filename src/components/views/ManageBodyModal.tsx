@@ -12,6 +12,7 @@ import {
   Check,
   Scale,
 } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 export interface BodySectionConfig {
   id: string;
@@ -35,6 +36,8 @@ export const ManageBodyModal: React.FC<ManageBodyModalProps> = ({
   onChange,
   onReset,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   if (!isOpen) return null;
 
   const moveItem = (index: number, direction: 'up' | 'down' | 'top' | 'bottom') => {
@@ -73,13 +76,21 @@ export const ManageBodyModal: React.FC<ManageBodyModalProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 16 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl apple-glass-dark p-6 md:p-8 z-10 border border-white/10 shadow-2xl text-white"
+          className={`relative w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl p-6 md:p-8 z-10 border shadow-2xl backdrop-blur-2xl ${
+            isDark
+              ? 'bg-[#11141b]/95 border-white/10 text-white'
+              : 'bg-white/95 border-black/10 text-neutral-900'
+          }`}
         >
           {/* Close button */}
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-5 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition-all cursor-pointer"
+            className={`absolute top-5 right-5 p-2 rounded-full transition-all cursor-pointer ${
+              isDark
+                ? 'bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white'
+                : 'bg-black/5 hover:bg-black/10 text-neutral-500 hover:text-neutral-900'
+            }`}
           >
             <X className="w-5 h-5" />
           </button>
@@ -94,7 +105,7 @@ export const ManageBodyModal: React.FC<ManageBodyModalProps> = ({
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold tracking-tight text-white mb-1">
+          <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1">
             身体详情板块排序与显示
           </h2>
           <p className="text-xs text-neutral-400 mb-5">
@@ -117,7 +128,7 @@ export const ManageBodyModal: React.FC<ManageBodyModalProps> = ({
                     <span className="font-mono text-xs font-bold text-neutral-500">
                       {(idx + 1).toString().padStart(2, '0')}
                     </span>
-                    <span className="text-sm font-bold text-white truncate">
+                    <span className="text-sm font-bold text-neutral-900 dark:text-white truncate">
                       {item.name}
                     </span>
                     {!item.visible && (

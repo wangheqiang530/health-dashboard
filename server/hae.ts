@@ -4,7 +4,10 @@ import { gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { PoolClient } from 'pg';
 import type { DailySummary, WorkoutRecord } from '../src/types/health.ts';
-import { parseHealthAutoExportJSON } from '../src/utils/haeParser.ts';
+import {
+  parseHealthAutoExportJSON,
+  type HaeDayPresence,
+} from '../src/utils/haeParser.ts';
 import { archiveJson, registerArchive, resolveArchivePath } from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
@@ -30,6 +33,109 @@ export function mergeWorkouts(
     }
   }
   return merged;
+}
+
+const positiveOr = (next: number, previous: number): number =>
+  Number.isFinite(next) && next > 0 ? next : previous;
+
+export function mergeDailySummary(
+  previous: DailySummary,
+  next: DailySummary,
+  presence: HaeDayPresence | undefined
+): DailySummary {
+  const workouts = mergeWorkouts(previous.workouts, next.workouts);
+  if (!presence) {
+    return {
+      ...previous,
+      date: next.date || previous.date,
+      dayName: next.dayName || previous.dayName,
+      shortDay: next.shortDay || previous.shortDay,
+      isToday: next.isToday,
+      workouts,
+    };
+  }
+
+  const body = presence.body
+    ? {
+        ...previous.body,
+        ...next.body,
+        weightKg: positiveOr(next.body.weightKg, previous.body.weightKg),
+        bodyFatPercent: positiveOr(next.body.bodyFatPercent, previous.body.bodyFatPercent),
+        leanMassKg: positiveOr(next.body.leanMassKg, previous.body.leanMassKg),
+        bmi: positiveOr(next.body.bmi, previous.body.bmi),
+        fatMassKg: positiveOr(next.body.fatMassKg, previous.body.fatMassKg),
+        statusLabel:
+          next.body.weightKg > 0 ? next.body.statusLabel : previous.body.statusLabel,
+        trend: next.body.trend.length > 0 ? next.body.trend : previous.body.trend,
+      }
+    : previous.body;
+
+  const vitals = presence.vitals
+    ? {
+        ...previous.vitals,
+        ...next.vitals,
+        latestHr: positiveOr(next.vitals.latestHr, previous.vitals.latestHr),
+        restingHr: positiveOr(next.vitals.restingHr, previous.vitals.restingHr),
+        sleepingHr: positiveOr(next.vitals.sleepingHr, previous.vitals.sleepingHr),
+        walkingHrAvg: positiveOr(next.vitals.walkingHrAvg, previous.vitals.walkingHrAvg),
+        hrvCurrent: positiveOr(next.vitals.hrvCurrent, previous.vitals.hrvCurrent),
+        hrvBaseline: positiveOr(next.vitals.hrvBaseline, previous.vitals.hrvBaseline),
+        spo2: positiveOr(next.vitals.spo2, previous.vitals.spo2),
+        respiratoryRate: positiveOr(
+          next.vitals.respiratoryRate,
+          previous.vitals.respiratoryRate
+        ),
+        wristTemperatureDiff:
+          next.vitals.wristTemperatureAbs !== undefined
+            ? next.vitals.wristTemperatureDiff
+            : previous.vitals.wristTemperatureDiff,
+        wristTemperatureAbs:
+          next.vitals.wristTemperatureAbs ?? previous.vitals.wristTemperatureAbs,
+        vo2Max: next.vitals.vo2Max ?? previous.vitals.vo2Max,
+        restingHrTrend:
+          next.vitals.restingHrTrend.length > 0
+            ? next.vitals.restingHrTrend
+            : previous.vitals.restingHrTrend,
+        hrvTrend:
+          next.vitals.hrvTrend.length > 0
+            ? next.vitals.hrvTrend
+            : previous.vitals.hrvTrend,
+        dailyHrRanges: next.vitals.dailyHrRanges ?? previous.vitals.dailyHrRanges,
+        weeklyHrTrends: next.vitals.weeklyHrTrends ?? previous.vitals.weeklyHrTrends,
+        bloodPressure: next.vitals.bloodPressure ?? previous.vitals.bloodPressure,
+      }
+    : previous.vitals;
+
+  return {
+    ...previous,
+    date: next.date || previous.date,
+    dayName: next.dayName || previous.dayName,
+    shortDay: next.shortDay || previous.shortDay,
+    isToday: next.isToday,
+    rings: presence.rings ? next.rings : previous.rings,
+    vitality: presence.vitals || presence.sleep ? next.vitality : previous.vitality,
+    sleep: presence.sleep ? next.sleep : previous.sleep,
+    vitals,
+    heartRateTimeline: presence.heartRate
+      ? next.heartRateTimeline
+      : previous.heartRateTimeline,
+    workouts,
+    steps: presence.steps ? next.steps : previous.steps,
+    body,
+    mobility: presence.mobility ? next.mobility : previous.mobility,
+    environment: presence.environment ? next.environment : previous.environment,
+    cyclingDistanceKm: presence.steps
+      ? next.cyclingDistanceKm
+      : previous.cyclingDistanceKm,
+    basalEnergyKcal: presence.steps
+      ? next.basalEnergyKcal
+      : previous.basalEnergyKcal,
+    totalBurnedKcal: presence.rings || presence.steps
+      ? next.totalBurnedKcal
+      : previous.totalBurnedKcal,
+    physicalEffortAvg: positiveOr(next.physicalEffortAvg, previous.physicalEffortAvg),
+    mindfulMinutes: positiveOr(next.mindfulMinutes, previous.mindfulMinutes),
+  };
 }
 
 interface HaeDataPoint {
@@ -364,28 +470,7 @@ export async function importHaePayload(
       let finalSummary = summary;
       if (existing.rows[0]) {
         const prev = existing.rows[0].summary;
-        const hasMetrics = normalizedMetrics.length > 0;
-        const hasWorkouts = normalizedWorkouts.length > 0;
-
-        if (!hasMetrics && hasWorkouts) {
-          finalSummary = {
-            ...prev,
-            date: summary.date || prev.date,
-            dayName: summary.dayName || prev.dayName,
-            shortDay: summary.shortDay || prev.shortDay,
-            workouts: mergeWorkouts(prev.workouts, summary.workouts),
-          };
-        } else if (hasMetrics && !hasWorkouts) {
-          finalSummary = {
-            ...summary,
-            workouts: mergeWorkouts(prev.workouts, summary.workouts),
-          };
-        } else {
-          finalSummary = {
-            ...summary,
-            workouts: mergeWorkouts(prev.workouts, summary.workouts),
-          };
-        }
+        finalSummary = mergeDailySummary(prev, summary, parsed.presence[day]);
       }
 
       await client.query(
@@ -440,6 +525,7 @@ export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: n
   if (archives.rows.length === 0) return { repairedCount: 0 };
 
   let repairedCount = 0;
+  const rebuiltDays = new Set<string>();
   for (const row of archives.rows) {
     try {
       const absPath = resolveArchivePath(row.relative_path);
@@ -452,9 +538,6 @@ export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: n
       }
       const payload = JSON.parse(contentStr);
       const parsed = parseHealthAutoExportJSON(payload);
-      const { metrics, workouts } = unpackPayload(payload);
-      const normalizedMetrics = normalizeMetrics(metrics);
-      const normalizedWorkouts = normalizeWorkouts(workouts);
 
       const client = await pool.connect();
       try {
@@ -466,30 +549,9 @@ export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: n
           );
 
           let finalSummary = summary;
-          if (existing.rows[0]) {
+          if (existing.rows[0] && rebuiltDays.has(day)) {
             const prev = existing.rows[0].summary;
-            const hasMetrics = normalizedMetrics.length > 0;
-            const hasWorkouts = normalizedWorkouts.length > 0;
-
-            if (!hasMetrics && hasWorkouts) {
-              finalSummary = {
-                ...prev,
-                date: summary.date || prev.date,
-                dayName: summary.dayName || prev.dayName,
-                shortDay: summary.shortDay || prev.shortDay,
-                workouts: mergeWorkouts(prev.workouts, summary.workouts),
-              };
-            } else if (hasMetrics && !hasWorkouts) {
-              finalSummary = {
-                ...summary,
-                workouts: mergeWorkouts(prev.workouts, summary.workouts),
-              };
-            } else {
-              finalSummary = {
-                ...summary,
-                workouts: mergeWorkouts(prev.workouts, summary.workouts),
-              };
-            }
+            finalSummary = mergeDailySummary(prev, summary, parsed.presence[day]);
           }
 
           await client.query(
@@ -500,6 +562,7 @@ export async function repairHistoricalHaeSummaries(): Promise<{ repairedCount: n
                updated_at = NOW()`,
             [day, JSON.stringify(finalSummary)]
           );
+          rebuiltDays.add(day);
           repairedCount += 1;
         }
         await client.query('COMMIT');

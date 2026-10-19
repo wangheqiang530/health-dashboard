@@ -26,7 +26,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.8
+    image: wangheqiang/health-dashboard:0.0.9
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -36,12 +36,13 @@ services:
     environment:
       DATABASE_URL: postgresql://health:HealthPassword12345@db:5432/health_dashboard
       APP_ENCRYPTION_KEY: "efae74cfab1ed18c2473d39f62475a898e59b6b05d0ed69d07dbab4b657e1f0a"
+      DASHBOARD_ACCESS_TOKEN: ""
       PUBLIC_BASE_URL: ""
       TZ: Asia/Shanghai
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.8
+      APP_VERSION: 0.0.9
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:

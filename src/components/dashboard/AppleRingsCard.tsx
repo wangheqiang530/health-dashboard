@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { ActivityRings } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
+import { ActivityRingsVisual } from '../ui/ActivityRingsVisual';
 import { Flame, Timer, PersonStanding, Sparkles } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -13,36 +14,26 @@ interface AppleRingsCardProps {
 export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingClick }) => {
   const [hoveredRing, setHoveredRing] = useState<'move' | 'exercise' | 'stand' | null>(null);
 
-  const size = 200;
-  const center = size / 2;
-  const strokeWidth = 14;
-
   const ringConfigs = [
     {
       key: 'move',
-      radius: 78,
       ring: rings.move,
       icon: Flame,
       label: '动态能量',
-      gradientId: 'moveGrad',
       glowColor: '#FA114F',
     },
     {
       key: 'exercise',
-      radius: 60,
       ring: rings.exercise,
       icon: Timer,
       label: '锻炼时间',
-      gradientId: 'exerciseGrad',
       glowColor: '#A1FF00',
     },
     {
       key: 'stand',
-      radius: 42,
       ring: rings.stand,
       icon: PersonStanding,
       label: '站立时间',
-      gradientId: 'standGrad',
       glowColor: '#00F5D4',
     },
   ];
@@ -87,185 +78,59 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
-          {/* Tri-Rings Graphic with animated key */}
+          {/* Official Apple activity-ring shader */}
           <div
             className="md:col-span-5 flex justify-center py-2 relative"
-            key={`rings-canvas-${rings.move.current}-${rings.exercise.current}-${rings.stand.current}`}
+            onMouseLeave={() => setHoveredRing(null)}
           >
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
-              <defs>
-                {/* Apple Official Move Gradient: Coral-Red to Hot Pink/Crimson */}
-                <linearGradient id="moveGrad" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#FF3366" />
-                  <stop offset="30%" stopColor="#FF4955" />
-                  <stop offset="70%" stopColor="#FF1447" />
-                  <stop offset="100%" stopColor="#D60036" />
-                </linearGradient>
-
-                {/* Apple Official Exercise Gradient: Chartreuse to Electric Lime */}
-                <linearGradient id="exerciseGrad" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#E4FF00" />
-                  <stop offset="50%" stopColor="#A1FF00" />
-                  <stop offset="100%" stopColor="#6EE000" />
-                </linearGradient>
-
-                {/* Apple Official Stand Gradient: Cyan to Electric Blue */}
-                <linearGradient id="standGrad" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#00F5D4" />
-                  <stop offset="50%" stopColor="#00D2FF" />
-                  <stop offset="100%" stopColor="#0077FE" />
-                </linearGradient>
-
-                {/* Radial Depth Shadow for Overlapping Cap */}
-                <filter id="lapCapShadow" x="-60%" y="-60%" width="220%" height="220%">
-                  <feGaussianBlur stdDeviation="3.2" result="blur" />
-                  <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.85 0" />
-                  <feBlend in="SourceGraphic" in2="blur" mode="normal" />
-                </filter>
-                <filter id="glowMove" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="3.5" result="blur" />
-                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#FA114F" floodOpacity="0.65" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-                <filter id="glowExercise" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="3.5" result="blur" />
-                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#99E834" floodOpacity="0.65" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-                <filter id="glowStand" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="3.5" result="blur" />
-                  <feDropShadow dx="0" dy="0" stdDeviation="4.5" floodColor="#00F5D4" floodOpacity="0.65" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
-
-              {/* Background Tracks */}
-              {ringConfigs.map((cfg) => {
-                const isHovered = hoveredRing === cfg.key;
-                const isDimmed = hoveredRing !== null && !isHovered;
-                const currentStroke = isHovered ? strokeWidth + 4 : strokeWidth;
-
-                return (
-                  <circle
-                    key={`bg-${cfg.key}`}
-                    cx={center}
-                    cy={center}
-                    r={cfg.radius}
-                    stroke={cfg.ring.bgTrack}
-                    strokeWidth={currentStroke}
-                    strokeOpacity={isDimmed ? 0.25 : 1}
-                    fill="none"
-                    className="transition-all duration-300"
-                  />
-                );
-              })}
-
-              {/* Foreground Arcs starting from 0 and spinning to value */}
-              {ringConfigs.map((cfg, idx) => {
-                const circumference = 2 * Math.PI * cfg.radius;
-                const ratio = cfg.ring.current / Math.max(cfg.ring.goal, 1);
-                const baseOffset = circumference * (1 - Math.min(ratio, 1));
-                const isHovered = hoveredRing === cfg.key;
-                const isDimmed = hoveredRing !== null && !isHovered;
-                const currentStroke = isHovered ? strokeWidth + 4 : strokeWidth;
-                const glowFilter = cfg.key === 'move' ? 'url(#glowMove)' : cfg.key === 'exercise' ? 'url(#glowExercise)' : 'url(#glowStand)';
-
-                // Overlap calculation
-                const hasOverlap = ratio > 1;
-                const overlapRatio = hasOverlap ? Math.min(ratio - 1, 0.999) : 0;
-                const overlapOffset = circumference * (1 - overlapRatio);
-
-                // Polar coordinates in rotated SVG:
-                // Angle 0 in SVG space corresponds to 12 o'clock on screen due to rotate-[-90deg].
-                const headAngle = overlapRatio * 2 * Math.PI;
-                const headX = center + cfg.radius * Math.cos(headAngle);
-                const headY = center + cfg.radius * Math.sin(headAngle);
-
-                return (
-                  <g
-                    key={`fg-${cfg.key}`}
-                    onMouseEnter={() => setHoveredRing(cfg.key as 'move' | 'exercise' | 'stand')}
-                    onMouseLeave={() => setHoveredRing(null)}
-                    className="cursor-pointer"
-                    filter={isHovered ? glowFilter : undefined}
-                    opacity={isDimmed ? 0.35 : 1}
-                    style={{ transition: 'opacity 0.25s ease, filter 0.25s ease' }}
-                  >
-                    {/* Base Ring Lap 1 (0 to 100%) */}
-                    <motion.circle
-                      cx={center}
-                      cy={center}
-                      r={cfg.radius}
-                      stroke={`url(#${cfg.gradientId})`}
-                      strokeWidth={currentStroke}
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeDasharray={circumference}
-                      initial={{ strokeDashoffset: circumference }}
-                      animate={{ strokeDashoffset: baseOffset }}
-                      transition={{ duration: 1.6, delay: idx * 0.15, ease: [0.16, 1, 0.3, 1] }}
-                    />
-
-                    {/* Overlap Lap 2 (> 100%) with Realistic Apple Shadow */}
-                    {hasOverlap && (
-                      <g>
-                        {/* 1. Overlapping Stroke Arc on top */}
-                        <motion.circle
-                          cx={center}
-                          cy={center}
-                          r={cfg.radius}
-                          stroke={`url(#${cfg.gradientId})`}
-                          strokeWidth={currentStroke}
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeDasharray={circumference}
-                          initial={{ strokeDashoffset: circumference }}
-                          animate={{ strokeDashoffset: overlapOffset }}
-                          transition={{ duration: 1.6, delay: 0.4 + idx * 0.1, ease: 'easeOut' }}
-                        />
-
-                        {/* 2. Apple watchOS Depth Shadow beneath the leading end cap */}
-                        <circle
-                          cx={headX}
-                          cy={headY}
-                          r={currentStroke * 0.52}
-                          fill="#000000"
-                          filter="url(#lapCapShadow)"
-                          opacity="0.75"
-                          pointerEvents="none"
-                        />
-
-                        {/* 3. Terminal End Cap Disk resting firmly on top of the shadow */}
-                        <circle
-                          cx={headX}
-                          cy={headY}
-                          r={currentStroke * 0.5}
-                          fill={cfg.glowColor}
-                          stroke="rgba(0,0,0,0.25)"
-                          strokeWidth="0.8"
-                          pointerEvents="none"
-                        />
-                      </g>
-                    )}
-
-                    {/* Transparent hover hit target to ensure effortless mouse interaction */}
-                    <circle
-                      cx={center}
-                      cy={center}
-                      r={cfg.radius}
-                      stroke="transparent"
-                      strokeWidth={strokeWidth + 12}
-                      fill="none"
-                      className="cursor-pointer pointer-events-auto"
-                    />
-                  </g>
-                );
-              })}
-            </svg>
-
-            {/* Ambient center blur */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#FA114F]/10 via-[#A1FF00]/10 to-[#00F5D4]/10 blur-xl" />
+            <div className="relative h-[200px] w-[200px]">
+              <ActivityRingsVisual
+                rings={rings}
+                size={200}
+                highlightedRing={hoveredRing}
+                className="pointer-events-none"
+              />
+              <svg
+                width="200"
+                height="200"
+                viewBox="0 0 200 200"
+                className="absolute inset-0"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="89.8"
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="21"
+                  style={{ pointerEvents: 'stroke' }}
+                  className="cursor-pointer"
+                  onMouseEnter={() => setHoveredRing('move')}
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="69.1"
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="21"
+                  style={{ pointerEvents: 'stroke' }}
+                  className="cursor-pointer"
+                  onMouseEnter={() => setHoveredRing('exercise')}
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="48.3"
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="21"
+                  style={{ pointerEvents: 'stroke' }}
+                  className="cursor-pointer"
+                  onMouseEnter={() => setHoveredRing('stand')}
+                />
+              </svg>
             </div>
           </div>
 

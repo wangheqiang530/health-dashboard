@@ -8,20 +8,23 @@ interface CrossDomainInsightsCardProps {
 }
 
 export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = ({ currentDay }) => {
-  const deepMins = currentDay.sleep.stages.deep || 88;
+  const deepMins = currentDay.sleep.stages.deep;
   const deepHours = (deepMins / 60).toFixed(1);
-  const hrv = currentDay.vitals.hrvCurrent || 71;
-  const restingHr = currentDay.vitals.restingHr || 54;
-  const muscleKg = currentDay.body.skeletalMuscleKg || 39.36;
-  const waterPct = currentDay.body.waterPercent || 56.4;
+  const hrv = currentDay.vitals.hrvCurrent;
+  const restingHr = currentDay.vitals.restingHr;
+  const muscleKg = currentDay.body.skeletalMuscleKg;
+  const waterPct = currentDay.body.waterPercent;
 
   // Cycling or workout intensity
   const cyclingWorkout = currentDay.workouts.find((w) => w.category === 'cycling');
-  const activeKcal = currentDay.rings.move.current || 586;
-  const cyclingKm = cyclingWorkout?.distanceKm || currentDay.cyclingDistanceKm || 18.21;
-
-  // Adaptive Physiological Synthesis
-  const isSupercompensation = hrv >= 65 && restingHr <= 55 && deepMins >= 75;
+  const activeKcal = currentDay.rings.move.current;
+  const cyclingKm = cyclingWorkout?.distanceKm ?? currentDay.cyclingDistanceKm;
+  const availableSources = [
+    activeKcal > 0 || cyclingKm > 0,
+    deepMins > 0,
+    hrv > 0 || restingHr > 0,
+    (muscleKg || 0) > 0 || (waterPct || 0) > 0,
+  ].filter(Boolean).length;
 
   return (
     <AppleCard className="overflow-hidden border border-emerald-500/25 bg-gradient-to-br from-emerald-500/[0.04] via-emerald-500/[0.01] to-transparent dark:from-emerald-950/20 dark:via-black/40 dark:to-black/60">
@@ -36,7 +39,7 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
                 三方跨域生理联动分析 · Cross-Domain Insights
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                机能超量恢复中
+                {availableSources}/4 类数据已同步
               </span>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
@@ -47,7 +50,7 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
 
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 self-start sm:self-auto font-mono">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>超量恢复指数 94%</span>
+          <span>{availableSources === 4 ? '跨域数据完整' : '部分数据缺失'}</span>
         </div>
       </div>
 
@@ -56,13 +59,19 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
         <p className="m-0 font-bold text-neutral-900 dark:text-white flex items-center gap-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>
-            {isSupercompensation
-              ? '高负荷骑行刺激 ➔ 深睡糖原超量合成 ➔ 细胞液态充盈'
-              : '日常稳态适应 · 生理节律平衡'}
+            {availableSources === 4
+              ? 'Apple Watch、Fitdays 与骑行数据已汇总'
+              : '部分数据源当天没有记录'}
           </span>
         </p>
         <p className="m-0 text-neutral-500 dark:text-neutral-400 text-[11px] leading-relaxed">
-          过去 24 小时累计动态消耗 {activeKcal} kcal（公路车行进 {cyclingKm} km）。运动后副交感神经夜间深度激活，深度睡眠达 {deepHours} 小时（高于个人基准 24%），促进心肌与骨骼肌微损伤的超量代偿。体脂秤实测身体水分率稳固在 {waterPct}%，骨骼肌含量达 {muscleKg} kg，双频阻抗比率处于优良区间，身体无水肿蓄水，正处于体能充沛的黄金蓄能期。
+          当天动态消耗 {activeKcal > 0 ? `${activeKcal} kcal` : '暂无记录'}
+          {cyclingKm > 0 ? `，骑行 ${cyclingKm} km` : ''}。
+          深度睡眠 {deepMins > 0 ? `${deepHours} 小时` : '暂无记录'}，HRV {hrv > 0 ? `${hrv} ms` : '暂无记录'}，
+          静息心率 {restingHr > 0 ? `${restingHr} bpm` : '暂无记录'}。
+          {muscleKg ? `体脂秤骨骼肌 ${muscleKg} kg，` : ''}
+          {waterPct ? `身体水分率 ${waterPct}%。` : ''}
+          此处只汇总已同步的实测数据，不生成医学结论。
         </p>
       </div>
 
@@ -78,10 +87,10 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
             <span className="text-sky-400 font-bold">iGPSPORT</span>
           </div>
           <div className="text-lg font-black text-neutral-900 dark:text-white">
-            {cyclingKm} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">km</span>
+            {cyclingKm > 0 ? cyclingKm : '—'} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">km</span>
           </div>
           <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans block">
-            动态消耗 {activeKcal} kcal
+            动态消耗 {activeKcal > 0 ? `${activeKcal} kcal` : '暂无'}
           </span>
         </div>
 
@@ -95,10 +104,12 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
             <span className="text-indigo-400 font-bold">Watch</span>
           </div>
           <div className="text-lg font-black text-indigo-400">
-            {deepHours} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">小时</span>
+            {deepMins > 0 ? deepHours : '—'} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">小时</span>
           </div>
           <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans block">
-            深睡占比 {Math.round((deepMins / (currentDay.sleep.totalMinutes || 1)) * 100)}% (深入修复)
+            深睡占比 {deepMins > 0 && currentDay.sleep.totalMinutes > 0
+              ? `${Math.round((deepMins / currentDay.sleep.totalMinutes) * 100)}%`
+              : '—'}
           </span>
         </div>
 
@@ -112,10 +123,10 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
             <span className="text-purple-400 font-bold">SDNN</span>
           </div>
           <div className="text-lg font-black text-purple-600 dark:text-purple-400">
-            {hrv} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">ms</span>
+            {hrv > 0 ? hrv : '—'} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">ms</span>
           </div>
           <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans block">
-            静息心率 {restingHr} bpm (极佳)
+            静息心率 {restingHr > 0 ? `${restingHr} bpm` : '暂无'}
           </span>
         </div>
 
@@ -129,10 +140,10 @@ export const CrossDomainInsightsCard: React.FC<CrossDomainInsightsCardProps> = (
             <span className="text-teal-400 font-bold">Fitdays</span>
           </div>
           <div className="text-lg font-black text-teal-600 dark:text-teal-300">
-            {muscleKg} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">kg</span>
+            {muscleKg ?? '—'} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">kg</span>
           </div>
           <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-sans block">
-            水分率 {waterPct}% (导电优良)
+            水分率 {waterPct ? `${waterPct}%` : '暂无'}
           </span>
         </div>
       </div>

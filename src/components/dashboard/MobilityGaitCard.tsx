@@ -8,6 +8,12 @@ interface MobilityGaitCardProps {
 }
 
 export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) => {
+  const hasData =
+    mobility.walkingSpeedKmH > 0 ||
+    mobility.stepLengthCm > 0 ||
+    mobility.doubleSupportPercent > 0 ||
+    mobility.asymmetryPercent > 0;
+
   return (
     <AppleCard className="overflow-hidden h-full flex flex-col justify-between">
       <div>
@@ -25,7 +31,7 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-600 dark:text-teal-300 border border-teal-500/20">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>步态对称 · 跌倒风险极低</span>
+            <span>{hasData ? '已同步步态实测' : '暂无步态数据'}</span>
           </div>
         </div>
 
@@ -35,16 +41,18 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
           <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
             <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
               <span>步行速度</span>
-              <span className="text-[10px] text-teal-500 dark:text-teal-400 font-semibold">步速轻快</span>
+              <span className="text-[10px] text-teal-500 dark:text-teal-400 font-semibold">
+                {mobility.walkingSpeedKmH > 0 ? '实测步速' : '暂无'}
+              </span>
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {mobility.walkingSpeedKmH}
+                {mobility.walkingSpeedKmH > 0 ? mobility.walkingSpeedKmH : '—'}
               </span>
               <span className="text-xs text-neutral-400 font-semibold">km/h</span>
             </div>
             <span className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-2 block">
-              心肺适应良好
+              {mobility.walkingSpeedKmH > 0 ? '来自 Apple Health 步行速度记录' : '等待步态数据'}
             </span>
           </div>
 
@@ -52,16 +60,18 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
           <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
             <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 mb-1">
               <span>平均步幅</span>
-              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">步态舒展</span>
+              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">
+                {mobility.stepLengthCm > 0 ? '实测步幅' : '暂无'}
+              </span>
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {mobility.stepLengthCm}
+                {mobility.stepLengthCm > 0 ? mobility.stepLengthCm : '—'}
               </span>
               <span className="text-xs text-neutral-400 font-semibold">cm</span>
             </div>
             <span className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-2 block">
-              下肢支撑稳健
+              {mobility.stepLengthCm > 0 ? '来自 Apple Health 步幅记录' : '等待步态数据'}
             </span>
           </div>
         </div>
@@ -70,11 +80,15 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
         <div className="grid grid-cols-2 gap-3 p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05] mb-3">
           <div className="flex justify-between items-center text-xs">
             <span className="text-neutral-600 dark:text-neutral-300">双足支撑率</span>
-            <span className="font-mono font-bold text-neutral-900 dark:text-white">{mobility.doubleSupportPercent}%</span>
+            <span className="font-mono font-bold text-neutral-900 dark:text-white">
+              {mobility.doubleSupportPercent > 0 ? `${mobility.doubleSupportPercent}%` : '—'}
+            </span>
           </div>
           <div className="flex justify-between items-center text-xs">
             <span className="text-neutral-600 dark:text-neutral-300">步态不对称率</span>
-            <span className="font-mono font-bold text-emerald-500 dark:text-emerald-400">{mobility.asymmetryPercent}% (左右均衡)</span>
+            <span className="font-mono font-bold text-emerald-500 dark:text-emerald-400">
+              {mobility.asymmetryPercent > 0 ? `${mobility.asymmetryPercent}%` : '—'}
+            </span>
           </div>
         </div>
       </div>
@@ -87,7 +101,9 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
             <span>楼梯速度</span>
           </div>
           <span className="font-mono font-bold text-neutral-900 dark:text-white">
-            上 {mobility.stairSpeedUpMs} · 下 {mobility.stairSpeedDownMs} m/s
+            {mobility.stairSpeedUpMs > 0 || mobility.stairSpeedDownMs > 0
+              ? `上 ${mobility.stairSpeedUpMs || '—'} · 下 ${mobility.stairSpeedDownMs || '—'} m/s`
+              : '—'}
           </span>
         </div>
 
@@ -97,7 +113,7 @@ export const MobilityGaitCard: React.FC<MobilityGaitCardProps> = ({ mobility }) 
             <span>6分钟步行测试</span>
           </div>
           <span className="font-mono font-bold text-indigo-500 dark:text-indigo-400">
-            {mobility.sixMinWalkDistanceM} 米 (优异)
+            {mobility.sixMinWalkDistanceM > 0 ? `${mobility.sixMinWalkDistanceM} 米` : '—'}
           </span>
         </div>
       </div>

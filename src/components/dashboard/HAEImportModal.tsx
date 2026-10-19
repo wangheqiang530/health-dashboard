@@ -90,19 +90,18 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
     setIsApplying(true);
     setErrorMsg(null);
     try {
-      if (rawPayload) {
-        await importHaePayload(rawPayload);
-      }
-    } catch (error) {
-      console.warn('写入 PostgreSQL 失败，降级为前端即时预览展示:', error);
-    }
-
-    try {
-      const latestDate = parsedInfo.dates[parsedInfo.dates.length - 1];
-      onImportSuccess(parsedInfo.days, latestDate);
+      if (!rawPayload) throw new Error('尚未读取到可导入的 JSON 内容。');
+      const result = await importHaePayload(rawPayload);
+      onImportSuccess(parsedInfo.days, result.dateTo);
       onClose();
     } catch (error) {
-      setErrorMsg(error instanceof Error ? error.message : '应用数据失败');
+      setErrorMsg(
+        error instanceof Error
+          ? error.message === 'UNAUTHORIZED'
+            ? '访问密钥已失效，请重新解锁面板。'
+            : error.message
+          : '写入数据库失败'
+      );
     } finally {
       setIsApplying(false);
     }

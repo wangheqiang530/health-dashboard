@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import {
   deleteArchiveFile,
+  downloadArchiveFile,
   fetchBackendConfig,
   testDataSource,
   triggerSourceSync,
@@ -273,12 +274,34 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   };
 
   const handleDeleteArchive = async (archiveId: string) => {
+    if (!window.confirm('确定删除这份本地来源备份吗？数据库中的健康记录不会删除。')) {
+      return;
+    }
     try {
       await deleteArchiveFile(archiveId);
       setMessage({ type: 'success', text: '备份文件已从磁盘与记录中删除。' });
       await loadConfig(false);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '删除备份文件失败' });
+    }
+  };
+
+  const handleDownloadArchive = async (archiveId: string) => {
+    try {
+      const { blob, filename } = await downloadArchiveFile(archiveId);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '下载备份文件失败',
+      });
     }
   };
 
@@ -687,13 +710,14 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
                       <span className="flex-shrink-0 text-neutral-400">已过期</span>
                     ) : (
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        <a
-                          href={`/api/v1/config/archives/${archive.id}/download`}
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadArchive(archive.id)}
                           className="p-1 rounded-md text-sky-500 hover:bg-sky-500/10 cursor-pointer"
                           title={`下载 ${formatDateTime(archive.capturedAt)} 的备份`}
                         >
                           <Download className="w-3.5 h-3.5" />
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={() => void handleDeleteArchive(archive.id)}

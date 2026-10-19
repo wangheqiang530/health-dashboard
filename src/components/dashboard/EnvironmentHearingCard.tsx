@@ -12,6 +12,9 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
   environment,
   cyclingDistanceKm,
 }) => {
+  const hasAudioData =
+    environment.environmentalAudioDb > 0 || environment.headphoneAudioDb > 0;
+
   return (
     <AppleCard className="overflow-hidden h-full flex flex-col justify-between">
       <div>
@@ -29,7 +32,7 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-300 border border-purple-500/20">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>听力健康保护中</span>
+            <span>{hasAudioData ? environment.audioHealthStatus : '暂无环境数据'}</span>
           </div>
         </div>
 
@@ -46,11 +49,13 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-black text-neutral-900 dark:text-white">
-                {environment.environmentalAudioDb}
+                {environment.environmentalAudioDb > 0 ? environment.environmentalAudioDb : '—'}
               </span>
               <span className="text-xs text-neutral-400">dB</span>
             </div>
-            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">全天声级优良</span>
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">
+              {environment.environmentalAudioDb > 0 ? 'Apple Health 环境声级均值' : '等待环境声级数据'}
+            </span>
           </div>
 
           {/* Headphone Audio Exposure */}
@@ -60,15 +65,19 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
                 <Ear className="w-3.5 h-3.5 text-indigo-400" />
                 <span>耳机音量</span>
               </div>
-              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">无高声暴露</span>
+              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold">
+                {environment.headphoneAudioDb > 0 ? '已记录耳机声级' : '暂无数据'}
+              </span>
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-black text-neutral-900 dark:text-white">
-                {environment.headphoneAudioDb}
+                {environment.headphoneAudioDb > 0 ? environment.headphoneAudioDb : '—'}
               </span>
               <span className="text-xs text-neutral-400">dB</span>
             </div>
-            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">音量温和舒适</span>
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">
+              {environment.headphoneAudioDb > 0 ? 'Apple Health 耳机声级均值' : '等待耳机声级数据'}
+            </span>
           </div>
 
           {/* Time in Daylight */}
@@ -78,15 +87,19 @@ export const EnvironmentHearingCard: React.FC<EnvironmentHearingCardProps> = ({
                 <Sun className="w-3.5 h-3.5 text-amber-500" />
                 <span>日光下时间</span>
               </div>
-              <span className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold">生物钟调节</span>
+              <span className="text-[10px] text-amber-500 dark:text-amber-400 font-semibold">
+                {environment.timeInDaylightMin > 0 ? '已记录日光时间' : '暂无数据'}
+              </span>
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-black text-neutral-900 dark:text-white">
-                {environment.timeInDaylightMin}
+                {environment.timeInDaylightMin > 0 ? environment.timeInDaylightMin : '—'}
               </span>
               <span className="text-xs text-neutral-400">分钟</span>
             </div>
-            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">户外天然光照</span>
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 block">
+              {environment.timeInDaylightMin > 0 ? 'Apple Health 日光暴露记录' : '等待日光数据'}
+            </span>
           </div>
 
           {/* Cycling Daily Distance */}

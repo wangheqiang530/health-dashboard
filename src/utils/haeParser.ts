@@ -9,8 +9,8 @@ import type {
   BodyComposition,
   MobilityAndGait,
   EnvironmentAndHearing,
+  GpxCoordinate,
 } from '../types/health';
-import outdoorGpxSample from '../data/outdoorRideGpx.json';
 
 interface HAEDataPoint {
   date?: string;
@@ -44,78 +44,175 @@ interface HAEMetric {
   data?: HAEDataPoint[];
 }
 
+interface HAEMeasurement {
+  qty?: number;
+  units?: string;
+}
+
 interface HAEWorkout {
   name?: string;
   start?: string;
   end?: string;
-  duration?: number; // seconds
-  activeEnergy?: { qty?: number; units?: string } | { qty?: number; units?: string }[];
-  totalEnergy?: { qty?: number; units?: string } | { qty?: number; units?: string }[];
-  distance?: { qty?: number; units?: string };
-  cyclingDistance?: { qty?: number; units?: string };
-  avgHeartRate?: { qty?: number; units?: string };
-  maxHeartRate?: { qty?: number; units?: string };
-  elevationAscended?: { qty?: number; units?: string };
+  duration?: number;
+  activeEnergy?: HAEMeasurement | HAEMeasurement[];
+  totalEnergy?: HAEMeasurement | HAEMeasurement[];
+  distance?: HAEMeasurement;
+  cyclingDistance?: HAEMeasurement;
+  avgHeartRate?: HAEMeasurement;
+  maxHeartRate?: HAEMeasurement;
+  avgCadence?: HAEMeasurement;
+  elevationAscended?: HAEMeasurement;
   heartRateData?: HAEDataPoint[];
-  route?: unknown[];
+  route?: unknown;
 }
 
 interface HAEPayload {
-  data?: {
-    metrics?: HAEMetric[];
-    workouts?: HAEWorkout[];
-  } | {
-    metrics?: HAEMetric[];
-    workouts?: HAEWorkout[];
-  }[];
+  data?:
+    | {
+        metrics?: HAEMetric[];
+        workouts?: HAEWorkout[];
+      }
+    | Array<{
+        metrics?: HAEMetric[];
+        workouts?: HAEWorkout[];
+      }>;
   metrics?: HAEMetric[];
   workouts?: HAEWorkout[];
 }
 
-function parseDateStr(str?: string): string {
-  if (!str) return '';
-  if (str.includes('T') || (str.includes('Z') && !str.includes('+'))) {
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) {
-      return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(d);
-    }
-  }
-  const match = str.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-  return '';
+export interface HaeDayPresence {
+  rings: boolean;
+  steps: boolean;
+  vitals: boolean;
+  sleep: boolean;
+  body: boolean;
+  mobility: boolean;
+  environment: boolean;
+  heartRate: boolean;
 }
 
-function getDayInfo(dateStr: string) {
-  const d = new Date(dateStr + 'T12:00:00');
-  const dayIndex = d.getDay();
+export interface HaeParseResult {
+  days: Record<string, DailySummary>;
+  dates: string[];
+  totalWorkouts: number;
+  totalDays: number;
+  presence: Record<string, HaeDayPresence>;
+}
+
+const normalizeName = (name: string): string =>
+  name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const parseDateTime = (value?: string): Date | null => {
+  if (!value) return null;
+  const normalized = value
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+/, '$1T')
+    .replace(/\s+([+-]\d{2})(\d{2})$/, '$1:$2');
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const parseDateStr = (value?: string): string => {
+  if (!value) return '';
+  const parsed = parseDateTime(value);
+  if (parsed) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(parsed);
+  }
+  const match = value.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+};
+
+const formatLocalTime = (date: Date | null, fallback = '--:--'): string => {
+  if (!date) return fallback;
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
+const getDayInfo = (dateStr: string) => {
+  const date = new Date(`${dateStr}T12:00:00+08:00`);
+  const dayIndex = date.getDay();
   const dayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
   const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
   return {
     dayName: dayNames[dayIndex] || '未知',
     shortDay: shortDays[dayIndex] || '-',
   };
-}
+};
 
-function formatPace(secondsPerKm: number): string {
-  if (!secondsPerKm || isNaN(secondsPerKm) || secondsPerKm <= 0 || secondsPerKm > 1800) {
-    return `5'15"`;
+const todayInShanghai = (): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+
+const finiteNumber = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const pointValue = (point: HAEDataPoint): number | null =>
+  finiteNumber(point.qty) ??
+  finiteNumber(point.avg) ??
+  finiteNumber(point.sum) ??
+  finiteNumber(point.Avg) ??
+  finiteNumber(point.Min) ??
+  finiteNumber(point.Max);
+
+const toKcal = (value: number, units?: string): number =>
+  units?.toLowerCase().includes('kj') ? value / 4.184 : value;
+
+const toKm = (value: number, units?: string): number => {
+  const normalized = units?.toLowerCase() || '';
+  if (normalized.includes('mile') || normalized === 'mi') return value * 1.609344;
+  if (normalized === 'm' || normalized === 'meter' || normalized === 'meters') {
+    return value / 1000;
   }
-  const mins = Math.floor(secondsPerKm / 60);
-  const secs = Math.round(secondsPerKm % 60);
-  return `${mins}'${secs.toString().padStart(2, '0')}"`;
-}
+  return value;
+};
 
-export function parseHealthAutoExportJSON(rawJson: unknown): {
-  days: Record<string, DailySummary>;
-  dates: string[];
-  totalWorkouts: number;
-  totalDays: number;
-} {
+const formatPace = (secondsPerKm: number): string | undefined => {
+  if (!Number.isFinite(secondsPerKm) || secondsPerKm <= 0 || secondsPerKm > 1800) {
+    return undefined;
+  }
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = Math.round(secondsPerKm % 60);
+  return `${minutes}'${seconds.toString().padStart(2, '0')}"`;
+};
+
+const parseRoutePoints = (route: unknown): GpxCoordinate[] | undefined => {
+  if (!Array.isArray(route)) return undefined;
+  const points: GpxCoordinate[] = [];
+  for (const item of route) {
+    if (!item || typeof item !== 'object') continue;
+    const point = item as Record<string, unknown>;
+    const lat = finiteNumber(point.lat ?? point.latitude);
+    const lon = finiteNumber(point.lon ?? point.lng ?? point.longitude);
+    if (lat === null || lon === null) continue;
+    points.push({ lat, lon });
+  }
+  return points.length > 1 ? points : undefined;
+};
+
+const finiteMeasure = (value: HAEMeasurement | undefined): number | null =>
+  finiteNumber(value?.qty);
+
+const sumMeasure = (
+  value: HAEMeasurement | HAEMeasurement[] | undefined
+): { qty: number | null; units: string | undefined } => {
+  if (Array.isArray(value)) {
+    const defined = value.filter((item) => finiteNumber(item.qty) !== null);
+    if (defined.length === 0) return { qty: null, units: undefined };
+    return {
+      qty: defined.reduce((sum, item) => sum + (finiteNumber(item.qty) || 0), 0),
+      units: defined[0].units,
+    };
+  }
+  return { qty: finiteMeasure(value), units: value?.units };
+};
+
+export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
   const payload = rawJson as HAEPayload;
   let metricsList: HAEMetric[] = [];
   let workoutsList: HAEWorkout[] = [];
 
-  // Unpack payload
   if (payload.data) {
     if (Array.isArray(payload.data)) {
       payload.data.forEach((item) => {
@@ -123,27 +220,24 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
         if (item.workouts) workoutsList.push(...item.workouts);
       });
     } else {
-      if (payload.data.metrics) metricsList = payload.data.metrics;
-      if (payload.data.workouts) workoutsList = payload.data.workouts;
+      metricsList = payload.data.metrics || [];
+      workoutsList = payload.data.workouts || [];
     }
   } else {
-    if (payload.metrics) metricsList = payload.metrics;
-    if (payload.workouts) workoutsList = payload.workouts;
+    metricsList = payload.metrics || [];
+    workoutsList = payload.workouts || [];
   }
 
-  // Collect all dates
   const datesSet = new Set<string>();
-
-  metricsList.forEach((m) => {
-    (m.data || []).forEach((pt) => {
-      const d = parseDateStr(pt.date || pt.startDate || pt.inBedStart);
-      if (d) datesSet.add(d);
+  metricsList.forEach((metric) => {
+    (metric.data || []).forEach((point) => {
+      const date = parseDateStr(point.date || point.startDate || point.inBedStart);
+      if (date) datesSet.add(date);
     });
   });
-
-  workoutsList.forEach((w) => {
-    const d = parseDateStr(w.start);
-    if (d) datesSet.add(d);
+  workoutsList.forEach((workout) => {
+    const date = parseDateStr(workout.start);
+    if (date) datesSet.add(date);
   });
 
   const sortedDates = Array.from(datesSet).sort();
@@ -151,438 +245,708 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
     throw new Error('未在导入的文件中识别到有效日期或健康数据点，请确认是否为 Health Auto Export V2 JSON 格式。');
   }
 
-  const normalizeName = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '');
   const metricsByName: Record<string, HAEMetric> = {};
-  metricsList.forEach((m) => {
-    metricsByName[normalizeName(m.name)] = m;
+  metricsList.forEach((metric) => {
+    metricsByName[normalizeName(metric.name)] = metric;
   });
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const metricFor = (names: string[]): HAEMetric | undefined => {
+    for (const name of names) {
+      const metric = metricsByName[normalizeName(name)];
+      if (metric) return metric;
+    }
+    return undefined;
+  };
 
-  // Global weight/fat trend collector for the 7-8 days
-  const weightMetric = metricsByName[normalizeName('weight_body_mass')] || metricsByName[normalizeName('body_mass')];
-  const bodyFatMetric = metricsByName[normalizeName('body_fat_percentage')] || metricsByName[normalizeName('body_fat')];
-  
-  const bodyTrendData: { date: string; weight: number; bodyFat: number }[] = [];
-  sortedDates.forEach((dateStr) => {
-    let wVal = 89.8;
-    let bfVal = 22.9;
-    if (weightMetric && weightMetric.data) {
-      const found = weightMetric.data.find(d => parseDateStr(d.date) === dateStr);
-      if (found && (found.qty || found.avg)) wVal = parseFloat((found.qty || found.avg || 89.8).toFixed(2));
-    }
-    if (bodyFatMetric && bodyFatMetric.data) {
-      const found = bodyFatMetric.data.find(d => parseDateStr(d.date) === dateStr);
-      if (found && (found.qty || found.avg)) bfVal = parseFloat((found.qty || found.avg || 22.9).toFixed(1));
-    }
-    bodyTrendData.push({ date: dateStr.slice(5), weight: wVal, bodyFat: bfVal });
+  const pointsForDay = (metric: HAEMetric | undefined, date: string): HAEDataPoint[] =>
+    (metric?.data || []).filter(
+      (point) => parseDateStr(point.date || point.startDate || point.inBedStart) === date
+    );
+
+  const metricAverageForDay = (names: string[], date: string): number => {
+    const metric = metricFor(names);
+    const values = pointsForDay(metric, date)
+      .map(pointValue)
+      .filter((value): value is number => value !== null);
+    return values.length === 0
+      ? 0
+      : values.reduce((sum, value) => sum + value, 0) / values.length;
+  };
+
+  const metricSumForDay = (
+    names: string[],
+    date: string,
+    target: 'kcal' | 'count' | 'min' | 'distance' = 'count'
+  ): number => {
+    const metric = metricFor(names);
+    return pointsForDay(metric, date).reduce((sum, point) => {
+      const value = pointValue(point);
+      if (value === null) return sum;
+      if (target === 'kcal') return sum + toKcal(value, metric?.units);
+      if (target === 'distance') return sum + toKm(value, metric?.units);
+      return sum + value;
+    }, 0);
+  };
+
+  const hasMetricForDay = (names: string[], date: string): boolean =>
+    pointsForDay(metricFor(names), date).some((point) => pointValue(point) !== null);
+
+  const restingHrByDate = new Map<string, number>();
+  const hrvByDate = new Map<string, number>();
+  sortedDates.forEach((date) => {
+    const resting = metricAverageForDay(['resting_heart_rate', 'restingHeartRate'], date);
+    const hrv = metricAverageForDay(
+      ['heart_rate_variability', 'heartRateVariability', 'heart_rate_variability_sdnn', 'hrv'],
+      date
+    );
+    if (resting > 0) restingHrByDate.set(date, Math.round(resting));
+    if (hrv > 0) hrvByDate.set(date, Math.round(hrv));
   });
+
+  const actualRestingValues = Array.from(restingHrByDate.values());
+  const actualHrvValues = Array.from(hrvByDate.values());
+  const restingBaseline =
+    actualRestingValues.length > 0
+      ? actualRestingValues.reduce((sum, value) => sum + value, 0) / actualRestingValues.length
+      : 0;
+  const hrvBaseline =
+    actualHrvValues.length > 0
+      ? actualHrvValues.reduce((sum, value) => sum + value, 0) / actualHrvValues.length
+      : 0;
+
+  const weightMetric = metricFor(['weight_body_mass', 'body_mass']);
+  const bodyFatMetric = metricFor(['body_fat_percentage', 'body_fat']);
+  const bodyTrendData = sortedDates
+    .map((date) => {
+      const weightPoints = pointsForDay(weightMetric, date);
+      const fatPoints = pointsForDay(bodyFatMetric, date);
+      const weight = weightPoints.length > 0 ? pointValue(weightPoints[weightPoints.length - 1]) : null;
+      const bodyFat = fatPoints.length > 0 ? pointValue(fatPoints[fatPoints.length - 1]) : null;
+      if (weight === null || bodyFat === null) return null;
+      return {
+        date,
+        weight: Number(weight.toFixed(2)),
+        bodyFat: Number(bodyFat.toFixed(1)),
+      };
+    })
+    .filter((point): point is { date: string; weight: number; bodyFat: number } => point !== null)
+    .map((point) => ({ ...point }));
 
   const daysResult: Record<string, DailySummary> = {};
+  const presence: Record<string, HaeDayPresence> = {};
+  const today = todayInShanghai();
 
   sortedDates.forEach((dateStr) => {
     const dayInfo = getDayInfo(dateStr);
 
-    // Sum helper with kJ -> kcal conversion if unit is kJ
-    const getMetricSum = (names: string[], targetUnit: 'kcal' | 'km' | 'count' | 'min' = 'count'): number => {
-      let sum = 0;
-      names.forEach((name) => {
-        const metric = metricsByName[normalizeName(name)];
-        if (metric && metric.data) {
-          const isKj = metric.units?.toLowerCase().includes('kj');
-          metric.data.forEach((pt) => {
-            if (parseDateStr(pt.date || pt.startDate) === dateStr) {
-              let val = pt.qty ?? pt.sum ?? pt.avg ?? pt.Avg ?? 0;
-              if (targetUnit === 'kcal' && isKj) {
-                val = val / 4.184; // Convert kJ to kcal
-              }
-              sum += val;
-            }
-          });
-        }
-      });
-      return sum;
-    };
-
-    // Avg helper
-    const getMetricAvg = (names: string[]): number => {
-      const values: number[] = [];
-      names.forEach((name) => {
-        const metric = metricsByName[normalizeName(name)];
-        if (metric && metric.data) {
-          metric.data.forEach((pt) => {
-            if (parseDateStr(pt.date || pt.startDate) === dateStr) {
-              const val = pt.qty ?? pt.avg ?? pt.Avg ?? pt.min ?? pt.max;
-              if (val !== undefined && val !== null && !isNaN(val)) {
-                values.push(val);
-              }
-            }
-          });
-        }
-      });
-      if (values.length === 0) return 0;
-      return values.reduce((a, b) => a + b, 0) / values.length;
-    };
-
-    // 1. Apple Rings
-    const moveCalories = Math.round(getMetricSum(['active_energy', 'activeEnergy'], 'kcal'));
-    const exerciseMinutes = Math.round(getMetricSum(['apple_exercise_time', 'appleExerciseTime', 'exercise_time'], 'min'));
-    const standHours = Math.round(getMetricSum(['apple_stand_hour', 'appleStandHour', 'stand_hour'], 'count'));
+    const moveCalories = Math.round(
+      metricSumForDay(['active_energy', 'activeEnergy'], dateStr, 'kcal')
+    );
+    const exerciseMinutes = Math.round(
+      metricSumForDay(['apple_exercise_time', 'appleExerciseTime', 'exercise_time'], dateStr, 'min')
+    );
+    const standHours = Math.round(
+      metricSumForDay(['apple_stand_hour', 'appleStandHour', 'stand_hour'], dateStr)
+    );
+    const moveGoal =
+      Math.round(metricAverageForDay(['active_energy_goal', 'move_goal'], dateStr)) || 600;
+    const exerciseGoal =
+      Math.round(metricAverageForDay(['apple_exercise_time_goal', 'exercise_goal'], dateStr)) || 30;
+    const standGoal =
+      Math.round(metricAverageForDay(['apple_stand_hour_goal', 'stand_goal'], dateStr)) || 12;
 
     const rings: ActivityRings = {
       move: {
-        current: moveCalories || 580,
-        goal: 600,
+        current: moveCalories,
+        goal: moveGoal,
         unit: '千卡',
         color: '#FA114F',
         bgTrack: 'rgba(250, 17, 79, 0.2)',
       },
       exercise: {
-        current: exerciseMinutes || 35,
-        goal: 30,
+        current: exerciseMinutes,
+        goal: exerciseGoal,
         unit: '分钟',
         color: '#A1FF00',
         bgTrack: 'rgba(161, 255, 0, 0.2)',
       },
       stand: {
-        current: standHours || 12,
-        goal: 12,
+        current: standHours,
+        goal: standGoal,
         unit: '小时',
         color: '#00F5D4',
         bgTrack: 'rgba(0, 245, 212, 0.2)',
       },
     };
 
-    // 2. Steps, Distances, Flights
-    const stepCount = Math.round(getMetricSum(['step_count', 'stepCount', 'steps']));
-    const distanceKm = parseFloat(
-      (getMetricSum(['walking_running_distance', 'walkingRunningDistance']) || stepCount * 0.00075).toFixed(2)
+    const stepCount = Math.round(
+      metricSumForDay(['step_count', 'stepCount', 'steps'], dateStr)
     );
-    const flightsClimbed = Math.round(getMetricSum(['flights_climbed', 'flightsClimbed']));
-    const cyclingDistanceKm = parseFloat(
-      (getMetricSum(['cycling_distance', 'cyclingDistance']) || 0).toFixed(2)
+    const distanceKm = Number(
+      metricSumForDay(
+        ['walking_running_distance', 'walkingRunningDistance'],
+        dateStr,
+        'distance'
+      ).toFixed(2)
+    );
+    const flightsClimbed = Math.round(
+      metricSumForDay(['flights_climbed', 'flightsClimbed'], dateStr)
+    );
+    const cyclingDistanceKm = Number(
+      metricSumForDay(['cycling_distance', 'cyclingDistance'], dateStr, 'distance').toFixed(2)
+    );
+    const basalKcal = Math.round(
+      metricSumForDay(['basal_energy_burned', 'basalEnergyBurned'], dateStr, 'kcal')
+    );
+    const physicalEffortAvg = Number(
+      metricAverageForDay(['physical_effort', 'physicalEffort'], dateStr).toFixed(1)
     );
 
-    // 3. Basal and Total Burned Calories
-    const basalKcal = Math.round(getMetricSum(['basal_energy_burned', 'basalEnergyBurned'], 'kcal')) || 1750;
-    const totalBurnedKcal = moveCalories + basalKcal;
-    const physicalEffortAvg = parseFloat((getMetricAvg(['physical_effort', 'physicalEffort']) || 3.8).toFixed(1));
-
-    // 4. Vitals
-    const restingHr = Math.round(getMetricAvg(['resting_heart_rate', 'restingHeartRate'])) || 48;
-    const hrvCurrent = Math.round(getMetricAvg(['heart_rate_variability', 'heartRateVariability', 'hrv'])) || 72;
-    const spo2Val = getMetricAvg(['blood_oxygen_saturation', 'oxygen_saturation', 'spo2']);
-    const spo2 = spo2Val ? Math.round(spo2Val > 1 ? spo2Val : spo2Val * 100) : 98;
-    const rawWristTemp = getMetricAvg(['apple_sleeping_wrist_temperature', 'wrist_temperature']);
-    const wristTemperatureAbs = rawWristTemp > 20 ? parseFloat(rawWristTemp.toFixed(2)) : 34.82;
-    const wristTemperatureDiff = parseFloat((wristTemperatureAbs - 34.80).toFixed(2));
-
-    // 5. 24H Heart Rate Curve
-    const hrMetric = metricsByName[normalizeName('heart_rate')] || metricsByName[normalizeName('heartRate')];
-    const rawDayHrPoints: { time: string; hr: number; sortKey: number }[] = [];
-    const hourlyHr: Record<number, number[]> = {};
-    for (let i = 0; i < 24; i++) hourlyHr[i] = [];
-
-    if (hrMetric && hrMetric.data) {
-      hrMetric.data.forEach((pt) => {
-        const dStr = pt.date || pt.startDate;
-        if (dStr && parseDateStr(dStr) === dateStr) {
-          const hrVal = Math.round(pt.qty ?? pt.avg ?? pt.Avg ?? pt.Min ?? 0);
-          if (hrVal > 30 && hrVal < 230) {
-            const timeMatch = dStr.match(/\s(\d{2}):(\d{2})/);
-            if (timeMatch) {
-              const h = parseInt(timeMatch[1], 10);
-              const m = parseInt(timeMatch[2], 10);
-              rawDayHrPoints.push({
-                time: `${timeMatch[1]}:${timeMatch[2]}`,
-                hr: hrVal,
-                sortKey: h * 60 + m,
-              });
-              if (hourlyHr[h]) hourlyHr[h].push(hrVal);
-            }
-          }
-        }
+    const hrMetric = metricFor(['heart_rate', 'heartRate']);
+    const rawDayHrPoints: Array<HeartRatePoint & { sortKey: number }> = [];
+    pointsForDay(hrMetric, dateStr).forEach((point) => {
+      const value = pointValue(point);
+      const pointDate = parseDateTime(point.date || point.startDate);
+      if (value === null || !pointDate || value < 30 || value > 230) return;
+      rawDayHrPoints.push({
+        time: formatLocalTime(pointDate),
+        hr: Math.round(value),
+        isWorkout: false,
+        sortKey: pointDate.getHours() * 60 + pointDate.getMinutes(),
+      });
+    });
+    rawDayHrPoints.sort((left, right) => left.sortKey - right.sortKey);
+    const heartRateTimeline: HeartRatePoint[] = [];
+    const heartRateStep = Math.max(1, Math.floor(rawDayHrPoints.length / 240));
+    for (let index = 0; index < rawDayHrPoints.length; index += heartRateStep) {
+      const point = rawDayHrPoints[index];
+      heartRateTimeline.push({
+        time: point.time,
+        hr: point.hr,
+        isWorkout: point.hr > 130,
       });
     }
 
-    const hrPoints: HeartRatePoint[] = [];
-    if (rawDayHrPoints.length >= 24) {
-      rawDayHrPoints.sort((a, b) => a.sortKey - b.sortKey);
-      const step = Math.max(1, Math.floor(rawDayHrPoints.length / 100));
-      for (let i = 0; i < rawDayHrPoints.length; i += step) {
-        const p = rawDayHrPoints[i];
-        hrPoints.push({
-          time: p.time,
-          hr: p.hr,
-          isWorkout: p.hr > 130,
-        });
-      }
-    } else {
-      for (let h = 0; h < 24; h++) {
-        const timeStr = `${h.toString().padStart(2, '0')}:00`;
-        const vals = hourlyHr[h];
-        let hr = 68;
-        if (vals && vals.length > 0) {
-          hr = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-        } else {
-          hr = h >= 0 && h <= 6 ? restingHr : h === 12 || h === 16 ? 118 : 72;
-        }
-        hrPoints.push({
-          time: timeStr,
-          hr,
-          isWorkout: hr > 130,
-        });
-      }
-    }
-
-    const latestHr = hrPoints[hrPoints.length - 1]?.hr || restingHr + 18;
+    const restingHr = restingHrByDate.get(dateStr) || 0;
+    const hrvCurrent = hrvByDate.get(dateStr) || 0;
+    const spo2Raw = metricAverageForDay(
+      ['blood_oxygen_saturation', 'oxygen_saturation', 'spo2'],
+      dateStr
+    );
+    const spo2 = spo2Raw > 0 ? Math.round(spo2Raw > 1 ? spo2Raw : spo2Raw * 100) : 0;
+    const wristTemperatureAbs = Number(
+      metricAverageForDay(
+        ['apple_sleeping_wrist_temperature', 'wrist_temperature'],
+        dateStr
+      ).toFixed(2)
+    );
+    const vo2MaxRaw = metricAverageForDay(['vo2_max', 'vo2Max', 'vo2max'], dateStr);
+    const vo2Max = vo2MaxRaw > 0 ? Number(vo2MaxRaw.toFixed(1)) : undefined;
+    const walkingHrAvg = Math.round(
+      metricAverageForDay(
+        ['walking_heart_rate_average', 'walkingHeartRateAverage'],
+        dateStr
+      )
+    );
+    const respiratoryRate = Number(
+      metricAverageForDay(['respiratory_rate', 'respiratoryRate'], dateStr).toFixed(1)
+    );
 
     const vitals: VitalsData = {
-      latestHr,
-      sleepingHr: Math.round(restingHr * 0.98),
-      walkingHrAvg: Math.round(getMetricAvg(['walking_heart_rate_average', 'walkingHeartRateAverage']) || 78),
+      latestHr: heartRateTimeline[heartRateTimeline.length - 1]?.hr || 0,
       restingHr,
-      restingHrTrend: [49, 49, 48, 49, 47, 46, restingHr],
+      restingHrTrend: sortedDates
+        .filter((date) => date <= dateStr)
+        .map((date) => restingHrByDate.get(date) || 0)
+        .filter((value) => value > 0)
+        .slice(-7),
+      sleepingHr: 0,
+      walkingHrAvg,
       hrvCurrent,
-      hrvBaseline: 62,
-      hrvTrend: sortedDates.map((d) => ({
-        date: d.slice(5),
-        hrv: Math.round(hrvCurrent + Math.sin(d.charCodeAt(d.length - 1)) * 8),
-      })),
+      hrvBaseline: Math.round(hrvBaseline),
+      hrvTrend: sortedDates
+        .filter((date) => date <= dateStr && (hrvByDate.get(date) || 0) > 0)
+        .map((date) => ({
+          date: date.slice(5),
+          hrv: hrvByDate.get(date) || 0,
+        }))
+        .slice(-14),
       spo2,
-      respiratoryRate: parseFloat((getMetricAvg(['respiratory_rate', 'respiratoryRate']) || 14.3).toFixed(1)),
-      wristTemperatureDiff,
-      wristTemperatureAbs,
-      vo2Max: 48.6,
+      respiratoryRate,
+      wristTemperatureDiff: 0,
+      wristTemperatureAbs: wristTemperatureAbs > 0 ? wristTemperatureAbs : undefined,
+      vo2Max,
     };
 
-    // 6. Sleep Analysis (Handle both HAE hour-summary object & segment events)
-    const sleepMetric = metricsByName[normalizeName('sleep_analysis')] || metricsByName[normalizeName('sleepAnalysis')];
-    let awakeMins = 20;
-    let remMins = 85;
-    let coreMins = 220;
-    let deepMins = 75;
-    let bedTime = '23:30';
-    let wakeTime = '07:15';
+    const sleepMetric = metricFor(['sleep_analysis', 'sleepAnalysis']);
+    let awakeMins = 0;
+    let remMins = 0;
+    let coreMins = 0;
+    let deepMins = 0;
+    let bedDate: Date | null = null;
+    let wakeDate: Date | null = null;
+    const timeline: Array<{
+      stage: SleepAnalysis['timeline'][number]['stage'];
+      startMinutes: number;
+      durationMinutes: number;
+      segmentStart?: Date;
+    }> = [];
+    let firstStageStartMs: number | null = null;
 
-    if (sleepMetric && sleepMetric.data) {
-      sleepMetric.data.forEach((pt) => {
-        const dStr = pt.date || pt.startDate || pt.inBedStart;
-        if (dStr && parseDateStr(dStr) === dateStr) {
-          // If HAE pre-aggregated hour fields exist:
-          if (pt.deep !== undefined || pt.rem !== undefined || pt.core !== undefined) {
-            deepMins = Math.round((pt.deep || 0) * 60);
-            remMins = Math.round((pt.rem || 0) * 60);
-            coreMins = Math.round((pt.core || 0) * 60);
-            awakeMins = Math.round((pt.awake || 0) * 60);
-            if (pt.sleepStart) bedTime = pt.sleepStart.slice(11, 16);
-            if (pt.sleepEnd) wakeTime = pt.sleepEnd.slice(11, 16);
-          } else if (pt.value) {
-            // Segment event
-            const val = pt.value.toLowerCase();
-            const start = new Date(pt.startDate || pt.date || '').getTime();
-            const end = new Date(pt.endDate || '').getTime();
-            const duration = Math.max(Math.round((end - start) / 60000), 5);
-            if (val.includes('deep')) deepMins += duration;
-            else if (val.includes('rem')) remMins += duration;
-            else if (val.includes('awake')) awakeMins += duration;
-            else coreMins += duration;
-          }
-        }
+    const toMinutes = (value: number): number => (value <= 24 ? value * 60 : value);
+
+    pointsForDay(sleepMetric, dateStr).forEach((point) => {
+      if (point.deep !== undefined || point.rem !== undefined || point.core !== undefined) {
+        deepMins += Math.round(toMinutes(point.deep || 0));
+        remMins += Math.round(toMinutes(point.rem || 0));
+        coreMins += Math.round(toMinutes(point.core || 0));
+        awakeMins += Math.round(toMinutes(point.awake || 0));
+      }
+
+      const segmentStart = parseDateTime(point.startDate || point.sleepStart || point.inBedStart);
+      const segmentEnd = parseDateTime(point.endDate || point.sleepEnd || point.inBedEnd);
+      if (!segmentStart || !segmentEnd || segmentEnd <= segmentStart) return;
+      if (!point.value) {
+        if (!bedDate || segmentStart < bedDate) bedDate = segmentStart;
+        if (!wakeDate || segmentEnd > wakeDate) wakeDate = segmentEnd;
+        return;
+      }
+
+      const value = point.value.toLowerCase();
+      const stage = value.includes('deep')
+        ? 'deep'
+        : value.includes('rem')
+          ? 'rem'
+          : value.includes('awake')
+            ? 'awake'
+            : 'core';
+      if (value.includes('inbed')) {
+        if (!bedDate || segmentStart < bedDate) bedDate = segmentStart;
+        if (!wakeDate || segmentEnd > wakeDate) wakeDate = segmentEnd;
+        return;
+      }
+
+      const durationMinutes = Math.max(1, Math.round((segmentEnd.getTime() - segmentStart.getTime()) / 60000));
+      if (stage === 'deep') deepMins += durationMinutes;
+      else if (stage === 'rem') remMins += durationMinutes;
+      else if (stage === 'awake') awakeMins += durationMinutes;
+      else coreMins += durationMinutes;
+      firstStageStartMs =
+        firstStageStartMs === null
+          ? segmentStart.getTime()
+          : Math.min(firstStageStartMs, segmentStart.getTime());
+      if (!bedDate || segmentStart < bedDate) bedDate = segmentStart;
+      if (!wakeDate || segmentEnd > wakeDate) wakeDate = segmentEnd;
+      timeline.push({ stage, startMinutes: 0, durationMinutes, segmentStart });
+    });
+
+    if (firstStageStartMs !== null) {
+      const baseStartMs = firstStageStartMs;
+      timeline.sort(
+        (left, right) =>
+          (left.segmentStart?.getTime() || 0) - (right.segmentStart?.getTime() || 0)
+      );
+      timeline.forEach((segment) => {
+        const segmentStart = segment.segmentStart;
+        if (!segmentStart) return;
+        segment.startMinutes = Math.max(
+          0,
+          Math.round((segmentStart.getTime() - baseStartMs) / 60000)
+        );
+        delete segment.segmentStart;
       });
     }
 
     const totalSleepMinutes = deepMins + remMins + coreMins;
     const inBedMinutes = totalSleepMinutes + awakeMins;
-    const deepSleepPercent = parseFloat(((deepMins / Math.max(totalSleepMinutes, 1)) * 100).toFixed(1));
-    const breathingDisturbances = parseFloat((getMetricAvg(['breathing_disturbances', 'breathingDisturbances']) || 0.78).toFixed(2));
-    const sleepScore = Math.min(Math.round(75 + (deepSleepPercent * 0.8) + (hrvCurrent * 0.12)), 99);
+    const deepSleepPercent =
+      totalSleepMinutes > 0
+        ? Number(((deepMins / totalSleepMinutes) * 100).toFixed(1))
+        : 0;
+    const sleepEfficiency =
+      inBedMinutes > 0 ? Math.round((totalSleepMinutes / inBedMinutes) * 100) : 0;
+    const breathingDisturbances = Number(
+      metricAverageForDay(
+        ['breathing_disturbances', 'breathingDisturbances'],
+        dateStr
+      ).toFixed(2)
+    );
+    const sleepScore =
+      totalSleepMinutes > 0
+        ? Math.min(
+            99,
+            Math.max(
+              0,
+              Math.round(
+                sleepEfficiency * 0.55 +
+                  Math.min(deepSleepPercent / 20, 1) * 25 +
+                  Math.min(totalSleepMinutes / 480, 1) * 20
+              )
+            )
+          )
+        : 0;
 
     const sleep: SleepAnalysis = {
       score: sleepScore,
-      bedTime,
-      wakeTime,
+      bedTime: formatLocalTime(bedDate),
+      wakeTime: formatLocalTime(wakeDate),
       totalMinutes: totalSleepMinutes,
       inBedMinutes,
-      efficiency: Math.round((totalSleepMinutes / Math.max(inBedMinutes, 1)) * 100) || 94,
+      efficiency: sleepEfficiency,
       stages: {
         awake: awakeMins,
         rem: remMins,
         core: coreMins,
         deep: deepMins,
       },
-      timeline: [
-        { stage: 'core', startMinutes: 0, durationMinutes: Math.round(coreMins * 0.4) },
-        { stage: 'deep', startMinutes: Math.round(coreMins * 0.4), durationMinutes: Math.round(deepMins * 0.6) },
-        { stage: 'rem', startMinutes: Math.round(coreMins * 0.4 + deepMins * 0.6), durationMinutes: Math.round(remMins * 0.5) },
-        { stage: 'core', startMinutes: Math.round(coreMins * 0.4 + deepMins * 0.6 + remMins * 0.5), durationMinutes: Math.round(coreMins * 0.6) },
-        { stage: 'deep', startMinutes: Math.round(coreMins + deepMins * 0.6 + remMins * 0.5), durationMinutes: Math.round(deepMins * 0.4) },
-        { stage: 'rem', startMinutes: Math.round(coreMins + deepMins + remMins * 0.5), durationMinutes: Math.round(remMins * 0.5) },
-        { stage: 'awake', startMinutes: Math.round(coreMins + deepMins + remMins), durationMinutes: awakeMins },
-      ],
-      respiratoryRate: vitals.respiratoryRate,
-      hrvSleepAvg: Math.round(hrvCurrent * 0.95),
+      timeline: totalSleepMinutes > 0 ? timeline : [],
+      respiratoryRate,
+      hrvSleepAvg: 0,
       deepSleepPercent,
       breathingDisturbances,
     };
 
-    // 7. Body Composition (Weight, Fat%, Lean mass, BMI)
-    const weightKg = parseFloat((getMetricAvg(['weight_body_mass', 'body_mass']) || 89.8).toFixed(2));
-    const bodyFatPercent = parseFloat((getMetricAvg(['body_fat_percentage', 'body_fat']) || 22.9).toFixed(1));
-    const leanMassKg = parseFloat((getMetricAvg(['lean_body_mass', 'lean_mass']) || (weightKg * (1 - bodyFatPercent / 100))).toFixed(2));
-    const bmi = parseFloat((getMetricAvg(['body_mass_index', 'bmi']) || (weightKg / (1.84 * 1.84))).toFixed(1));
-    const fatMassKg = parseFloat((weightKg * (bodyFatPercent / 100)).toFixed(2));
+    const weightKg = Number(
+      metricAverageForDay(['weight_body_mass', 'body_mass'], dateStr).toFixed(2)
+    );
+    const bodyFatPercent = Number(
+      metricAverageForDay(['body_fat_percentage', 'body_fat'], dateStr).toFixed(1)
+    );
+    const leanMassKgRaw = metricAverageForDay(['lean_body_mass', 'lean_mass'], dateStr);
+    const bmiRaw = metricAverageForDay(['body_mass_index', 'bmi'], dateStr);
+    const skeletalMusclePercent = Number(
+      metricAverageForDay(
+        ['skeletal_muscle_percentage', 'skeletal_muscle_rate'],
+        dateStr
+      ).toFixed(1)
+    );
+    const leanMassKg =
+      leanMassKgRaw > 0
+        ? Number(leanMassKgRaw.toFixed(2))
+        : weightKg > 0 && bodyFatPercent > 0
+          ? Number((weightKg * (1 - bodyFatPercent / 100)).toFixed(2))
+          : 0;
+    const bmi =
+      bmiRaw > 0
+        ? Number(bmiRaw.toFixed(1))
+        : 0;
 
     const body: BodyComposition = {
       weightKg,
       bodyFatPercent,
       leanMassKg,
       bmi,
-      fatMassKg,
-      statusLabel: bodyFatPercent < 20 ? '体型精壮 · 骨骼肌卓越' : bodyFatPercent <= 24 ? '健康标准 · 骨骼肌充沛' : '肌肉型超重',
-      trend: bodyTrendData,
+      fatMassKg:
+        weightKg > 0 && bodyFatPercent > 0
+          ? Number((weightKg * (bodyFatPercent / 100)).toFixed(2))
+          : 0,
+      statusLabel:
+        weightKg <= 0 || bodyFatPercent <= 0
+          ? '等待体测数据'
+          : bodyFatPercent < 20
+            ? '体型精壮 · 骨骼肌卓越'
+            : bodyFatPercent <= 24
+              ? '健康标准 · 骨骼肌充沛'
+              : '肌肉型超重',
+      trend: bodyTrendData
+        .filter((point) => point.date <= dateStr)
+        .slice(-8)
+        .map((point) => ({ ...point, date: point.date.slice(5) })),
+      skeletalMuscleKg:
+        weightKg > 0 && skeletalMusclePercent > 0
+          ? Number((weightKg * (skeletalMusclePercent / 100)).toFixed(2))
+          : undefined,
+      skeletalMusclePercent: skeletalMusclePercent > 0 ? skeletalMusclePercent : undefined,
+      waterPercent:
+        metricAverageForDay(['water_percentage', 'water_rate'], dateStr) > 0
+          ? Number(metricAverageForDay(['water_percentage', 'water_rate'], dateStr).toFixed(1))
+          : undefined,
+      visceralFatLevel:
+        metricAverageForDay(['visceral_fat_level'], dateStr) > 0
+          ? Number(metricAverageForDay(['visceral_fat_level'], dateStr).toFixed(1))
+          : undefined,
+      bmrKcal:
+        metricAverageForDay(['basal_metabolic_rate', 'bmr'], dateStr) > 0
+          ? Math.round(metricAverageForDay(['basal_metabolic_rate', 'bmr'], dateStr))
+          : undefined,
+      boneMassKg:
+        metricAverageForDay(['bone_mass'], dateStr) > 0
+          ? Number(metricAverageForDay(['bone_mass'], dateStr).toFixed(2))
+          : undefined,
+      proteinPercent:
+        metricAverageForDay(['protein_percentage'], dateStr) > 0
+          ? Number(metricAverageForDay(['protein_percentage'], dateStr).toFixed(1))
+          : undefined,
+      bodyAge:
+        metricAverageForDay(['body_age'], dateStr) > 0
+          ? Math.round(metricAverageForDay(['body_age'], dateStr))
+          : undefined,
     };
 
-    // 8. Mobility and Gait
-    const walkingSpeedKmH = parseFloat((getMetricAvg(['walking_speed']) || 3.58).toFixed(2));
-    const stepLengthCm = parseFloat((getMetricAvg(['walking_step_length']) || 63.6).toFixed(1));
-    const doubleSupportPercent = parseFloat((getMetricAvg(['walking_double_support_percentage']) || 31.5).toFixed(1));
-    const asymmetryPercent = parseFloat((getMetricAvg(['walking_asymmetry_percentage']) || 10.7).toFixed(1));
-    const stairSpeedUpMs = parseFloat((getMetricAvg(['stair_speed_up']) || 0.27).toFixed(2));
-    const stairSpeedDownMs = parseFloat((getMetricAvg(['stair_speed_down']) || 0.30).toFixed(2));
-    const sixMinWalkDistanceM = Math.round(getMetricAvg(['six_minute_walking_test_distance']) || 491);
-    const walkingHrAvg = Math.round(getMetricAvg(['walking_heart_rate_average']) || 96);
-
     const mobility: MobilityAndGait = {
-      walkingSpeedKmH,
-      stepLengthCm,
-      doubleSupportPercent,
-      asymmetryPercent,
-      stairSpeedUpMs,
-      stairSpeedDownMs,
-      sixMinWalkDistanceM,
+      walkingSpeedKmH: Number(
+        metricAverageForDay(['walking_speed'], dateStr).toFixed(2)
+      ),
+      stepLengthCm: Number(
+        metricAverageForDay(['walking_step_length'], dateStr).toFixed(1)
+      ),
+      doubleSupportPercent: Number(
+        metricAverageForDay(['walking_double_support_percentage'], dateStr).toFixed(1)
+      ),
+      asymmetryPercent: Number(
+        metricAverageForDay(['walking_asymmetry_percentage'], dateStr).toFixed(1)
+      ),
+      stairSpeedUpMs: Number(
+        metricAverageForDay(['stair_speed_up'], dateStr).toFixed(2)
+      ),
+      stairSpeedDownMs: Number(
+        metricAverageForDay(['stair_speed_down'], dateStr).toFixed(2)
+      ),
+      sixMinWalkDistanceM: Math.round(
+        metricAverageForDay(['six_minute_walking_test_distance'], dateStr)
+      ),
       walkingHrAvg,
     };
 
-    // 9. Environment and Hearing
-    const environmentalAudioDb = parseFloat((getMetricAvg(['environmental_audio_exposure']) || 54.6).toFixed(1));
-    const headphoneAudioDb = parseFloat((getMetricAvg(['headphone_audio_exposure']) || 58.2).toFixed(1));
-    const timeInDaylightMin = Math.round(getMetricSum(['time_in_daylight'], 'min') || 38);
-
+    const environmentalAudioDb = Number(
+      metricAverageForDay(['environmental_audio_exposure'], dateStr).toFixed(1)
+    );
+    const headphoneAudioDb = Number(
+      metricAverageForDay(['headphone_audio_exposure'], dateStr).toFixed(1)
+    );
+    const timeInDaylightMin = Math.round(
+      metricSumForDay(['time_in_daylight'], dateStr, 'min')
+    );
     const environment: EnvironmentAndHearing = {
       environmentalAudioDb,
       headphoneAudioDb,
       timeInDaylightMin,
-      audioHealthStatus: environmentalAudioDb < 65 ? '声级优良 · 听力保护中' : '注意适度休息',
+      audioHealthStatus:
+        environmentalAudioDb > 0 && environmentalAudioDb < 65
+          ? '声级处于日常安全范围'
+          : environmentalAudioDb > 0
+            ? '环境声级偏高'
+            : '暂无环境数据',
     };
 
-    // 10. Workouts Processing
     const dayWorkouts: WorkoutRecord[] = [];
-    workoutsList.forEach((w, wIdx) => {
-      if (parseDateStr(w.start) === dateStr) {
-        const durationMins = Math.round((w.duration || 1800) / 60);
-
-        // Sum active energy with kJ -> kcal conversion
-        let activeKcal = 280;
-        if (Array.isArray(w.activeEnergy)) {
-          const isKj = w.activeEnergy[0]?.units?.toLowerCase().includes('kj');
-          const sumVal = w.activeEnergy.reduce((acc, cur) => acc + (cur.qty || 0), 0);
-          activeKcal = Math.round(isKj ? sumVal / 4.184 : sumVal);
-        } else if (w.activeEnergy?.qty) {
-          const isKj = w.activeEnergy.units?.toLowerCase().includes('kj');
-          activeKcal = Math.round(isKj ? w.activeEnergy.qty / 4.184 : w.activeEnergy.qty);
-        }
-
-        const distKm = w.distance?.qty 
-          ? parseFloat(w.distance.qty.toFixed(2)) 
-          : w.cyclingDistance?.qty 
-          ? parseFloat(w.cyclingDistance.qty.toFixed(2))
+    workoutsList.forEach((workout, index) => {
+      if (parseDateStr(workout.start) !== dateStr) return;
+      const startDate = parseDateTime(workout.start);
+      const endDate = parseDateTime(workout.end);
+      const durationMinutes =
+        (finiteNumber(workout.duration) || 0) > 0
+          ? Math.round((finiteNumber(workout.duration) || 0) / 60)
+          : startDate && endDate
+            ? Math.round((endDate.getTime() - startDate.getTime()) / 60000)
+            : 0;
+      const activeEnergy = sumMeasure(workout.activeEnergy);
+      const totalEnergy = sumMeasure(workout.totalEnergy);
+      const distance = workout.distance || workout.cyclingDistance;
+      const distanceQty = finiteNumber(distance?.qty);
+      const distanceKm =
+        distanceQty !== null
+          ? Number(toKm(distanceQty, distance?.units).toFixed(2))
           : undefined;
-
-        const avgHr = Math.round(w.avgHeartRate?.qty || 128);
-        const maxHr = Math.round(w.maxHeartRate?.qty || (avgHr + 22));
-
-        let category: WorkoutRecord['category'] = 'running';
-        const nameLower = (w.name || '').toLowerCase();
-        if (nameLower.includes('骑行') || nameLower.includes('cycling') || nameLower.includes('bike')) category = 'cycling';
-        else if (nameLower.includes('力量') || nameLower.includes('strength')) category = 'strength';
-        else if (nameLower.includes('步行') || nameLower.includes('walk')) category = 'walking';
-        else if (nameLower.includes('hiit')) category = 'hiit';
-        else if (nameLower.includes('游泳') || nameLower.includes('swim')) category = 'swimming';
-
-        const startTime = (w.start || '').match(/\s(\d{2}:\d{2})/)?.[1] || '12:00';
-        const elevation = w.elevationAscended?.qty ? Math.round(w.elevationAscended.qty) : undefined;
-        const paceAvg = distKm && distKm > 0 ? formatPace((w.duration || 1800) / distKm) : undefined;
-
-        // Check if this workout is the outdoor ride matching the GPX
-        let routeGpxPoints = undefined;
-        if (dateStr === '2026-10-11' && (w.name?.includes('户外') || w.name?.includes('骑行'))) {
-          routeGpxPoints = outdoorGpxSample;
-        }
-
-        dayWorkouts.push({
-          id: `w-${dateStr}-${wIdx}`,
-          name: w.name || '体能训练',
-          category,
-          date: dateStr,
-          startTime,
-          durationMinutes: durationMins,
-          activeCalories: activeKcal,
-          totalCalories: Math.round(activeKcal * 1.15),
-          avgHeartRate: avgHr,
-          maxHeartRate: maxHr,
-          distanceKm: distKm,
-          paceAvg,
-          cadenceAvg: category === 'cycling' ? 82 : 168,
-          elevationGainM: elevation,
-          hrZones: {
-            zone1: category === 'strength' ? 35 : 10,
-            zone2: category === 'strength' ? 45 : 25,
-            zone3: category === 'strength' ? 20 : 40,
-            zone4: category === 'strength' ? 0 : 20,
-            zone5: category === 'strength' ? 0 : 5,
-          },
-          routeGpxPoints,
-        });
+      const avgHeartRate = Math.round(finiteMeasure(workout.avgHeartRate) || 0);
+      const maxHeartRate = Math.round(finiteMeasure(workout.maxHeartRate) || 0);
+      const cadence = finiteMeasure(workout.avgCadence);
+      const elevation = finiteMeasure(workout.elevationAscended);
+      const nameLower = (workout.name || '').toLowerCase();
+      let category: WorkoutRecord['category'] = 'running';
+      if (nameLower.includes('骑行') || nameLower.includes('cycling') || nameLower.includes('bike')) {
+        category = 'cycling';
+      } else if (nameLower.includes('力量') || nameLower.includes('strength')) {
+        category = 'strength';
+      } else if (nameLower.includes('步行') || nameLower.includes('walk')) {
+        category = 'walking';
+      } else if (nameLower.includes('hiit')) {
+        category = 'hiit';
+      } else if (nameLower.includes('游泳') || nameLower.includes('swim')) {
+        category = 'swimming';
       }
+
+      const heartRatePoints = (workout.heartRateData || [])
+        .map(pointValue)
+        .filter((value): value is number => value !== null && value >= 30 && value <= 230);
+      const measuredMaxHr =
+        maxHeartRate > 0
+          ? maxHeartRate
+          : heartRatePoints.length > 0
+            ? Math.max(...heartRatePoints)
+            : 0;
+      const measuredAvgHr =
+        avgHeartRate > 0
+          ? avgHeartRate
+          : heartRatePoints.length > 0
+            ? Math.round(
+                heartRatePoints.reduce((sum, value) => sum + value, 0) /
+                  heartRatePoints.length
+              )
+            : 0;
+
+      dayWorkouts.push({
+        id: `hae-${dateStr}-${index}`,
+        name: workout.name || '体能训练',
+        category,
+        source: 'hae',
+        date: dateStr,
+        startTime: formatLocalTime(startDate),
+        durationMinutes,
+        activeCalories: Math.round(
+          activeEnergy.qty === null ? 0 : toKcal(activeEnergy.qty, activeEnergy.units)
+        ),
+        totalCalories: Math.round(
+          totalEnergy.qty === null
+            ? activeEnergy.qty === null
+              ? 0
+              : toKcal(activeEnergy.qty, activeEnergy.units)
+            : toKcal(totalEnergy.qty, totalEnergy.units)
+        ),
+        avgHeartRate: measuredAvgHr,
+        maxHeartRate: measuredMaxHr,
+        distanceKm,
+        paceAvg:
+          distanceKm && durationMinutes > 0
+            ? formatPace((durationMinutes * 60) / distanceKm)
+            : undefined,
+        cadenceAvg: cadence === null ? undefined : Math.round(cadence),
+        elevationGainM: elevation === null ? undefined : Math.round(elevation),
+        hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
+        routeGpxPoints: parseRoutePoints(workout.route),
+      });
     });
 
-    // 11. Grow Vitality Score
-    const hrvDiffPct = Math.round(((hrvCurrent - 62) / 62) * 100);
-    const restingHrDiff = restingHr - 50; // compared to 50 bpm baseline
-    let vitalityScore = Math.min(Math.max(Math.round(82 + (hrvDiffPct * 0.4) - (restingHrDiff * 2) + (sleepScore - 80) * 0.35), 50), 99);
-
-    let vitalityLabel: VitalityScore['label'] = '充沛';
-    if (vitalityScore >= 92) vitalityLabel = '优异';
-    else if (vitalityScore >= 82) vitalityLabel = '充沛';
-    else if (vitalityScore >= 75) vitalityLabel = '良好';
-    else if (vitalityScore <= 65) vitalityLabel = '需休整';
-    else vitalityLabel = '轻度疲倦';
-
+    const hasCompleteVitalityInputs = hrvCurrent > 0 && restingHr > 0 && sleepScore > 0;
+    const hrvDiffPct =
+      hasCompleteVitalityInputs && hrvBaseline > 0
+        ? Math.round(((hrvCurrent - hrvBaseline) / hrvBaseline) * 100)
+        : 0;
+    const restingHrDiff =
+      hasCompleteVitalityInputs && restingBaseline > 0
+        ? Math.round(restingHr - restingBaseline)
+        : 0;
+    const vitalityScore = hasCompleteVitalityInputs
+      ? Math.min(
+          99,
+          Math.max(
+            0,
+            Math.round(
+              72 -
+                restingHrDiff * 1.5 +
+                hrvDiffPct * 0.3 +
+                (sleepEfficiency - 85) * 0.35
+            )
+          )
+        )
+      : 0;
+    const vitalityLabel: VitalityScore['label'] =
+      !hasCompleteVitalityInputs
+        ? '数据不足'
+        : vitalityScore >= 90
+          ? '优异'
+          : vitalityScore >= 80
+            ? '充沛'
+            : vitalityScore >= 70
+              ? '良好'
+              : vitalityScore >= 60
+                ? '轻度疲倦'
+                : '需休整';
     const vitality: VitalityScore = {
       score: vitalityScore,
       label: vitalityLabel,
-      statusDescription: `静息心率极低 (${restingHr} bpm)，HRV 稳健 (${hrvCurrent} ms)，体脂率 ${bodyFatPercent}% 控制优良，精力蓄电池状态饱满。`,
-      hrvStatus: hrvDiffPct > 5 ? '高于基线' : hrvDiffPct < -5 ? '低于基线' : '正常基线',
+      statusDescription: hasCompleteVitalityInputs
+        ? `基于当日静息心率 ${restingHr} bpm、HRV ${hrvCurrent} ms 与睡眠效率 ${sleepEfficiency}% 计算，仅用于趋势参考。`
+        : '当天缺少完整的静息心率、HRV 或睡眠数据，暂不生成状态评分。',
+      hrvStatus:
+        !hasCompleteVitalityInputs
+          ? '数据不足'
+          : hrvDiffPct > 5
+            ? '高于基线'
+            : hrvDiffPct < -5
+              ? '低于基线'
+              : '正常基线',
       restingHrDiff,
-      sleepContribution: Math.round((sleepScore / 100) * 100),
-      stressLevel: hrvCurrent > 65 ? '低压力' : '适中',
+      sleepContribution: sleepEfficiency,
+      stressLevel: !hasCompleteVitalityInputs
+        ? '数据不足'
+        : hrvCurrent >= Math.max(hrvBaseline * 1.05, hrvBaseline)
+          ? '低压力'
+          : '适中',
     };
+
+    const heartRatePresence = hasMetricForDay(['heart_rate', 'heartRate'], dateStr);
+    const vitalsPresence =
+      heartRatePresence ||
+      hasMetricForDay(
+        [
+          'resting_heart_rate',
+          'restingHeartRate',
+          'heart_rate_variability',
+          'heart_rate_variability_sdnn',
+          'blood_oxygen_saturation',
+          'respiratory_rate',
+          'walking_heart_rate_average',
+        ],
+        dateStr
+      );
+    const ringsPresence =
+      hasMetricForDay(['active_energy', 'activeEnergy'], dateStr) ||
+      hasMetricForDay(['apple_exercise_time', 'appleExerciseTime'], dateStr) ||
+      hasMetricForDay(['apple_stand_hour', 'appleStandHour'], dateStr);
+    const stepsPresence = hasMetricForDay(
+      [
+        'step_count',
+        'stepCount',
+        'steps',
+        'walking_running_distance',
+        'flights_climbed',
+      ],
+      dateStr
+    );
+    const sleepPresence = pointsForDay(
+      metricFor(['sleep_analysis', 'sleepAnalysis']),
+      dateStr
+    ).some(
+      (point) =>
+        point.deep !== undefined ||
+        point.rem !== undefined ||
+        point.core !== undefined ||
+        point.awake !== undefined ||
+        Boolean(point.value) ||
+        Boolean(point.startDate || point.sleepStart || point.inBedStart)
+    );
+    const bodyPresence =
+      hasMetricForDay(['weight_body_mass', 'body_mass', 'body_fat_percentage'], dateStr) ||
+      skeletalMusclePercent > 0;
+    const mobilityPresence = hasMetricForDay(
+      [
+        'walking_speed',
+        'walking_step_length',
+        'walking_double_support_percentage',
+        'walking_asymmetry_percentage',
+      ],
+      dateStr
+    );
+    const environmentPresence = hasMetricForDay(
+      ['environmental_audio_exposure', 'headphone_audio_exposure', 'time_in_daylight'],
+      dateStr
+    );
 
     daysResult[dateStr] = {
       date: dateStr,
       dayName: dayInfo.dayName,
       shortDay: dayInfo.shortDay,
-      isToday: dateStr === todayStr,
+      isToday: dateStr === today,
       rings,
       vitality,
       sleep,
       vitals,
-      heartRateTimeline: hrPoints,
+      heartRateTimeline,
       workouts: dayWorkouts,
       steps: {
         count: stepCount,
-        goal: 10000,
+        goal: Math.round(metricAverageForDay(['step_goal'], dateStr)) || 10000,
         distanceKm,
         flightsClimbed,
       },
@@ -591,9 +955,22 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
       environment,
       cyclingDistanceKm,
       basalEnergyKcal: basalKcal,
-      totalBurnedKcal,
+      totalBurnedKcal: moveCalories + basalKcal,
       physicalEffortAvg,
-      mindfulMinutes: Math.round(getMetricSum(['mindful_minutes', 'mindfulMinutes'])) || 15,
+      mindfulMinutes: Math.round(
+        metricSumForDay(['mindful_minutes', 'mindfulMinutes'], dateStr)
+      ),
+    };
+
+    presence[dateStr] = {
+      rings: ringsPresence,
+      steps: stepsPresence,
+      vitals: vitalsPresence,
+      sleep: sleepPresence,
+      body: bodyPresence,
+      mobility: mobilityPresence,
+      environment: environmentPresence,
+      heartRate: heartRatePresence,
     };
   });
 
@@ -602,5 +979,6 @@ export function parseHealthAutoExportJSON(rawJson: unknown): {
     dates: sortedDates,
     totalWorkouts: workoutsList.length,
     totalDays: sortedDates.length,
+    presence,
   };
 }

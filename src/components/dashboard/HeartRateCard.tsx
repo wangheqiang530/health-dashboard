@@ -50,28 +50,22 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
     : '';
 
   // Daily 7-day range data
-  const dailyRanges = vitals.dailyHrRanges || [
-    { date: '10-11', dayName: '周日', minHr: 48, maxHr: 165, restingHr: 49, sleepingHr: 51, avgHr: 74 },
-    { date: '10-12', dayName: '周一', minHr: 47, maxHr: 142, restingHr: 49, sleepingHr: 53, avgHr: 72 },
-    { date: '10-13', dayName: '周二', minHr: 46, maxHr: 138, restingHr: 49, sleepingHr: 50, avgHr: 71 },
-    { date: '10-14', dayName: '周三', minHr: 47, maxHr: 154, restingHr: 49, sleepingHr: 52, avgHr: 73 },
-    { date: '10-15', dayName: '周四', minHr: 45, maxHr: 146, restingHr: 47, sleepingHr: 49, avgHr: 69 },
-    { date: '10-16', dayName: '周五', minHr: 46, maxHr: 140, restingHr: 46, sleepingHr: 48, avgHr: 70 },
-    { date: '10-17', dayName: '周六', minHr: 48, maxHr: 145, restingHr: 50, sleepingHr: 53, avgHr: 71 },
-  ];
+  const dailyRanges = vitals.dailyHrRanges || [];
 
   // Weekly 4-week trend data
-  const weeklyTrends = vitals.weeklyHrTrends || [
-    { weekLabel: '第38周', avgResting: 51, avgSleeping: 54, minRange: 46, maxRange: 168 },
-    { weekLabel: '第39周', avgResting: 49, avgSleeping: 52, minRange: 45, maxRange: 172 },
-    { weekLabel: '第40周', avgResting: 48, avgSleeping: 50, minRange: 46, maxRange: 165 },
-    { weekLabel: '本周', avgResting: 48, avgSleeping: 51, minRange: 45, maxRange: 165 },
-  ];
+  const weeklyTrends = vitals.weeklyHrTrends || [];
 
-  const sleepingHrValue = vitals.sleepingHr || 50;
-  const walkingHrValue = vitals.walkingHrAvg || 78;
-  const peakHr = timeline.length > 0 ? Math.max(...timeline.map((p) => p.hr)) : 140;
-  const peakZoneLabel = peakHr >= 165 ? '极限无氧区' : peakHr >= 140 ? '有氧耐力区' : '日常燃脂区';
+  const sleepingHrValue = vitals.sleepingHr;
+  const walkingHrValue = vitals.walkingHrAvg;
+  const peakHr = timeline.length > 0 ? Math.max(...timeline.map((p) => p.hr)) : 0;
+  const peakZoneLabel =
+    peakHr <= 0
+      ? '暂无数据'
+      : peakHr >= 165
+        ? '极限区间'
+        : peakHr >= 140
+          ? '有氧区间'
+          : '日常活动区间';
 
   // Mouse Move on Chart for Crosshair (User Comment 1)
   const handleSvgMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -182,11 +176,13 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             <span className="text-[10px] text-neutral-400 block mb-0.5">最新心率</span>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {vitals.latestHr}
+                {vitals.latestHr > 0 ? vitals.latestHr : '—'}
               </span>
               <span className="text-[10px] text-rose-500 font-semibold">BPM</span>
             </div>
-            <span className="text-[9px] text-emerald-500 mt-0.5 block">即时监测</span>
+            <span className="text-[9px] text-emerald-500 mt-0.5 block">
+              {vitals.latestHr > 0 ? '最近一次实测' : '暂无数据'}
+            </span>
           </button>
 
           <button
@@ -201,11 +197,13 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             <span className="text-[10px] text-neutral-400 block mb-0.5">静息心率</span>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {vitals.restingHr}
+                {vitals.restingHr > 0 ? vitals.restingHr : '—'}
               </span>
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
-            <span className="text-[9px] text-emerald-500 mt-0.5 block">优秀水平</span>
+            <span className="text-[9px] text-emerald-500 mt-0.5 block">
+              {vitals.restingHr > 0 ? 'Apple Health 实测' : '暂无数据'}
+            </span>
           </button>
 
           <button
@@ -223,11 +221,13 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-indigo-500 dark:text-indigo-400 tracking-tight">
-                {sleepingHrValue}
+                {sleepingHrValue > 0 ? sleepingHrValue : '—'}
               </span>
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
-            <span className="text-[9px] text-indigo-400 mt-0.5 block">深层休整</span>
+            <span className="text-[9px] text-indigo-400 mt-0.5 block">
+              {sleepingHrValue > 0 ? '睡眠心率实测' : '暂无数据'}
+            </span>
           </button>
 
           <button
@@ -245,11 +245,13 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
-                {walkingHrValue}
+                {walkingHrValue > 0 ? walkingHrValue : '—'}
               </span>
               <span className="text-[10px] text-neutral-400 font-medium">BPM</span>
             </div>
-            <span className="text-[9px] text-teal-500 mt-0.5 block">平稳舒缓</span>
+            <span className="text-[9px] text-teal-500 mt-0.5 block">
+              {walkingHrValue > 0 ? '步行均值实测' : '暂无数据'}
+            </span>
           </button>
 
           <button
@@ -267,11 +269,13 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-purple-500 dark:text-purple-400 tracking-tight">
-                {vitals.hrvCurrent}
+                {vitals.hrvCurrent > 0 ? vitals.hrvCurrent : '—'}
               </span>
               <span className="text-[10px] text-neutral-400">ms</span>
             </div>
-            <span className="text-[9px] text-purple-400 mt-0.5 block">副交感活跃</span>
+            <span className="text-[9px] text-purple-400 mt-0.5 block">
+              {vitals.hrvCurrent > 0 ? 'Apple Health 实测' : '暂无数据'}
+            </span>
           </button>
 
           <button
@@ -289,7 +293,7 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             </div>
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-black text-amber-500 tracking-tight">
-                {peakHr}
+                {peakHr > 0 ? peakHr : '—'}
               </span>
               <span className="text-[10px] text-neutral-400">BPM</span>
             </div>
@@ -310,6 +314,11 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               transition={{ duration: 0.2 }}
               className="w-full h-full relative"
             >
+              {timeline.length === 0 && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center text-xs text-neutral-400 pointer-events-none">
+                  当天暂无原始心率采样点
+                </div>
+              )}
               <svg
                 ref={svgRef}
                 onMouseMove={handleSvgMouseMove}
@@ -495,7 +504,7 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               <div className="flex items-center justify-between text-[11px] text-neutral-400 mb-1">
                 <span className="font-medium">
                   {selectedMetric === 'resting'
-                    ? '7 日静息心率基线走势 (45~55 bpm 黄金区间)'
+                    ? '7 日静息心率实测走势'
                     : selectedMetric === 'sleeping'
                       ? '7 日夜间睡眠深度休整心率波动 (bpm)'
                       : selectedMetric === 'walking'
@@ -511,6 +520,11 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
               </div>
 
               <div className="flex items-end justify-between h-[100px] gap-2 px-1">
+                {dailyRanges.length === 0 && (
+                  <div className="w-full h-full flex items-center justify-center text-xs text-neutral-400">
+                    暂无连续日心率范围数据
+                  </div>
+                )}
                 {dailyRanges.map((d, idx) => {
                   const isLatest = idx === dailyRanges.length - 1;
                   const displayVal = selectedMetric === 'resting'
@@ -575,10 +589,19 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
             >
               <div className="flex items-center justify-between text-[11px] text-neutral-400 mb-1">
                 <span>周度心肺负荷均值对比</span>
-                <span className="text-emerald-500 font-semibold">静息均值 48 bpm · 心肌耐受极佳</span>
+                <span className="text-emerald-500 font-semibold">
+                  {weeklyTrends.length > 0
+                    ? `最近静息均值 ${weeklyTrends[weeklyTrends.length - 1].avgResting} bpm`
+                    : '暂无周度数据'}
+                </span>
               </div>
 
               <div className="grid grid-cols-4 gap-3 h-[95px] items-center">
+                {weeklyTrends.length === 0 && (
+                  <div className="col-span-4 text-center text-xs text-neutral-400">
+                    暂无周度心率趋势数据
+                  </div>
+                )}
                 {weeklyTrends.map((w, idx) => (
                   <div
                     key={w.weekLabel}
@@ -616,10 +639,19 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
                   <Waves className="w-3.5 h-3.5 text-purple-400" />
                   <span>7 日心率变异性 (SDNN 趋势)</span>
                 </div>
-                <span className="text-purple-400 font-semibold">个人基线 62 ms · 当前 72 ms</span>
+                <span className="text-purple-400 font-semibold">
+                  {vitals.hrvBaseline > 0 && vitals.hrvCurrent > 0
+                    ? `基线 ${vitals.hrvBaseline} ms · 当前 ${vitals.hrvCurrent} ms`
+                    : '暂无 HRV 数据'}
+                </span>
               </div>
 
               <div className="flex items-end justify-between h-[95px] gap-3 px-2">
+                {vitals.hrvTrend.length === 0 && (
+                  <div className="w-full h-full flex items-center justify-center text-xs text-neutral-400">
+                    暂无 HRV 连续记录
+                  </div>
+                )}
                 {vitals.hrvTrend.map((item, idx) => {
                   const heightPercent = Math.min(Math.max(((item.hrv - 35) / 50) * 100, 15), 100);
                   const isLatest = idx === vitals.hrvTrend.length - 1;

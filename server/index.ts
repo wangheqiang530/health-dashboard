@@ -14,7 +14,12 @@ import { haeRoutes } from './routes/hae.ts';
 import { repairHistoricalHaeSummaries } from './hae.ts';
 import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
-import { ensureHaeApiKey } from './settings.ts';
+import { bodyRoutes } from './routes/body.ts';
+import {
+  ensureDashboardAccessToken,
+  ensureHaeApiKey,
+  secureCompare,
+} from './settings.ts';
 import { reloadSchedules, stopScheduler } from './sync.ts';
 
 const app = Fastify({
@@ -45,6 +50,44 @@ app.addContentTypeParser(
   }
 );
 
+const publicApiPaths = new Set([
+  '/api/health',
+  '/api/v1/health-auto-export',
+]);
+
+const extractDashboardToken = (
+  headers: Record<string, string | string[] | undefined>
+): string => {
+  const authorization = headers.authorization;
+  if (typeof authorization === 'string' && authorization.toLowerCase().startsWith('bearer ')) {
+    return authorization.slice(7).trim();
+  }
+
+  const direct = headers['x-dashboard-token'];
+  return typeof direct === 'string' ? direct.trim() : '';
+};
+
+app.addHook('onSend', async (request, reply) => {
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'SAMEORIGIN');
+  reply.header('Referrer-Policy', 'no-referrer');
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if ((request.raw.url || '').startsWith('/api/')) {
+    reply.header('Cache-Control', 'no-store');
+  }
+});
+
+app.addHook('onRequest', async (request, reply) => {
+  const pathname = (request.raw.url || '').split('?')[0];
+  if (!pathname.startsWith('/api/') || publicApiPaths.has(pathname)) return;
+
+  const expected = await ensureDashboardAccessToken();
+  const provided = extractDashboardToken(request.headers);
+  if (!provided || !secureCompare(provided, expected)) {
+    return reply.code(401).send({ error: '需要有效的面板访问密钥。' });
+  }
+});
+
 app.get('/api/health', async () => {
   await pool.query('SELECT 1');
   return {
@@ -56,10 +99,13 @@ app.get('/api/health', async () => {
   };
 });
 
+app.get('/api/v1/auth/verify', async () => ({ ok: true }));
+
 await app.register(haeRoutes);
 await app.register(dashboardRoutes);
 await app.register(configRoutes);
 await app.register(versionRoutes);
+await app.register(bodyRoutes);
 
 if (config.nodeEnv === 'production') {
   const distDirectory = path.resolve(fileURLToPath(new URL('../dist', import.meta.url)));
@@ -113,6 +159,10 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 try {
   await migrate();
   await ensureHaeApiKey();
+  await ensureDashboardAccessToken();
+  app.log.info(
+    `面板访问密钥已写入 ${path.join(config.dataDir, 'dashboard-access-token.txt')}`
+  );
   try {
     const repair = await repairHistoricalHaeSummaries();
     if (repair.repairedCount > 0) {

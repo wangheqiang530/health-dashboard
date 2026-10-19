@@ -27,10 +27,10 @@ export interface FoodEquivalentResult {
 export function getCalorieFoodEquivalents(kcal: number): FoodEquivalentResult {
   if (!kcal || kcal <= 0) {
     return {
-      emojis: '☕',
-      description: '美式咖啡 × 1',
-      totalEquivKcal: 10,
-      items: [{ item: FOOD_DATABASE[9], count: 1 }],
+      emojis: '',
+      description: '暂无消耗记录',
+      totalEquivKcal: 0,
+      items: [],
     };
   }
 
