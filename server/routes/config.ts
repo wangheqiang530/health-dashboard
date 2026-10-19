@@ -60,6 +60,23 @@ interface RunRow {
   details: Record<string, unknown>;
 }
 
+interface ImportBatchRow {
+  id: string;
+  source_id: 'hae' | 'fitdays' | 'igpsport';
+  import_kind: string;
+  file_name: string | null;
+  archive_path: string | null;
+  status: 'running' | 'success' | 'failed';
+  started_at: Date;
+  finished_at: Date | null;
+  raw_count: string;
+  normalized_count: string;
+  skipped_count: string;
+  error_count: string;
+  metadata: Record<string, unknown>;
+  error_message: string | null;
+}
+
 const sourceUpdateSchema = z.object({
   account: z.string().trim().min(1).max(200),
   password: z.string().max(300).optional().default(''),
@@ -80,6 +97,10 @@ const allSourceParamSchema = z.object({
 
 const storageSchema = z.object({
   retentionDays: z.number().int().min(0).max(3650),
+});
+
+const importHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional().default(100),
 });
 
 const publicEndpoint = (request: FastifyRequest): string => {
@@ -224,6 +245,44 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         details: run.details,
       })),
       timezone: config.timezone,
+    };
+  });
+
+  app.get('/api/v1/config/imports', async (request, reply) => {
+    const query = importHistoryQuerySchema.safeParse(request.query);
+    if (!query.success) {
+      return reply.code(400).send({ error: '导入记录查询参数无效。' });
+    }
+
+    const result = await pool.query<ImportBatchRow>(
+      `SELECT
+         id::text, source_id, import_kind, file_name, archive_path, status,
+         started_at, finished_at, raw_count, normalized_count, skipped_count,
+         error_count, metadata, error_message
+       FROM import_batches
+       WHERE import_kind NOT LIKE '%backfill%'
+       ORDER BY started_at DESC
+       LIMIT $1`,
+      [query.data.limit]
+    );
+
+    return {
+      imports: result.rows.map((row) => ({
+        id: row.id,
+        sourceId: row.source_id,
+        importKind: row.import_kind,
+        fileName: row.file_name,
+        archivePath: row.archive_path,
+        status: row.status,
+        startedAt: row.started_at.toISOString(),
+        finishedAt: row.finished_at?.toISOString() || null,
+        rawCount: Number(row.raw_count || 0),
+        normalizedCount: Number(row.normalized_count || 0),
+        skippedCount: Number(row.skipped_count || 0),
+        errorCount: Number(row.error_count || 0),
+        metadata: row.metadata,
+        errorMessage: row.error_message,
+      })),
     };
   });
 

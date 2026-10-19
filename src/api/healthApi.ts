@@ -29,6 +29,23 @@ export interface SyncRun {
   details: Record<string, unknown>;
 }
 
+export interface ImportBatchItem {
+  id: string;
+  sourceId: 'hae' | 'fitdays' | 'igpsport';
+  importKind: string;
+  fileName: string | null;
+  archivePath: string | null;
+  status: 'running' | 'success' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  rawCount: number;
+  normalizedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  metadata: Record<string, unknown>;
+  errorMessage: string | null;
+}
+
 export interface BackendConfig {
   sources: DataSourceConfig[];
   hae: {
@@ -332,6 +349,16 @@ export async function fetchSourceRuns(
     headers: { Accept: 'application/json' },
   });
   return parseResponse(response);
+}
+
+export async function fetchImportHistory(
+  limit = 100
+): Promise<{ imports: ImportBatchItem[] }> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  const response = await apiFetch(`/api/v1/config/imports?${query.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse<{ imports: ImportBatchItem[] }>(response);
 }
 
 export async function triggerSyncAllDevices(): Promise<{

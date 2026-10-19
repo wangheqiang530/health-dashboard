@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { fetchSystemLogs, clearSystemLogs } from '../../api/healthApi';
+import { ImportHistoryPanel } from './ImportHistoryPanel';
 import {
   X,
   FileText,
@@ -10,6 +11,7 @@ import {
   Trash2,
   Terminal,
   Search,
+  Database,
 } from 'lucide-react';
 
 interface SystemLogsModalProps {
@@ -18,6 +20,7 @@ interface SystemLogsModalProps {
 }
 
 export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState<'logs' | 'imports'>('logs');
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -39,11 +42,11 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
   };
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || activeTab !== 'logs') return;
     void loadLogs();
     const interval = setInterval(() => void loadLogs(true), 4000);
     return () => clearInterval(interval);
-  }, [isOpen]);
+  }, [activeTab, isOpen]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -97,42 +100,48 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <h2 className="text-base font-bold text-neutral-900 dark:text-white tracking-tight flex items-center gap-2">
-                <span>系统运行日志 (System Console)</span>
+                <span>运行日志与数据导入</span>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </h2>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                实时输出 Fastify API 请求、HAE Webhook 接收、Fitdays/iGPSPORT 调度同步与报错调用栈
+                {activeTab === 'logs'
+                  ? '实时输出 Fastify API 请求、数据源同步与报错调用栈'
+                  : '查看最近数据库导入批次、渠道、写入数量与失败原因'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void loadLogs()}
-              disabled={loading}
-              className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
-              title="刷新最新日志"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
-              title="复制全部日志"
-            >
-              {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={handleClear}
-              disabled={clearing}
-              className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-rose-500/10 text-neutral-700 dark:text-neutral-200 hover:text-rose-500 transition-colors cursor-pointer"
-              title="清空日志视窗"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {activeTab === 'logs' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void loadLogs()}
+                  disabled={loading}
+                  className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
+                  title="刷新最新日志"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-neutral-700 dark:text-neutral-200 transition-colors cursor-pointer"
+                  title="复制全部日志"
+                >
+                  {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  disabled={clearing}
+                  className="p-2 rounded-xl bg-black/5 dark:bg-white/10 hover:bg-rose-500/10 text-neutral-700 dark:text-neutral-200 hover:text-rose-500 transition-colors cursor-pointer"
+                  title="清空日志视窗"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -143,82 +152,119 @@ export const SystemLogsModal: React.FC<SystemLogsModalProps> = ({ isOpen, onClos
           </div>
         </div>
 
-        {/* Filters Toolbar */}
-        <div className="px-6 py-2.5 bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 text-xs">
-            {(['ALL', 'INFO', 'WARN', 'ERROR'] as const).map((lvl) => (
-              <button
-                key={lvl}
-                onClick={() => setLevelFilter(lvl)}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                  levelFilter === lvl
-                    ? lvl === 'ERROR'
-                      ? 'bg-rose-500 text-white shadow-sm'
-                      : lvl === 'WARN'
-                        ? 'bg-amber-500 text-black shadow-sm'
-                        : 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
-                }`}
-              >
-                {lvl}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative flex-1 max-w-xs">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-neutral-400" />
-            <input
-              type="text"
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="搜索关键词 (如 hae, sync, error)..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#1a1c24] rounded-xl border border-black/10 dark:border-white/10 text-neutral-800 dark:text-neutral-200 outline-none focus:border-indigo-500"
-            />
-          </div>
+        <div className="flex items-center gap-1.5 border-b border-black/5 bg-black/[0.02] px-5 py-2 dark:border-white/5 dark:bg-white/[0.02]">
+          <button
+            type="button"
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeTab === 'logs'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-800 dark:hover:text-white'
+            }`}
+          >
+            <Terminal className="h-3.5 w-3.5" />
+            运行日志
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('imports')}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeTab === 'imports'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-neutral-800 dark:hover:text-white'
+            }`}
+          >
+            <Database className="h-3.5 w-3.5" />
+            数据导入
+          </button>
         </div>
 
-        {/* Console Log Content Area */}
-        <div
-          ref={scrollRef}
-          className="p-4 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed bg-[#0b0c10] text-neutral-300 select-text min-h-[380px]"
-        >
-          {filteredLogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-neutral-500 py-12">
-              <FileText className="w-8 h-8 mb-2 opacity-40" />
-              <span>暂无符合条件的日志记录</span>
+        {activeTab === 'logs' ? (
+          <>
+            {/* Filters Toolbar */}
+            <div className="px-6 py-2.5 bg-black/[0.02] dark:bg-white/[0.02] border-b border-black/5 dark:border-white/5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 text-xs">
+                {(['ALL', 'INFO', 'WARN', 'ERROR'] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    onClick={() => setLevelFilter(lvl)}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                      levelFilter === lvl
+                        ? lvl === 'ERROR'
+                          ? 'bg-rose-500 text-white shadow-sm'
+                          : lvl === 'WARN'
+                            ? 'bg-amber-500 text-black shadow-sm'
+                            : 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200'
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative flex-1 max-w-xs">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-neutral-400" />
+                <input
+                  type="text"
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  placeholder="搜索关键词 (如 hae, sync, error)..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#1a1c24] rounded-xl border border-black/10 dark:border-white/10 text-neutral-800 dark:text-neutral-200 outline-none focus:border-indigo-500"
+                />
+              </div>
             </div>
-          ) : (
-            filteredLogs.map((line, idx) => {
-              const isError = line.includes('[ERROR]') || line.includes('error') || line.includes('Error');
-              const isWarn = line.includes('[WARN]') || line.includes('warn');
-              const isHae = line.includes('HAE') || line.includes('health-auto-export');
-              const isSync = line.includes('sync') || line.includes('fitdays') || line.includes('igpsport');
 
-              return (
-                <div
-                  key={idx}
-                  className={`py-0.5 px-1.5 rounded transition-colors break-all ${
-                    isError
-                      ? 'text-rose-400 bg-rose-500/10'
-                      : isWarn
-                        ? 'text-amber-300 bg-amber-500/10'
-                        : isHae
-                          ? 'text-sky-300 hover:bg-white/5'
-                          : isSync
-                            ? 'text-emerald-300 hover:bg-white/5'
-                            : 'hover:bg-white/5 text-neutral-300'
-                  }`}
-                >
-                  {line}
+            {/* Console Log Content Area */}
+            <div
+              ref={scrollRef}
+              className="p-4 flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed bg-[#0b0c10] text-neutral-300 select-text min-h-[380px]"
+            >
+              {filteredLogs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-neutral-500 py-12">
+                  <FileText className="w-8 h-8 mb-2 opacity-40" />
+                  <span>暂无符合条件的日志记录</span>
                 </div>
-              );
-            })
-          )}
-        </div>
+              ) : (
+                filteredLogs.map((line, idx) => {
+                  const isError = line.includes('[ERROR]') || line.includes('error') || line.includes('Error');
+                  const isWarn = line.includes('[WARN]') || line.includes('warn');
+                  const isHae = line.includes('HAE') || line.includes('health-auto-export');
+                  const isSync = line.includes('sync') || line.includes('fitdays') || line.includes('igpsport');
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`py-0.5 px-1.5 rounded transition-colors break-all ${
+                        isError
+                          ? 'text-rose-400 bg-rose-500/10'
+                          : isWarn
+                            ? 'text-amber-300 bg-amber-500/10'
+                            : isHae
+                              ? 'text-sky-300 hover:bg-white/5'
+                              : isSync
+                                ? 'text-emerald-300 hover:bg-white/5'
+                                : 'hover:bg-white/5 text-neutral-300'
+                      }`}
+                    >
+                      {line}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        ) : (
+          <ImportHistoryPanel />
+        )}
 
         {/* Footer */}
         <div className="px-6 py-2.5 border-t border-black/5 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between text-[11px] text-neutral-400 font-mono">
-          <span>共载入 {filteredLogs.length} / {logs.length} 条记录</span>
+          <span>
+            {activeTab === 'logs'
+              ? `共载入 ${filteredLogs.length} / ${logs.length} 条记录`
+              : '数据库导入记录按开始时间倒序排列'}
+          </span>
           <span>按 ESC 或点击关闭退出</span>
         </div>
       </motion.div>
