@@ -36,12 +36,15 @@ import {
   type ArchiveItem,
   type BackendConfig,
   type DataSourceConfig,
-  type SourceTestResult,
 } from '../../api/healthApi';
 import { AppleCard } from '../ui/AppleCard';
+import {
+  OperationProgressModal,
+  type OperationProgressState,
+} from '../ui/OperationProgressModal';
 
 interface DataSourceSettingsProps {
-  onDataChanged: () => void;
+  onDataChanged: () => void | Promise<void>;
 }
 
 type SourceId = 'fitdays' | 'igpsport';
@@ -93,6 +96,12 @@ const sourceIcon = (sourceId: SourceId) => {
   return <Bike className="w-4 h-4 text-sky-500" />;
 };
 
+const sourceLabel = (sourceId: 'hae' | SourceId): string => {
+  if (sourceId === 'fitdays') return 'Fitdays 体脂秤';
+  if (sourceId === 'igpsport') return 'iGPSPORT 码表';
+  return 'Health Auto Export';
+};
+
 const formatCoverage = (earliest: string | null, latest: string | null): string =>
   earliest && latest ? `${earliest} → ${latest}` : '暂无记录';
 
@@ -109,13 +118,10 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   });
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [retentionDays, setRetentionDays] = useState('365');
+  const [retentionDays, setRetentionDays] = useState('0');
   const [savingStorage, setSavingStorage] = useState(false);
   const [testingId, setTestingId] = useState<'hae' | SourceId | null>(null);
-  const [testResult, setTestResult] = useState<{
-    sourceId: 'hae' | SourceId;
-    result: SourceTestResult;
-  } | null>(null);
+  const [operation, setOperation] = useState<OperationProgressState | null>(null);
 
   const loadConfig = async (updateDrafts: boolean) => {
     try {
@@ -183,6 +189,13 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     const draft = drafts[sourceId];
     setSavingId(sourceId);
     setMessage(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: `保存 ${sourceLabel(sourceId)} 配置`,
+      status: 'running',
+      message: '正在校验账号、加密凭据并重新加载定时任务…',
+      startedAt,
+    });
     try {
       await updateDataSource(sourceId, {
         account: draft.account,
@@ -195,10 +208,22 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
       });
       setMessage({ type: 'success', text: '数据源配置已保存，Cron 计划已重新加载。' });
       await loadConfig(true);
+      setOperation({
+        title: `保存 ${sourceLabel(sourceId)} 配置`,
+        status: 'success',
+        message: '配置已保存，自动同步计划已重新加载。',
+        startedAt,
+      });
     } catch (error) {
       setMessage({
         type: 'error',
         text: error instanceof Error ? error.message : '保存失败',
+      });
+      setOperation({
+        title: `保存 ${sourceLabel(sourceId)} 配置`,
+        status: 'error',
+        message: error instanceof Error ? error.message : '保存失败',
+        startedAt,
       });
     } finally {
       setSavingId(null);
@@ -208,6 +233,13 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   const syncNow = async (sourceId: SourceId, full = false) => {
     setSyncingId(sourceId);
     setMessage(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: `${full ? '全量' : '增量'}同步 ${sourceLabel(sourceId)}`,
+      status: 'running',
+      message: '任务已下发，正在等待云端拉取、解析与数据库入库…',
+      startedAt,
+    });
     try {
       const started = await triggerSourceSync(sourceId, full);
       setMessage({
@@ -223,6 +255,18 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         try {
           const result = await fetchSourceRuns(sourceId);
           const run = result.runs.find((item) => item.id === started.runId);
+          if (run) {
+            setOperation({
+              title: `${full ? '全量' : '增量'}同步 ${sourceLabel(sourceId)}`,
+              status: 'running',
+              message:
+                run.status === 'running'
+                  ? '正在拉取与写入数据…'
+                  : '任务已结束，正在刷新数据库状态…',
+              detail: `已处理 ${run.recordsCount.toLocaleString()} 条 · 任务 ${run.id.slice(0, 8)}`,
+              startedAt,
+            });
+          }
           if (run && run.status !== 'running') {
             completedRun = run;
             break;
@@ -247,11 +291,24 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         } ${recordLabel}。数据库覆盖范围已刷新。`,
       });
       await loadConfig(false);
-      onDataChanged();
+      await onDataChanged();
+      setOperation({
+        title: `${full ? '全量' : '增量'}同步 ${sourceLabel(sourceId)}`,
+        status: 'success',
+        message: `同步完成，共处理 ${completedRun.recordsCount.toLocaleString()} ${recordLabel}。`,
+        startedAt,
+        details: completedRun.details,
+      });
     } catch (error) {
       setMessage({
         type: 'error',
         text: error instanceof Error ? error.message : '同步启动失败',
+      });
+      setOperation({
+        title: `${full ? '全量' : '增量'}同步 ${sourceLabel(sourceId)}`,
+        status: 'error',
+        message: error instanceof Error ? error.message : '同步启动失败',
+        startedAt,
       });
     } finally {
       setSyncingId(null);
@@ -261,12 +318,19 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
 
   const saveRetention = async () => {
     const days = Number(retentionDays);
-    if (!Number.isInteger(days) || days < 1 || days > 3650) {
-      setMessage({ type: 'error', text: '保留天数必须为 1 到 3650 的整数。' });
+    if (!Number.isInteger(days) || days < 0 || days > 3650) {
+      setMessage({ type: 'error', text: '保留天数必须为 0 到 3650 的整数，0 表示永久保留。' });
       return;
     }
     setSavingStorage(true);
     setMessage(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: '保存归档保留策略',
+      status: 'running',
+      message: days === 0 ? '正在切换为永久保留，并停止自动清理…' : '正在应用保留期限并清理过期文件…',
+      startedAt,
+    });
     try {
       const result = await updateArchiveRetention(days);
       setRetentionDays(String(result.retentionDays));
@@ -275,10 +339,26 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         text: `备份保留期已设为 ${result.retentionDays} 天，过期文件已清理，数据库数据保持不变。`,
       });
       await loadConfig(false);
+      setOperation({
+        title: '保存归档保留策略',
+        status: 'success',
+        message:
+          result.retentionDays === 0
+            ? '原始归档已设为永久保留，不会自动清理。'
+            : `归档保留期已设为 ${result.retentionDays} 天。`,
+        startedAt,
+        details: result,
+      });
     } catch (error) {
       setMessage({
         type: 'error',
         text: error instanceof Error ? error.message : '保存存储期限失败',
+      });
+      setOperation({
+        title: '保存归档保留策略',
+        status: 'error',
+        message: error instanceof Error ? error.message : '保存存储期限失败',
+        startedAt,
       });
     } finally {
       setSavingStorage(false);
@@ -287,18 +367,28 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
 
   const testSource = async (sourceId: 'hae' | SourceId) => {
     setTestingId(sourceId);
-    setTestResult(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: `测试连接 · ${sourceLabel(sourceId)}`,
+      status: 'running',
+      message: '正在验证凭据、网络连接与接口响应…',
+      startedAt,
+    });
     try {
       const result = await testDataSource(sourceId);
-      setTestResult({ sourceId, result });
+      setOperation({
+        title: `测试连接 · ${sourceLabel(sourceId)}`,
+        status: result.ok ? 'success' : 'error',
+        message: result.message,
+        startedAt,
+        details: result.details,
+      });
     } catch (error) {
-      setTestResult({
-        sourceId,
-        result: {
-          ok: false,
-          message: error instanceof Error ? error.message : '测试请求失败',
-          details: {},
-        },
+      setOperation({
+        title: `测试连接 · ${sourceLabel(sourceId)}`,
+        status: 'error',
+        message: error instanceof Error ? error.message : '测试请求失败',
+        startedAt,
       });
     } finally {
       setTestingId(null);
@@ -309,16 +399,42 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     if (!window.confirm('确定删除这份本地来源备份吗？数据库中的健康记录不会删除。')) {
       return;
     }
+    const startedAt = Date.now();
+    setOperation({
+      title: '删除来源归档',
+      status: 'running',
+      message: '正在删除本地压缩文件并更新归档索引…',
+      startedAt,
+    });
     try {
       await deleteArchiveFile(archiveId);
       setMessage({ type: 'success', text: '备份文件已从磁盘与记录中删除。' });
       await loadConfig(false);
+      setOperation({
+        title: '删除来源归档',
+        status: 'success',
+        message: '归档文件已删除，数据库健康记录未受影响。',
+        startedAt,
+      });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '删除备份文件失败' });
+      setOperation({
+        title: '删除来源归档',
+        status: 'error',
+        message: err instanceof Error ? err.message : '删除备份文件失败',
+        startedAt,
+      });
     }
   };
 
   const handleDownloadArchive = async (archiveId: string) => {
+    const startedAt = Date.now();
+    setOperation({
+      title: '下载来源归档',
+      status: 'running',
+      message: '正在读取本地归档并准备浏览器下载…',
+      startedAt,
+    });
     try {
       const { blob, filename } = await downloadArchiveFile(archiveId);
       const url = URL.createObjectURL(blob);
@@ -329,10 +445,22 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+      setOperation({
+        title: '下载来源归档',
+        status: 'success',
+        message: `已开始下载 ${filename}`,
+        startedAt,
+      });
     } catch (error) {
       setMessage({
         type: 'error',
         text: error instanceof Error ? error.message : '下载备份文件失败',
+      });
+      setOperation({
+        title: '下载来源归档',
+        status: 'error',
+        message: error instanceof Error ? error.message : '下载备份文件失败',
+        startedAt,
       });
     }
   };
@@ -570,6 +698,8 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
             <h3 className="text-sm font-bold text-neutral-900 dark:text-white">PostgreSQL 数据管道</h3>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
               {config.database.dailySummaries} 天聚合 · {config.database.metricPoints.toLocaleString()} 个指标点 ·{' '}
+              {(config.database.rawRecords || 0).toLocaleString()} 条原始对象 ·{' '}
+              {(config.database.healthSamples || 0).toLocaleString()} 条标准化样本 ·{' '}
               {config.database.bodyMeasurements} 次体测 · {config.database.cyclingActivities} 次骑行
             </p>
           </div>
@@ -734,6 +864,8 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
             <div className="flex items-center gap-2">
               <input
                 inputMode="numeric"
+                min="0"
+                max="3650"
                 value={retentionDays}
                 onChange={(event) => setRetentionDays(event.target.value)}
                 className="w-full h-9 px-3 rounded-lg bg-white dark:bg-black/30 border border-black/10 dark:border-white/10 font-mono text-sm text-neutral-900 dark:text-white outline-none focus:border-amber-500/60"
@@ -754,7 +886,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
               </button>
             </div>
             <p className="text-[10px] text-neutral-400 mt-2 leading-relaxed">
-              超过期限只删除本地压缩备份和 FIT 文件，PostgreSQL 内的历史数据保留。
+              0 表示永久保留。建议保持 0，避免原始 ZIP、FIT 与归档文件被自动清理。
             </p>
           </div>
 
@@ -818,72 +950,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         {renderSource('igpsport')}
       </div>
     </AppleCard>
-      {testResult && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="关闭测试结果"
-            onClick={() => setTestResult(null)}
-            className="absolute inset-0 bg-black/65 backdrop-blur-sm cursor-default"
-          />
-          <div className="relative w-full max-w-md rounded-3xl apple-glass-dark border border-white/15 p-5 text-white shadow-2xl">
-            <button
-              type="button"
-              onClick={() => setTestResult(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 text-neutral-300 hover:text-white cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-4 ${
-                testResult.result.ok
-                  ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'bg-rose-500/15 text-rose-400'
-              }`}
-            >
-              {testResult.result.ok ? (
-                <ShieldCheck className="w-5 h-5" />
-              ) : (
-                <AlertCircle className="w-5 h-5" />
-              )}
-            </div>
-            <h3 className="text-base font-bold mb-1">
-              {testResult.sourceId === 'hae'
-                ? 'Health Auto Export'
-                : testResult.sourceId === 'fitdays'
-                  ? 'Fitdays 体脂秤'
-                  : 'iGPSPORT 码表'}
-              {' · '}
-              {testResult.result.ok ? '连接正常' : '测试失败'}
-            </h3>
-            <p className="text-xs text-neutral-300 leading-relaxed mb-4">
-              {testResult.result.message}
-            </p>
-            {Object.keys(testResult.result.details).length > 0 && (
-              <div className="rounded-2xl bg-black/30 border border-white/10 p-3 mb-4">
-                {Object.entries(testResult.result.details).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="flex items-start justify-between gap-4 py-1 text-[11px]"
-                  >
-                    <span className="text-neutral-400 font-mono">{key}</span>
-                    <span className="text-neutral-100 text-right break-all">
-                      {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '-')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setTestResult(null)}
-              className="w-full h-9 rounded-xl bg-white text-neutral-900 text-xs font-semibold hover:bg-neutral-100 cursor-pointer"
-            >
-              关闭
-            </button>
-          </div>
-        </div>
-      )}
+      <OperationProgressModal state={operation} onClose={() => setOperation(null)} />
 
       {/* Secondary Confirmation Modal for Full Sync */}
       {confirmFullSyncSource && (

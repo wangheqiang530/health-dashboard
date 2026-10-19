@@ -4,6 +4,10 @@ import { parseHealthAutoExportJSON } from '../../utils/haeParser';
 import { importHaePayload } from '../../api/healthApi';
 import type { DailySummary } from '../../types/health';
 import {
+  OperationProgressModal,
+  type OperationProgressState,
+} from '../ui/OperationProgressModal';
+import {
   X,
   UploadCloud,
   FileJson,
@@ -28,6 +32,7 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
   const [jsonText, setJsonText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
+  const [operation, setOperation] = useState<OperationProgressState | null>(null);
   const [rawPayload, setRawPayload] = useState<unknown>(null);
   const [parsedInfo, setParsedInfo] = useState<{
     days: Record<string, DailySummary>;
@@ -89,11 +94,30 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
     if (!parsedInfo) return;
     setIsApplying(true);
     setErrorMsg(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: '导入 HAE JSON 原始数据',
+      status: 'running',
+      message: '正在保存原始 JSON、逐点样本、训练记录与每日聚合…',
+      startedAt,
+    });
     try {
       if (!rawPayload) throw new Error('尚未读取到可导入的 JSON 内容。');
       const result = await importHaePayload(rawPayload);
       onImportSuccess(parsedInfo.days, result.dateTo);
-      onClose();
+      setOperation({
+        title: '导入 HAE JSON 原始数据',
+        status: 'success',
+        message: `导入完成：${result.metricCount.toLocaleString()} 条指标、${result.workoutCount} 场训练。`,
+        startedAt,
+        details: {
+          importId: result.importId,
+          dateFrom: result.dateFrom,
+          dateTo: result.dateTo,
+          dailySummaryCount: result.dailySummaryCount,
+          archivePath: result.archivePath,
+        },
+      });
     } catch (error) {
       setErrorMsg(
         error instanceof Error
@@ -102,6 +126,13 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
             : error.message
           : '写入数据库失败'
       );
+      setOperation({
+        title: '导入 HAE JSON 原始数据',
+        status: 'error',
+        message:
+          error instanceof Error ? error.message : '写入数据库失败',
+        startedAt,
+      });
     } finally {
       setIsApplying(false);
     }
@@ -145,10 +176,10 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight text-white mb-2">
-            导入 HAE 导出的 7 天 JSON 数据
+            导入 HAE 原始 JSON 数据
           </h2>
           <p className="text-xs text-neutral-400 mb-5 leading-relaxed">
-            将 iPhone 上通过 Health Auto Export 导出的 JSON 文件拖入或粘贴至此处，看板将自动解析所有指标并无缝渲染到三环、体脂体重、步态、睡眠分期、24h 心率与运动卡片中。
+            建议使用 HAE v2 JSON、关闭 Summarize Data，并按秒或原始粒度导出。导入后会同时保留原始 JSON、标准化样本、训练明细与每日聚合。
           </p>
 
           {/* Drag & Drop Box */}
@@ -285,6 +316,7 @@ export const HAEImportModal: React.FC<HAEImportModalProps> = ({
           </div>
         </motion.div>
       </div>
+      <OperationProgressModal state={operation} onClose={() => setOperation(null)} />
     </AnimatePresence>
   );
 };

@@ -48,6 +48,11 @@ export async function backfillCyclingRoutes(): Promise<{
          CASE
            WHEN jsonb_typeof(raw_record->'routePoints') = 'array'
              THEN jsonb_array_length(raw_record->'routePoints') = 0
+               OR NOT EXISTS (
+                 SELECT 1
+                 FROM jsonb_array_elements(raw_record->'routePoints') AS point
+                 WHERE point ? 'speedKmh'
+               )
            ELSE TRUE
          END
          OR CASE

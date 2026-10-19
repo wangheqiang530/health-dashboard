@@ -4,6 +4,7 @@ import type { WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
 import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
+import { DateRangePickerModal } from '../ui/DateRangePickerModal';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { fetchWorkouts, uploadFitFile } from '../../api/healthApi';
 import {
@@ -49,9 +50,10 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
   const [allWorkouts, setAllWorkouts] = useState<WorkoutRecord[]>([]);
   const [loadingWorkouts, setLoadingWorkouts] = useState(true);
   const [workoutError, setWorkoutError] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [fromDate, setFromDate] = useState(() => shiftDate(dateInShanghai(), -6));
+  const [toDate, setToDate] = useState(() => dateInShanghai());
+  const [datePreset, setDatePreset] = useState<DatePreset>('week');
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState<'all' | 'cycling' | 'strength' | 'walking'>('all');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
   const [hoveredWorkoutId, setHoveredWorkoutId] = useState<string | null>(null);
@@ -64,8 +66,6 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     setWorkoutError(null);
     try {
       const result = await fetchWorkouts({
-        from: fromDate || undefined,
-        to: toDate || undefined,
         limit: 10000,
       });
       setAllWorkouts(result.workouts);
@@ -75,7 +75,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     } finally {
       setLoadingWorkouts(false);
     }
-  }, [fromDate, toDate]);
+  }, []);
 
   useEffect(() => {
     void loadWorkouts();
@@ -101,12 +101,20 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     }
   };
 
-  const filtered = allWorkouts.filter((w) => {
+  const rangeWorkouts = allWorkouts.filter((workout) => {
+    if (fromDate && (workout.date || '') < fromDate) return false;
+    if (toDate && (workout.date || '') > toDate) return false;
+    return true;
+  });
+
+  const filtered = rangeWorkouts.filter((w) => {
     if (filterCategory === 'all') return true;
     return w.category === filterCategory;
   });
 
-  const rangeWorkouts = allWorkouts;
+  const availableWorkoutDates = Array.from(
+    new Set(allWorkouts.map((workout) => workout.date).filter((date): date is string => Boolean(date)))
+  ).sort();
 
   const totalKcal = rangeWorkouts.reduce((acc, cur) => acc + (cur.activeCalories || 0), 0);
   const totalCyclingKm = rangeWorkouts
@@ -238,7 +246,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
   return (
     <div className="space-y-5">
       {/* Hero Stats Card with Multi-Range Selector */}
-      <AppleCard>
+      <AppleCard className="relative z-20 overflow-visible">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-[#00F5D4] via-[#A1FF00] to-emerald-500 text-neutral-950 flex-shrink-0 shadow-lg shadow-[#00F5D4]/20">
@@ -288,25 +296,16 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
           <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             <CalendarRange className="w-4 h-4 text-sky-500" />
             <span className="font-semibold text-neutral-700 dark:text-neutral-300">日期区间</span>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(event) => {
-                setDatePreset('custom');
-                setFromDate(event.target.value);
-              }}
-              className="h-9 px-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 text-xs text-neutral-800 dark:text-neutral-200 outline-none focus:border-sky-500/60"
-            />
-            <span>至</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(event) => {
-                setDatePreset('custom');
-                setToDate(event.target.value);
-              }}
-              className="h-9 px-2.5 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 text-xs text-neutral-800 dark:text-neutral-200 outline-none focus:border-sky-500/60"
-            />
+            <button
+              type="button"
+              onClick={() => setIsRangePickerOpen(true)}
+              className="h-9 min-w-[240px] rounded-xl border border-black/10 bg-white/70 px-3 text-left text-xs text-neutral-800 outline-none transition-colors hover:border-sky-500/50 dark:border-white/10 dark:bg-black/30 dark:text-neutral-200"
+            >
+              <span className="font-mono">
+                {fromDate || '最早日期'} → {toDate || '今天'}
+              </span>
+              <span className="ml-2 text-[10px] text-sky-500">选择区间</span>
+            </button>
             {(fromDate || toDate) && (
               <button
                 type="button"
@@ -330,7 +329,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                   {fromDate || '最早'} → {toDate || '今天'}
                 </span>
                 <span>·</span>
-                <span>{allWorkouts.length} 条记录</span>
+                <span>{rangeWorkouts.length} 条记录</span>
               </>
             )}
           </div>
@@ -345,7 +344,10 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
 
         {/* 6 Comprehensive Telemetry Tiles based on Selected Range */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
-          <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
+          <div
+            className="group/food relative p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 cursor-help"
+            title={totalKcal > 0 ? `约 ${periodFood.description}` : undefined}
+          >
             <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
               <Flame className="w-3.5 h-3.5 text-[#FA114F]" />
               <span>训练总消耗</span>
@@ -359,9 +361,15 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
             <span className="text-[10px] text-neutral-400 mt-1 block font-medium">
               {rangeWorkouts.length > 0 ? `${rangeWorkouts.length} 场训练累计` : '当前周期无训练记录'}
             </span>
-            <span className="text-[10px] text-amber-400 mt-0.5 truncate block font-sans" title={`等效食物: ≈ ${periodFood.description}`}>
-              ≈ {periodFood.emojis} {periodFood.description}
-            </span>
+            {totalKcal > 0 && (
+              <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-amber-500/25 bg-neutral-950/95 p-3 text-white opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover/food:translate-y-0 group-hover/food:opacity-100 translate-y-1">
+                <div className="mb-1 text-[10px] font-bold text-amber-300">等效食物</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl leading-none">{periodFood.emojis}</span>
+                  <span className="text-[11px] text-neutral-200">{periodFood.description}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
@@ -443,7 +451,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
       </AppleCard>
 
       {/* iOS 18 Training Load Bento Module (User Requirement) */}
-      <AppleTrainingLoadCard workouts={allWorkouts} />
+      <AppleTrainingLoadCard workouts={rangeWorkouts} />
 
       {/* Filter Tabs & Expandable Workouts List */}
       <AppleCard>
@@ -452,7 +460,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
             <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
               运动记录清单 (鼠标悬停展开关键指标，点击查看完整报告)
             </h3>
-            <span className="text-[11px] text-neutral-400">已载入全部 {allWorkouts.length} 场训练数据</span>
+            <span className="text-[11px] text-neutral-400">
+              当前区间 {rangeWorkouts.length} 场 · 共载入 {allWorkouts.length} 场
+            </span>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
@@ -478,10 +488,19 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
             {/* Filter Segmented Control */}
             <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-xl border border-black/5 dark:border-white/5">
             {[
-              { key: 'all', label: `全部 (${allWorkouts.length})` },
-              { key: 'cycling', label: '骑行' },
-              { key: 'strength', label: '力量' },
-              { key: 'walking', label: '步行' },
+              { key: 'all', label: `全部 (${rangeWorkouts.length})` },
+              {
+                key: 'cycling',
+                label: `骑行 (${rangeWorkouts.filter((item) => item.category === 'cycling').length})`,
+              },
+              {
+                key: 'strength',
+                label: `力量 (${rangeWorkouts.filter((item) => item.category === 'strength').length})`,
+              },
+              {
+                key: 'walking',
+                label: `步行 (${rangeWorkouts.filter((item) => item.category === 'walking').length})`,
+              },
             ].map((f) => (
               <button
                 key={f.key}
@@ -657,6 +676,19 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
       <WorkoutDetailModal
         workout={selectedWorkout}
         onClose={() => setSelectedWorkout(null)}
+      />
+
+      <DateRangePickerModal
+        isOpen={isRangePickerOpen}
+        onClose={() => setIsRangePickerOpen(false)}
+        fromDate={fromDate}
+        toDate={toDate}
+        availableDates={availableWorkoutDates}
+        onApply={(nextFromDate, nextToDate) => {
+          setDatePreset('custom');
+          setFromDate(nextFromDate);
+          setToDate(nextToDate);
+        }}
       />
     </div>
   );

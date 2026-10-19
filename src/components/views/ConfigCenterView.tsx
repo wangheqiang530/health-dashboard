@@ -7,6 +7,10 @@ import { DataSourceSettings } from './DataSourceSettings';
 import { SecuritySettings } from './SecuritySettings';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
 import { SystemLogsModal } from '../dashboard/SystemLogsModal';
+import {
+  OperationProgressModal,
+  type OperationProgressState,
+} from '../ui/OperationProgressModal';
 import { uploadFitFile } from '../../api/healthApi';
 import {
   Server,
@@ -27,7 +31,7 @@ interface ConfigCenterViewProps {
   syncInfo: AutoExportSyncInfo;
   days: Record<string, DailySummary>;
   onOpenImport: () => void;
-  onRefreshData: () => void;
+  onRefreshData: () => void | Promise<void>;
   isRefreshing: boolean;
   onResetLayout: () => void;
   onOpenWizard?: () => void;
@@ -45,18 +49,41 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [uploadingFit, setUploadingFit] = useState(false);
+  const [operation, setOperation] = useState<OperationProgressState | null>(null);
   const fitInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const handleFitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingFit(true);
+    const startedAt = Date.now();
+    setOperation({
+      title: '导入 FIT 运动记录',
+      status: 'running',
+      message: `正在解析 ${file.name}、轨迹与遥测数据…`,
+      startedAt,
+    });
     try {
       const res = await uploadFitFile(file);
-      alert(res.message);
+      setOperation({
+        title: '导入 FIT 运动记录',
+        status: 'success',
+        message: res.message,
+        startedAt,
+        details: {
+          filename: res.filename,
+          startedAt: res.startedAt,
+          fileSizeBytes: res.fileSizeBytes,
+        },
+      });
       onRefreshData();
     } catch (err) {
-      alert(`上传失败: ${err instanceof Error ? err.message : String(err)}`);
+      setOperation({
+        title: '导入 FIT 运动记录',
+        status: 'error',
+        message: err instanceof Error ? err.message : String(err),
+        startedAt,
+      });
     } finally {
       setUploadingFit(false);
       if (fitInputRef.current) fitInputRef.current.value = '';
@@ -74,6 +101,13 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   } = useCustomization();
 
   const handleExportBackup = () => {
+    const startedAt = Date.now();
+    setOperation({
+      title: '导出健康数据备份',
+      status: 'running',
+      message: '正在生成当前数据库快照文件…',
+      startedAt,
+    });
     const blob = new Blob([JSON.stringify(days, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
@@ -83,6 +117,27 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
     downloadAnchor.click();
     downloadAnchor.remove();
     URL.revokeObjectURL(url);
+    setOperation({
+      title: '导出健康数据备份',
+      status: 'success',
+      message: `已生成 ${Object.keys(days).length} 天健康摘要备份。`,
+      startedAt,
+      details: {
+        days: Object.keys(days).length,
+        filename: downloadAnchor.download,
+      },
+    });
+  };
+
+  const handleResetLayout = () => {
+    const startedAt = Date.now();
+    onResetLayout();
+    setOperation({
+      title: '恢复默认排版',
+      status: 'success',
+      message: '首屏卡片顺序与自定义布局已恢复默认。',
+      startedAt,
+    });
   };
 
   return (
@@ -117,7 +172,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
             </div>
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={onRefreshData}
+              onClick={() => void onRefreshData()}
               disabled={isRefreshing}
               className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-rose-500 to-indigo-600 hover:from-rose-600 hover:to-indigo-700 text-white shadow-md shadow-rose-500/20 transition-all cursor-pointer flex items-center gap-1.5"
             >
@@ -604,7 +659,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
 
             {/* Reset Layout */}
             <div
-              onClick={onResetLayout}
+              onClick={handleResetLayout}
               className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/5 dark:border-white/5 transition-all cursor-pointer flex items-center justify-between gap-3 group"
             >
               <div className="flex items-center gap-3">
@@ -635,6 +690,8 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
         isOpen={isLogsOpen}
         onClose={() => setIsLogsOpen(false)}
       />
+
+      <OperationProgressModal state={operation} onClose={() => setOperation(null)} />
     </div>
   );
 };

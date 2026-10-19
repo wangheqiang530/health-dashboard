@@ -242,14 +242,14 @@ export async function setDashboardSessionDuration(
 export async function getArchiveRetentionDays(): Promise<number> {
   const saved = await readEncryptedSetting(ARCHIVE_RETENTION_SETTING);
   const parsed = Number(saved);
-  if (Number.isFinite(parsed) && parsed >= 1) {
+  if (Number.isFinite(parsed) && parsed >= 0) {
     return Math.min(Math.floor(parsed), 3650);
   }
   return config.archiveRetentionDays;
 }
 
 export async function setArchiveRetentionDays(days: number): Promise<number> {
-  const normalized = Math.min(Math.max(Math.floor(days), 1), 3650);
+  const normalized = Math.min(Math.max(Math.floor(days), 0), 3650);
   await writeEncryptedSetting(ARCHIVE_RETENTION_SETTING, String(normalized));
   return normalized;
 }

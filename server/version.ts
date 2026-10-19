@@ -30,6 +30,9 @@ export interface SystemStatus {
     workouts: number;
     bodyMeasurements: number;
     cyclingActivities: number;
+    rawRecords: number;
+    healthSamples: number;
+    importBatches: number;
   };
   backendStatus: 'healthy' | 'degraded';
 }
@@ -122,6 +125,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
     workouts: 0,
     bodyMeasurements: 0,
     cyclingActivities: 0,
+    rawRecords: 0,
+    healthSamples: 0,
+    importBatches: 0,
     archiveCount: 0,
     archiveSizeBytes: 0,
   };
@@ -134,6 +140,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
       workouts: number;
       body_measurements: number;
       cycling_activities: number;
+      raw_records: number;
+      health_samples: number;
+      import_batches: number;
       archive_count: number;
       archive_size_bytes: string | number;
     }>(`
@@ -143,6 +152,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         (SELECT COUNT(*) FROM health_workouts)::int AS workouts,
         (SELECT COUNT(*) FROM body_measurements)::int AS body_measurements,
         (SELECT COUNT(*) FROM cycling_activities)::int AS cycling_activities,
+        (SELECT COUNT(*) FROM health_raw_records)::int AS raw_records,
+        (SELECT COUNT(*) FROM health_samples)::int AS health_samples,
+        (SELECT COUNT(*) FROM import_batches)::int AS import_batches,
         (SELECT COUNT(*) FROM source_archive_files WHERE deleted_at IS NULL)::int AS archive_count,
         (SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM source_archive_files WHERE deleted_at IS NULL) AS archive_size_bytes
     `);
@@ -154,6 +166,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         workouts: Number(row.workouts || 0),
         bodyMeasurements: Number(row.body_measurements || 0),
         cyclingActivities: Number(row.cycling_activities || 0),
+        rawRecords: Number(row.raw_records || 0),
+        healthSamples: Number(row.health_samples || 0),
+        importBatches: Number(row.import_batches || 0),
         archiveCount: Number(row.archive_count || 0),
         archiveSizeBytes: Number(row.archive_size_bytes || 0),
       };
@@ -192,6 +207,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
         workouts: dbCounts.workouts,
         bodyMeasurements: dbCounts.bodyMeasurements,
         cyclingActivities: dbCounts.cyclingActivities,
+        rawRecords: dbCounts.rawRecords,
+        healthSamples: dbCounts.healthSamples,
+        importBatches: dbCounts.importBatches,
       },
       backendStatus: dbConnected ? 'healthy' : 'degraded',
     },

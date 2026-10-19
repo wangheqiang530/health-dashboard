@@ -36,7 +36,7 @@ const app = Fastify({
   },
   bodyLimit: config.maxHaeBytes,
   trustProxy: true,
-  requestTimeout: 600_000,
+  requestTimeout: 1_800_000,
 });
 
 await app.register(fastifyMultipart, {

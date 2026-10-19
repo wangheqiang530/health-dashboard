@@ -169,6 +169,14 @@ export async function cleanupExpiredArchives(retentionDays?: number): Promise<{
   cutoff: string;
 }> {
   const days = retentionDays ?? (await getArchiveRetentionDays());
+  if (days === 0) {
+    return {
+      retentionDays: 0,
+      deletedFiles: 0,
+      deletedBytes: 0,
+      cutoff: '1970-01-01T00:00:00.000Z',
+    };
+  }
   const cutoffMs = Date.now() - days * 86_400_000;
   const cutoff = new Date(cutoffMs);
   const archiveResult = await deleteOldFiles(archiveRoot, cutoffMs);

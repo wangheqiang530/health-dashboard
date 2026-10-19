@@ -5,6 +5,13 @@ import { decryptSecret } from './crypto.ts';
 import { pool } from './db.ts';
 import { fetchFitdaysRecords } from './sources/fitdays.ts';
 import { syncRecentRides } from './sources/igpsport.ts';
+import {
+  completeImportBatch,
+  contentHash,
+  createImportBatch,
+  failImportBatch,
+  persistRawAndSampleRows,
+} from './rawLibrary.ts';
 
 export type SyncSourceId = 'fitdays' | 'igpsport';
 
@@ -45,9 +52,10 @@ async function persistFitdays(
   archiveMetadata: Record<string, unknown>
 ): Promise<void> {
   const client = await pool.connect();
+  let batchId: string | null = null;
   try {
     await client.query('BEGIN');
-    await registerArchive(
+    const archiveId = await registerArchive(
       client,
       archive,
       'fitdays',
@@ -55,16 +63,58 @@ async function persistFitdays(
       records.length,
       archiveMetadata
     );
+    batchId = await createImportBatch(client, {
+      sourceId: 'fitdays',
+      importKind: 'fitdays-cloud-sync',
+      archiveId,
+      archivePath: archive.relativePath,
+      sha256: archive.sha256,
+      sizeBytes: archive.sizeBytes,
+      metadata: archiveMetadata,
+    });
+    await persistRawAndSampleRows(
+      client,
+      batchId,
+      records.map((record) => ({
+        sourceId: 'fitdays' as const,
+        objectType: 'FitdaysRecord',
+        contentHash: contentHash(record.rawRecord),
+        occurrenceIndex: 1,
+        metricType: 'body_measurement',
+        startAt: record.measuredAt,
+        localDate: record.measuredDate,
+        valueNum: record.weightKg,
+        unit: record.weightKg === null ? null : 'kg',
+        sourceName: 'Fitdays',
+        rawAttributes: record.rawRecord as Record<string, unknown>,
+        rawPayload: record.rawRecord,
+      })),
+      records
+        .filter((record) => record.weightKg !== null)
+        .map((record) => ({
+          sourceId: 'fitdays' as const,
+          rawContentHash: contentHash(record.rawRecord),
+          naturalKey: `body_mass|${record.externalId}`,
+          metricName: 'body_mass',
+          startAt: record.measuredAt,
+          localDate: record.measuredDate,
+          valueNum: record.weightKg,
+          unit: 'kg',
+          sourceName: 'Fitdays',
+          metadata: record.rawRecord as Record<string, unknown>,
+          rawPayload: record.rawRecord,
+        }))
+    );
     for (const record of records) {
       await client.query(
         `INSERT INTO body_measurements
           (source_id, external_id, profile_id, measured_at, measured_date, weight_kg, bmi,
            body_fat_rate, skeletal_muscle_rate, muscle_rate, lean_body_mass_kg,
            visceral_fat_level, water_rate, bone_mass_kg, bmr_kcal, subcutaneous_fat_rate,
-           protein_rate, body_age, heart_rate, score, smi, whr, raw_record)
+           protein_rate, body_age, heart_rate, score, smi, whr, raw_record, import_batch_id)
          VALUES
           ('fitdays', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-           $15, $16, $17, $18, $19, $20, $21, $22::jsonb)
+           $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23)
          ON CONFLICT (source_id, external_id) DO UPDATE SET
            profile_id = EXCLUDED.profile_id,
            measured_at = EXCLUDED.measured_at,
@@ -87,6 +137,7 @@ async function persistFitdays(
            smi = EXCLUDED.smi,
            whr = EXCLUDED.whr,
            raw_record = EXCLUDED.raw_record,
+           import_batch_id = EXCLUDED.import_batch_id,
            updated_at = NOW()`,
         [
           record.externalId,
@@ -111,12 +162,23 @@ async function persistFitdays(
           record.smi,
           record.whr,
           JSON.stringify(record.rawRecord),
+          batchId,
         ]
       );
     }
+    await client.query(
+      `UPDATE source_archive_files SET record_count = $2 WHERE id = $1`,
+      [archiveId, records.length]
+    );
+    await completeImportBatch(client, batchId, {
+      rawCount: records.length,
+      normalizedCount: records.length,
+      metadata: archiveMetadata,
+    });
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
+    if (batchId) await failImportBatch(client, batchId, error).catch(() => undefined);
     throw error;
   } finally {
     client.release();
@@ -129,9 +191,10 @@ async function persistRides(
   archiveMetadata: Record<string, unknown>
 ): Promise<void> {
   const client = await pool.connect();
+  let batchId: string | null = null;
   try {
     await client.query('BEGIN');
-    await registerArchive(
+    const archiveId = await registerArchive(
       client,
       archive,
       'igpsport',
@@ -139,16 +202,60 @@ async function persistRides(
       rides.length,
       archiveMetadata
     );
+    batchId = await createImportBatch(client, {
+      sourceId: 'igpsport',
+      importKind: 'igpsport-rides',
+      archiveId,
+      archivePath: archive.relativePath,
+      sha256: archive.sha256,
+      sizeBytes: archive.sizeBytes,
+      metadata: archiveMetadata,
+    });
+    await persistRawAndSampleRows(
+      client,
+      batchId,
+      rides.map((ride) => ({
+        sourceId: 'igpsport' as const,
+        objectType: 'CyclingActivity',
+        contentHash: contentHash(ride.rawRecord),
+        occurrenceIndex: 1,
+        metricType: 'cycling_activity',
+        startAt: ride.startedAt,
+        endAt: ride.endedAt,
+        localDate: ride.localDate,
+        valueNum: ride.distanceKm,
+        unit: ride.distanceKm === null ? null : 'km',
+        sourceName: ride.device,
+        rawAttributes: ride.rawRecord as Record<string, unknown>,
+        rawPayload: ride.rawRecord,
+      })),
+      rides
+        .filter((ride) => ride.distanceKm !== null)
+        .map((ride) => ({
+          sourceId: 'igpsport' as const,
+          rawContentHash: contentHash(ride.rawRecord),
+          naturalKey: `cycling_distance|${ride.externalId}`,
+          metricName: 'cycling_distance',
+          startAt: ride.startedAt,
+          endAt: ride.endedAt,
+          localDate: ride.localDate,
+          valueNum: ride.distanceKm,
+          unit: 'km',
+          sourceName: ride.device,
+          metadata: ride.rawRecord as Record<string, unknown>,
+          rawPayload: ride.rawRecord,
+        }))
+    );
     for (const ride of rides) {
       await client.query(
         `INSERT INTO cycling_activities
           (source_id, external_id, title, device, started_at, ended_at, moving_time_sec,
            distance_km, avg_speed_kmh, max_speed_kmh, avg_heart_rate, max_heart_rate,
            avg_cadence, avg_power, max_power, normalized_power, tss, ascent_m, calories,
-           fit_file_path, fit_file_name, file_size_bytes, raw_record)
+           fit_file_path, fit_file_name, file_size_bytes, raw_record, import_batch_id)
          VALUES
           ('igpsport', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-           $15, $16, $17, $18, $19, $20, $21, $22::jsonb)
+           $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23)
          ON CONFLICT (source_id, external_id) DO UPDATE SET
            title = EXCLUDED.title,
            device = EXCLUDED.device,
@@ -171,6 +278,7 @@ async function persistRides(
            fit_file_name = EXCLUDED.fit_file_name,
            file_size_bytes = EXCLUDED.file_size_bytes,
            raw_record = EXCLUDED.raw_record,
+           import_batch_id = EXCLUDED.import_batch_id,
            updated_at = NOW()`,
         [
           ride.externalId,
@@ -195,12 +303,23 @@ async function persistRides(
           ride.fitFileName,
           ride.fileSizeBytes,
           JSON.stringify(ride.rawRecord),
+          batchId,
         ]
       );
     }
+    await client.query(
+      `UPDATE source_archive_files SET record_count = $2 WHERE id = $1`,
+      [archiveId, rides.length]
+    );
+    await completeImportBatch(client, batchId, {
+      rawCount: rides.length,
+      normalizedCount: rides.length,
+      metadata: archiveMetadata,
+    });
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
+    if (batchId) await failImportBatch(client, batchId, error).catch(() => undefined);
     throw error;
   } finally {
     client.release();

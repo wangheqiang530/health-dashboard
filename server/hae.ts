@@ -11,6 +11,14 @@ import {
 import { archiveJson, registerArchive, resolveArchivePath } from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
+import {
+  completeImportBatch,
+  createImportBatch,
+  failImportBatch,
+  persistRawAndSampleRows,
+  type HealthSampleRow,
+  type RawRecordRow,
+} from './rawLibrary.ts';
 import { dateInTimeZone } from './time.ts';
 
 const gunzipAsync = promisify(gunzip);
@@ -191,6 +199,7 @@ interface HaePayload {
 
 interface NormalizedMetric {
   fingerprint: string;
+  naturalKey: string;
   metricName: string;
   units: string | null;
   sourceName: string;
@@ -202,6 +211,7 @@ interface NormalizedMetric {
 
 interface NormalizedWorkout {
   fingerprint: string;
+  naturalKey: string;
   name: string;
   startedAt: string | null;
   endedAt: string | null;
@@ -211,6 +221,8 @@ interface NormalizedWorkout {
   avgHeartRate: number | null;
   maxHeartRate: number | null;
   elevationGainM: number | null;
+  sourceName: string | null;
+  deviceName: string | null;
   rawWorkout: HaeWorkout;
 }
 
@@ -231,6 +243,17 @@ const finiteNumber = (value: unknown): number | null =>
 const integerOrNull = (value: unknown): number | null => {
   const parsed = finiteNumber(value);
   return parsed === null ? null : Math.round(parsed);
+};
+
+const distanceToKm = (
+  value: { qty?: number; units?: string } | undefined
+): number | null => {
+  const qty = finiteNumber(value?.qty);
+  if (qty === null) return null;
+  const unit = value?.units?.trim().toLowerCase() || '';
+  if (unit === 'km' || unit.includes('kilometer')) return qty;
+  if (unit === 'mi' || unit.includes('mile')) return qty * 1.609344;
+  return qty / 1000;
 };
 
 const fingerprint = (value: unknown): string =>
@@ -289,6 +312,12 @@ const normalizeMetrics = (metrics: HaeMetric[]): NormalizedMetric[] => {
           value,
           point,
         }),
+        naturalKey: [
+          metricName,
+          recordedAt?.toISOString() || rawDate || '',
+          sourceName,
+          metric.units?.trim() || '',
+        ].join('|'),
         metricName,
         units: metric.units?.trim() || null,
         sourceName,
@@ -325,20 +354,36 @@ const normalizeWorkouts = (workouts: HaeWorkout[]): NormalizedWorkout[] =>
           )
         )
       : energyToKcal(energySource);
-    const distanceMeters =
-      finiteNumber(workout.distance?.qty) ?? finiteNumber(workout.cyclingDistance?.qty);
-
+    const distanceKm = distanceToKm(workout.distance) ?? distanceToKm(workout.cyclingDistance);
+    const source = workout.source;
+    const sourceRecord =
+      source && typeof source === 'object'
+        ? (source as Record<string, unknown>)
+        : null;
+    const sourceName =
+      typeof source === 'string'
+        ? source
+        : typeof sourceRecord?.name === 'string'
+          ? sourceRecord.name
+          : null;
+    const deviceName =
+      typeof sourceRecord?.identifier === 'string' ? sourceRecord.identifier : null;
+    const name = workout.name?.trim() || '体能训练';
+    const startedAt = start?.toISOString() || null;
     return {
       fingerprint: fingerprint(workout),
-      name: workout.name?.trim() || '体能训练',
-      startedAt: start?.toISOString() || null,
+      naturalKey: `workout|${name.toLowerCase()}|${startedAt || workout.start || ''}|${sourceName || ''}`,
+      name,
+      startedAt,
       endedAt: end?.toISOString() || null,
       durationSec: integerOrNull(workout.duration),
       activeEnergyKcal: activeEnergy,
-      distanceKm: distanceMeters === null ? null : Number((distanceMeters / 1000).toFixed(3)),
+      distanceKm: distanceKm === null ? null : Number(distanceKm.toFixed(3)),
       avgHeartRate: integerOrNull(workout.avgHeartRate?.qty),
       maxHeartRate: integerOrNull(workout.maxHeartRate?.qty),
       elevationGainM: finiteNumber(workout.elevationAscended?.qty),
+      sourceName,
+      deviceName,
       rawWorkout: workout,
     };
   });
@@ -349,10 +394,11 @@ async function insertMetrics(client: PoolClient, importId: string, rows: Normali
     const batch = rows.slice(offset, offset + batchSize);
     const values: unknown[] = [];
     const placeholders = batch.map((row, index) => {
-      const base = index * 9;
+      const base = index * 10;
       values.push(
         importId,
         row.fingerprint,
+        row.naturalKey,
         row.metricName,
         row.units,
         row.sourceName,
@@ -361,14 +407,24 @@ async function insertMetrics(client: PoolClient, importId: string, rows: Normali
         row.value,
         JSON.stringify(row.rawPoint)
       );
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}::jsonb)`;
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}::jsonb)`;
     });
 
     await client.query(
       `INSERT INTO health_metric_points
-        (import_id, fingerprint, metric_name, units, source_name, recorded_at, local_date, value, raw_point)
+        (import_id, fingerprint, natural_key, metric_name, units, source_name,
+         recorded_at, local_date, value, raw_point)
        VALUES ${placeholders.join(', ')}
-       ON CONFLICT (fingerprint) DO NOTHING`,
+       ON CONFLICT (natural_key) DO UPDATE SET
+         import_id = EXCLUDED.import_id,
+         fingerprint = EXCLUDED.fingerprint,
+         metric_name = EXCLUDED.metric_name,
+         units = EXCLUDED.units,
+         source_name = EXCLUDED.source_name,
+         recorded_at = EXCLUDED.recorded_at,
+         local_date = EXCLUDED.local_date,
+         value = EXCLUDED.value,
+         raw_point = EXCLUDED.raw_point`,
       values
     );
   }
@@ -384,10 +440,11 @@ async function insertWorkouts(
     const batch = rows.slice(offset, offset + batchSize);
     const values: unknown[] = [];
     const placeholders = batch.map((row, index) => {
-      const base = index * 12;
+      const base = index * 15;
       values.push(
         importId,
         row.fingerprint,
+        row.naturalKey,
         row.name,
         row.startedAt,
         row.endedAt,
@@ -397,17 +454,34 @@ async function insertWorkouts(
         row.avgHeartRate,
         row.maxHeartRate,
         row.elevationGainM,
+        row.sourceName,
+        row.deviceName,
         JSON.stringify(row.rawWorkout)
       );
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}::jsonb)`;
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}::jsonb)`;
     });
 
     await client.query(
       `INSERT INTO health_workouts
-        (import_id, fingerprint, name, started_at, ended_at, duration_sec, active_energy_kcal,
-         distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, raw_workout)
+        (import_id, fingerprint, natural_key, name, started_at, ended_at, duration_sec,
+         active_energy_kcal, distance_km, avg_heart_rate, max_heart_rate,
+         elevation_gain_m, source_name, device_name, raw_workout)
        VALUES ${placeholders.join(', ')}
-       ON CONFLICT (fingerprint) DO NOTHING`,
+       ON CONFLICT (source_id, natural_key) DO UPDATE SET
+         import_id = EXCLUDED.import_id,
+         fingerprint = EXCLUDED.fingerprint,
+         name = EXCLUDED.name,
+         started_at = EXCLUDED.started_at,
+         ended_at = EXCLUDED.ended_at,
+         duration_sec = EXCLUDED.duration_sec,
+         active_energy_kcal = EXCLUDED.active_energy_kcal,
+         distance_km = EXCLUDED.distance_km,
+         avg_heart_rate = EXCLUDED.avg_heart_rate,
+         max_heart_rate = EXCLUDED.max_heart_rate,
+         elevation_gain_m = EXCLUDED.elevation_gain_m,
+         source_name = EXCLUDED.source_name,
+         device_name = EXCLUDED.device_name,
+         raw_workout = EXCLUDED.raw_workout`,
       values
     );
   }
@@ -428,9 +502,10 @@ export async function importHaePayload(
   const archive = await archiveJson('hae', 'health-auto-export', payload);
 
   const client = await pool.connect();
+  let batchId: string | null = null;
   try {
     await client.query('BEGIN');
-    await registerArchive(
+    const archiveId = await registerArchive(
       client,
       archive,
       'hae',
@@ -443,11 +518,25 @@ export async function importHaePayload(
         workoutCount: normalizedWorkouts.length,
       }
     );
+    batchId = await createImportBatch(client, {
+      sourceId: 'hae',
+      importKind: 'health-auto-export',
+      fileName: null,
+      archiveId,
+      archivePath: archive.relativePath,
+      sha256: archive.sha256,
+      sizeBytes: archive.sizeBytes,
+      metadata: {
+        metricCount: normalizedMetrics.length,
+        workoutCount: normalizedWorkouts.length,
+        sourceIp: metadata.sourceIp,
+      },
+    });
     const importRow = await client.query<{ id: string }>(
       `INSERT INTO hae_imports
         (payload_size_bytes, source_ip, date_from, date_to, metric_count, workout_count,
-         daily_summary_count, raw_payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+         daily_summary_count, raw_payload, batch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
        RETURNING id`,
       [
         metadata.payloadSizeBytes,
@@ -458,10 +547,80 @@ export async function importHaePayload(
         normalizedWorkouts.length,
         parsed.totalDays,
         JSON.stringify(payload),
+        batchId,
       ]
     );
     const importId = importRow.rows[0].id;
 
+    const rawOccurrences = new Map<string, number>();
+    const nextOccurrence = (objectType: string, hash: string): number => {
+      const key = `${objectType}|${hash}`;
+      const next = (rawOccurrences.get(key) || 0) + 1;
+      rawOccurrences.set(key, next);
+      return next;
+    };
+    const rawRows: RawRecordRow[] = [
+      ...normalizedMetrics.map((row) => ({
+        sourceId: 'hae' as const,
+        objectType: 'HaeMetricPoint',
+        contentHash: row.fingerprint,
+        occurrenceIndex: nextOccurrence('HaeMetricPoint', row.fingerprint),
+        metricType: row.metricName,
+        startAt: row.recordedAt,
+        endAt:
+          typeof row.rawPoint.endDate === 'string'
+            ? new Date(row.rawPoint.endDate).toISOString()
+            : null,
+        localDate: row.localDate,
+        valueText:
+          typeof row.rawPoint.value === 'string' ? row.rawPoint.value : null,
+        valueNum: row.value,
+        unit: row.units,
+        sourceName: row.sourceName,
+        metadata: { metricName: row.metricName, units: row.units },
+        rawAttributes: row.rawPoint as Record<string, unknown>,
+        rawPayload: row.rawPoint,
+      })),
+      ...normalizedWorkouts.map((row) => ({
+        sourceId: 'hae' as const,
+        objectType: 'HaeWorkout',
+        contentHash: row.fingerprint,
+        occurrenceIndex: nextOccurrence('HaeWorkout', row.fingerprint),
+        metricType: row.name,
+        startAt: row.startedAt,
+        endAt: row.endedAt,
+        localDate: row.startedAt
+          ? dateInTimeZone(new Date(row.startedAt), config.timezone)
+          : null,
+        valueNum: row.activeEnergyKcal,
+        unit: row.activeEnergyKcal === null ? null : 'kcal',
+        sourceName: row.sourceName,
+        deviceName: row.deviceName,
+        metadata: { workoutName: row.name },
+        rawAttributes: row.rawWorkout as Record<string, unknown>,
+        rawPayload: row.rawWorkout,
+      })),
+    ];
+    const sampleRows: HealthSampleRow[] = normalizedMetrics.map((row) => ({
+      sourceId: 'hae',
+      rawContentHash: row.fingerprint,
+      naturalKey: row.naturalKey,
+      metricName: row.metricName,
+      startAt: row.recordedAt,
+      endAt:
+        typeof row.rawPoint.endDate === 'string'
+          ? new Date(row.rawPoint.endDate).toISOString()
+          : null,
+      localDate: row.localDate,
+      valueNum: row.value,
+      valueText:
+        typeof row.rawPoint.value === 'string' ? row.rawPoint.value : null,
+      unit: row.units,
+      sourceName: row.sourceName,
+      metadata: row.rawPoint as Record<string, unknown>,
+      rawPayload: row.rawPoint,
+    }));
+    await persistRawAndSampleRows(client, batchId, rawRows, sampleRows);
     await insertMetrics(client, importId, normalizedMetrics);
     await insertWorkouts(client, importId, normalizedWorkouts);
 
@@ -478,15 +637,42 @@ export async function importHaePayload(
       }
 
       await client.query(
-        `INSERT INTO daily_summaries (day, summary, hae_import_id, updated_at)
-         VALUES ($1, $2::jsonb, $3, NOW())
+        `INSERT INTO daily_summaries
+           (day, summary, hae_import_id, import_batch_id, updated_at)
+         VALUES ($1, $2::jsonb, $3, $4, NOW())
          ON CONFLICT (day) DO UPDATE SET
            summary = EXCLUDED.summary,
            hae_import_id = EXCLUDED.hae_import_id,
+           import_batch_id = EXCLUDED.import_batch_id,
            updated_at = NOW()`,
-        [day, JSON.stringify(finalSummary), importId]
+        [day, JSON.stringify(finalSummary), importId, batchId]
       );
     }
+
+    await client.query(
+      `UPDATE source_archive_files
+       SET record_count = $2,
+           metadata = metadata || $3::jsonb
+       WHERE id = $1`,
+      [
+        archiveId,
+        normalizedMetrics.length + normalizedWorkouts.length,
+        JSON.stringify({
+          rawRecordCount: normalizedMetrics.length + normalizedWorkouts.length,
+          normalizedCount: normalizedMetrics.length + normalizedWorkouts.length,
+        }),
+      ]
+    );
+
+    await completeImportBatch(client, batchId, {
+      rawCount: normalizedMetrics.length + normalizedWorkouts.length,
+      normalizedCount: normalizedMetrics.length + normalizedWorkouts.length,
+      metadata: {
+        dateFrom: dates[0],
+        dateTo: dates[dates.length - 1],
+        dailySummaryCount: parsed.totalDays,
+      },
+    });
 
     await client.query(
       `UPDATE data_sources
@@ -507,6 +693,9 @@ export async function importHaePayload(
     };
   } catch (error) {
     await client.query('ROLLBACK');
+    if (batchId) {
+      await failImportBatch(client, batchId, error).catch(() => undefined);
+    }
     await pool.query(
       `UPDATE data_sources
        SET last_error = $1, updated_at = NOW()

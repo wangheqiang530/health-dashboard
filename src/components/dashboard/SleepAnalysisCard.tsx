@@ -169,7 +169,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             <div className="relative mb-4">
               <div
                 ref={timelineRef}
-                className="relative w-full h-8 rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5"
+                className="relative w-full h-8 rounded-xl overflow-visible bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5"
                 onMouseLeave={clearTimelineHover}
               >
                 {sleep.timeline.length > 0
@@ -194,9 +194,11 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                             width: `${widthPct}%`,
                             backgroundColor: stageCfg?.color || '#888',
                             opacity: activeStage && !isHovered ? 0.35 : 0.95,
+                            transformOrigin: 'bottom center',
                           }}
                           className="h-full rounded-sm transition-all duration-200 cursor-pointer relative group"
-                          whileHover={{ scaleY: 1.1 }}
+                          whileHover={{ scaleY: 1.2, scaleX: 1.02 }}
+                          transition={{ type: 'spring', stiffness: 420, damping: 24 }}
                         />
                       );
                     })
@@ -287,10 +289,12 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                 const isSelected = activeStage === cfg.key;
 
                 return (
-                  <div
+                  <motion.div
                     key={cfg.key}
                     onMouseEnter={() => setActiveStage(cfg.key)}
                     onMouseLeave={() => setActiveStage(null)}
+                    whileHover={{ scale: 1.025, y: -1 }}
+                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
                     className={`p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
                       isSelected
                         ? 'bg-black/[0.06] dark:bg-white/[0.08] border-black/20 dark:border-white/20'
@@ -312,7 +316,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                       </span>
                       <span className="text-xs text-neutral-400 font-semibold">{pct}%</span>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
@@ -362,15 +366,17 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                     </span>
 
                     {/* Stacked Vertical Bar */}
-                    <div
+                    <motion.div
                       className="w-5 sm:w-6 bg-black/5 dark:bg-white/5 rounded-t-lg overflow-hidden flex flex-col-reverse transition-all duration-300 group-hover:scale-105"
                       style={{ height: `${totalHeightPct}%` }}
+                      whileHover={{ scale: 1.09, y: -2 }}
+                      transition={{ type: 'spring', stiffness: 380, damping: 22 }}
                     >
                       <div style={{ height: `${deepPct}%` }} className="w-full bg-[#5E5CE6]" title="深睡" />
                       <div style={{ height: `${corePct}%` }} className="w-full bg-[#0A84FF]" title="核心" />
                       <div style={{ height: `${remPct}%` }} className="w-full bg-[#64D2FF]" title="REM" />
                       <div style={{ height: `${awakePct}%` }} className="w-full bg-[#FF9F0A]" title="清醒" />
-                    </div>
+                    </motion.div>
 
                     <span className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono mt-1">
                       周{d.shortDay}

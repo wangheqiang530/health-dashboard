@@ -13,7 +13,7 @@
 当前项目已经具备完整的代码、构建脚本、真实数据归档、PostgreSQL 数据库备份以及我们前期的全部设计与对话历史。
 
 请你先完成以下几步来接管项目：
-1. 阅读根目录的 `CODEX.md` 和 `PROJECT_STATUS.md`，了解当前项目架构、版本号（v0.0.12）、各模块实现状态以及运行端口。
+1. 阅读根目录的 `CODEX.md` 和 `PROJECT_STATUS.md`，了解当前项目架构、版本号（v0.0.13）、各模块实现状态以及运行端口。
 2. 检查 `docker-compose.yml` 与本地容器环境（如果是首次启动，确认容器是否已启动；如数据库需要恢复，可运行 `pnpm run restore:db`）。
 3. 查阅 `codex_context/SESSION_INDEX.md`，熟悉我们之前关于 Apple Health、Fitdays 体脂秤、iGPSPORT 骑行数据和苹果原生风格 UI 的全部设计决策。
 

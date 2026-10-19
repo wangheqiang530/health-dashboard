@@ -42,6 +42,10 @@ export interface BackendConfig {
     workouts: number;
     bodyMeasurements: number;
     cyclingActivities: number;
+    rawRecords: number;
+    healthSamples: number;
+    importBatches: number;
+    failedImportBatches: number;
   };
   coverage: {
     dailySummaries: DataCoverage;
@@ -104,6 +108,9 @@ export interface SystemStatus {
     workouts: number;
     bodyMeasurements: number;
     cyclingActivities: number;
+    rawRecords: number;
+    healthSamples: number;
+    importBatches: number;
   };
   backendStatus: 'healthy' | 'degraded';
 }
@@ -425,6 +432,8 @@ export async function importAppleHealthZip(file: File): Promise<{
   earliestDate: string;
   latestDate: string;
   totalWorkouts: number;
+  rawRecordCount: number;
+  normalizedRecordCount: number;
   archivePath: string;
   archiveSizeBytes: number;
 }> {

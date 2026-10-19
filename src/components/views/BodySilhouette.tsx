@@ -73,7 +73,7 @@ const SEGMENTS: SegmentDefinition[] = [
 ];
 
 const numberValue = (value: number | null | undefined): number | null =>
-  typeof value === 'number' && Number.isFinite(value) ? value : null;
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 
 const formatValue = (
   value: number | null | undefined,
@@ -158,10 +158,12 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
     ),
   }));
   const primaryValues = primaryRaw.filter(
-    (item): item is { index: number; date: string; value: number } => item.value !== null
+    (item): item is { index: number; date: string; value: number } =>
+      item.value !== null && item.value > 0
   );
   const secondaryValues = secondaryRaw.filter(
-    (item): item is { index: number; date: string; value: number } => item.value !== null
+    (item): item is { index: number; date: string; value: number } =>
+      item.value !== null && item.value > 0
   );
   const allChartValues = [...primaryValues, ...secondaryValues];
   const minMaxFor = (values: Array<{ value: number }>) => {

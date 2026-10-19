@@ -7,6 +7,142 @@ interface BodyCompositionCardProps {
   body: BodyComposition;
 }
 
+type TrendPoint = BodyComposition['trend'][number];
+type TrendKey = 'weight' | 'bodyFat';
+
+const formatTrendNumber = (value: number, unit: string): string =>
+  `${Number.isInteger(value) ? value : value.toFixed(unit === '%' ? 1 : 2)}${unit}`;
+
+const MiniLineChart: React.FC<{
+  points: TrendPoint[];
+  valueKey: TrendKey;
+  unit: string;
+  color: string;
+}> = ({ points, valueKey, unit, color }) => {
+  const data = points.slice(-7);
+  const values = data.map((point) => point[valueKey]).filter((value) => value > 0);
+  if (values.length === 0) {
+    return <span className="text-[10px] text-neutral-400">暂无最近 7 日记录</span>;
+  }
+
+  const width = 260;
+  const height = 86;
+  const padding = 10;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const coords = data
+    .map((point, index) => ({
+      point,
+      index,
+      value: point[valueKey],
+      x:
+        padding +
+        (data.length <= 1
+          ? (width - padding * 2) / 2
+          : (index / (data.length - 1)) * (width - padding * 2)),
+      y: height - padding - ((point[valueKey] - min) / range) * (height - padding * 2),
+    }))
+    .filter((item) => item.value > 0);
+  const line = coords
+    .map(
+      (point, index) =>
+        `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    )
+    .join(' ');
+  const area =
+    coords.length > 0
+      ? `${line} L ${coords[coords.length - 1].x.toFixed(1)} ${height - padding} L ${coords[0].x.toFixed(1)} ${height - padding} Z`
+      : '';
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[86px] w-full overflow-visible">
+        {[0, 1, 2].map((lineIndex) => (
+          <line
+            key={lineIndex}
+            x1={padding}
+            x2={width - padding}
+            y1={padding + (lineIndex / 2) * (height - padding * 2)}
+            y2={padding + (lineIndex / 2) * (height - padding * 2)}
+            stroke="currentColor"
+            strokeOpacity="0.1"
+            strokeDasharray="3 4"
+          />
+        ))}
+        <path d={area} fill={color} fillOpacity="0.12" />
+        <path
+          d={line}
+          fill="none"
+          stroke={color}
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {coords.map((point) => (
+          <circle
+            key={`${point.point.date}-${point.index}`}
+            cx={point.x}
+            cy={point.y}
+            r="2.7"
+            fill="white"
+            stroke={color}
+            strokeWidth="1.6"
+          />
+        ))}
+      </svg>
+      <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-neutral-400">
+        <span>{data[0]?.date || '—'}</span>
+        <span className="font-bold" style={{ color }}>
+          {formatTrendNumber(data[data.length - 1]?.[valueKey] || 0, unit)}
+        </span>
+        <span>{data[data.length - 1]?.date || '—'}</span>
+      </div>
+    </div>
+  );
+};
+
+const MiniSevenDayBars: React.FC<{
+  points: TrendPoint[];
+  color: string;
+  mode: 'lean' | 'fat';
+}> = ({ points, color, mode }) => {
+  const data = points.slice(-7).map((point) => {
+    const value =
+      mode === 'lean'
+        ? point.weight * (1 - point.bodyFat / 100)
+        : point.weight * (point.bodyFat / 100);
+    return { ...point, value: Number(value.toFixed(2)) };
+  });
+  const values = data.map((point) => point.value).filter((value) => value > 0);
+  const min = values.length > 0 ? Math.min(...values) : 0;
+  const max = values.length > 0 ? Math.max(...values) : 1;
+  const range = max - min || 1;
+
+  return (
+    <div className="flex h-[92px] items-end justify-between gap-1.5 pt-2">
+      {data.map((point, index) => {
+        const height = point.value > 0 ? 24 + ((point.value - min) / range) * 46 : 6;
+        return (
+          <div key={`${point.date}-${index}`} className="flex min-w-0 flex-1 flex-col items-center">
+            <span className="mb-1 font-mono text-[9px] font-bold text-white">
+              {point.value > 0 ? point.value : '—'}
+            </span>
+            <div
+              className="w-full rounded-t-md transition-all duration-200"
+              style={{
+                height,
+                backgroundColor: point.value > 0 ? color : 'rgba(255,255,255,0.08)',
+              }}
+            />
+            <span className="mt-1 font-mono text-[8px] text-neutral-400">{point.date}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }) => {
   const leanPercent = Math.round((body.leanMassKg / Math.max(body.weightKg, 1)) * 100);
   const fatPercent = Math.round(body.bodyFatPercent);
@@ -80,14 +216,12 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                 <span className="text-[10px] text-neutral-400 font-normal">仅显示实测记录</span>
               </div>
               {trendPoints.length > 0 ? (
-                <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                  {trendPoints.slice(-4).map((t, index) => (
-                    <div key={`${t.date}-${index}`} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
-                      <span className="text-neutral-400 block">{t.date}</span>
-                      <span className="font-bold text-white block mt-0.5 font-mono text-xs">{t.weight}</span>
-                    </div>
-                  ))}
-                </div>
+                <MiniLineChart
+                  points={trendPoints}
+                  valueKey="weight"
+                  unit="kg"
+                  color="#FBBF24"
+                />
               ) : (
                 <span className="text-[10px] text-neutral-400">暂无体重趋势记录</span>
               )}
@@ -121,14 +255,12 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                 <span className="text-[10px] text-emerald-400 font-normal">仅显示实测记录</span>
               </div>
               {trendPoints.length > 0 ? (
-                <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                  {trendPoints.slice(-4).map((t, index) => (
-                    <div key={`${t.date}-${index}`} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
-                      <span className="text-neutral-400 block">{t.date}</span>
-                      <span className="font-bold text-amber-300 block mt-0.5 font-mono text-xs">{t.bodyFat}%</span>
-                    </div>
-                  ))}
-                </div>
+                <MiniLineChart
+                  points={trendPoints}
+                  valueKey="bodyFat"
+                  unit="%"
+                  color="#F59E0B"
+                />
               ) : (
                 <span className="text-[10px] text-neutral-400">暂无体脂趋势记录</span>
               )}
@@ -156,18 +288,7 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <span>💪 去脂瘦体重 7 日趋势</span>
                   <span className="text-emerald-400 text-[10px]">占比 {leanPercent}%</span>
                 </div>
-                <div className="flex items-end justify-between h-9 gap-1 pt-1">
-                  {trendPoints.slice(-5).map((t, index) => {
-                    const leanVal = parseFloat((t.weight * (1 - t.bodyFat / 100)).toFixed(1));
-                    return (
-                      <div key={`${t.date}-${index}`} className="flex-1 flex flex-col items-center">
-                        <span className="font-mono text-[9px] text-white font-bold">{leanVal}</span>
-                        <div className="w-full bg-indigo-500/80 rounded-t h-4 mt-0.5" />
-                        <span className="text-[8px] text-neutral-400 font-mono mt-0.5">{t.date}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <MiniSevenDayBars points={trendPoints} color="#6366F1" mode="lean" />
               </div>
             </div>
 
@@ -182,18 +303,7 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <span>🧈 脂肪与骨量 7 日趋势</span>
                   <span className="text-amber-400 text-[10px]">{body.fatMassKg} kg ({fatPercent}%)</span>
                 </div>
-                <div className="flex items-end justify-between h-9 gap-1 pt-1">
-                  {trendPoints.slice(-5).map((t, index) => {
-                    const fatVal = parseFloat((t.weight * (t.bodyFat / 100)).toFixed(1));
-                    return (
-                      <div key={`${t.date}-${index}`} className="flex-1 flex flex-col items-center">
-                        <span className="font-mono text-[9px] text-amber-300 font-bold">{fatVal}</span>
-                        <div className="w-full bg-amber-500/80 rounded-t h-4 mt-0.5" />
-                        <span className="text-[8px] text-neutral-400 font-mono mt-0.5">{t.date}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <MiniSevenDayBars points={trendPoints} color="#F59E0B" mode="fat" />
               </div>
             </div>
           </div>

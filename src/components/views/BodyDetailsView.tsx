@@ -377,7 +377,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     return () => {
       active = false;
     };
-  }, []);
+  }, [currentDay.body.measurementId]);
 
   const allDates = Array.from(
     new Set([

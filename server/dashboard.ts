@@ -63,6 +63,47 @@ interface HaeStatusRow {
 const numberOrNull = (value: string | number | null): number | null =>
   value === null ? null : Number(value);
 
+const positiveNumber = (value: unknown): boolean =>
+  Number.isFinite(Number(value)) && Number(value) > 0;
+
+const hasMeaningfulDailySummary = (summary: DailySummary): boolean => {
+  const workouts = Array.isArray(summary.workouts) ? summary.workouts.length : 0;
+  return (
+    positiveNumber(summary.rings?.move?.current) ||
+    positiveNumber(summary.rings?.exercise?.current) ||
+    positiveNumber(summary.rings?.stand?.current) ||
+    positiveNumber(summary.steps?.count) ||
+    positiveNumber(summary.sleep?.totalMinutes) ||
+    positiveNumber(summary.vitals?.latestHr) ||
+    positiveNumber(summary.vitals?.restingHr) ||
+    positiveNumber(summary.vitals?.hrvCurrent) ||
+    positiveNumber(summary.vitals?.spo2) ||
+    positiveNumber(summary.vitals?.respiratoryRate) ||
+    positiveNumber(summary.vitals?.wristTemperatureAbs) ||
+    positiveNumber(summary.vitals?.vo2Max) ||
+    positiveNumber(summary.body?.weightKg) ||
+    positiveNumber(summary.body?.bodyFatPercent) ||
+    positiveNumber(summary.body?.leanMassKg) ||
+    positiveNumber(summary.body?.skeletalMuscleKg) ||
+    positiveNumber(summary.mobility?.walkingSpeedKmH) ||
+    positiveNumber(summary.mobility?.stepLengthCm) ||
+    positiveNumber(summary.mobility?.doubleSupportPercent) ||
+    positiveNumber(summary.mobility?.asymmetryPercent) ||
+    positiveNumber(summary.mobility?.stairSpeedUpMs) ||
+    positiveNumber(summary.mobility?.stairSpeedDownMs) ||
+    positiveNumber(summary.mobility?.sixMinWalkDistanceM) ||
+    positiveNumber(summary.mobility?.walkingHrAvg) ||
+    positiveNumber(summary.environment?.environmentalAudioDb) ||
+    positiveNumber(summary.environment?.headphoneAudioDb) ||
+    positiveNumber(summary.environment?.timeInDaylightMin) ||
+    positiveNumber(summary.cyclingDistanceKm) ||
+    positiveNumber(summary.basalEnergyKcal) ||
+    positiveNumber(summary.totalBurnedKcal) ||
+    positiveNumber(summary.mindfulMinutes) ||
+    workouts > 0
+  );
+};
+
 const buildBodyComposition = (
   current: BodyComposition,
   latest: BodyRow | undefined,
@@ -190,6 +231,7 @@ export async function getDashboardData(options: {
 }> {
   const conditions: string[] = [];
   const values: string[] = [];
+  conditions.push(`day >= DATE '2000-01-01'`);
   if (options.from) {
     values.push(options.from);
     conditions.push(`day >= $${values.length}`);
@@ -206,6 +248,7 @@ export async function getDashboardData(options: {
      ORDER BY day ASC`,
     values
   );
+  dailyRows.rows = dailyRows.rows.filter((row) => hasMeaningfulDailySummary(row.summary));
   if (dailyRows.rows.length === 0) {
     const status = await getSyncInfo(options.endpoint);
     return { days: {}, dates: [], selectedDate: null, syncInfo: status };

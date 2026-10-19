@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.12)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.13)
 
 ## 1. 核心模块与实现状态
 
@@ -19,7 +19,7 @@
 
 ## 2. 数据库表架构设计 (PostgreSQL)
 
-数据库由 `server/migrations/001_init.sql`、`002_archives.sql` 与 `003_dashboard_sessions.sql`
+数据库由 `server/migrations/001_init.sql` 至 `005_daily_summary_cleanup.sql`
 自动初始化，当前核心表为：
 
 1. `data_sources`：数据源开关、账号、加密密码、Cron 与同步状态
@@ -33,6 +33,9 @@
 9. `source_archive_files`：原始来源归档文件索引
 10. `app_settings`：加密保存的 HAE Key、面板密码哈希、默认会话有效期与保留策略
 11. `dashboard_sessions`：服务端登录会话与过期时间（不保存明文 token）
+12. `import_batches`：各来源导入批次、原始/标准化计数、耗时与失败原因
+13. `health_raw_records`：逐条原始健康对象与完整 JSON/XML 载荷
+14. `health_samples`：跨来源统一时序样本，按自然键保存最新修正值
 
 ---
 
@@ -44,9 +47,10 @@
 - **访问控制**：scrypt 密码哈希、本地明文密码找回文件、HttpOnly 会话 Cookie、配置中心可调保持时长；HAE Webhook 使用独立 `X-Api-Key`。
 - **FIT 解析**：使用 `@garmin/fitsdk` 解析实际会话、功率、心率、踏频、速度、左右平衡、GPS 与逐点遥测。
 - **真实数据回归**：冷备恢复后验证 `273` 次体测、`65` 次骑行、`78` 条统一训练记录；`65/65` 条骑行 FIT 已回填 GPS 轨迹。
+- **原始层回归**：Apple Health ZIP 重复导入保持幂等；28 MB HAE 样例完整写入 `34,381` 条原始对象，HAE 同时间修正值按最新导入覆盖。
 - **遥测回归**：10 月 18 日骑行解析出 `907` 个轨迹点与 `907` 帧遥测；IF `1.05`、NP `210 W`、TSS `55.9`、左右平衡 `49/51`。
 - **界面回归**：本地浏览器验证睡眠分期悬停读数、身体详情周期趋势、最高/最低点标注、悬浮层层级、心率十字导航与训练心率区间数据源说明。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.12`（多平台构建，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.13`（多平台构建，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

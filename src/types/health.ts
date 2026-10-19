@@ -94,6 +94,8 @@ export interface VitalsData {
 export interface GpxCoordinate {
   lat: number;
   lon: number;
+  speedKmh?: number;
+  elapsedSec?: number;
 }
 
 export interface WorkoutTelemetryPoint {

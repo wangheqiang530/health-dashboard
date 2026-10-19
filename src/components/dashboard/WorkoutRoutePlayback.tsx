@@ -20,6 +20,7 @@ interface WorkoutRoutePlaybackProps {
 }
 
 type MetricKey = 'heartRate' | 'cadence' | 'power' | 'speedKmh';
+type MapTileType = 'osm' | 'topo' | 'none';
 
 const METRICS: Array<{
   key: MetricKey;
@@ -42,6 +43,13 @@ const formatElapsed = (seconds: number): string => {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
     : `${minutes}:${String(secs).padStart(2, '0')}`;
+};
+
+const speedColor = (speedKmh: number | null): string => {
+  if (speedKmh === null || speedKmh <= 0.8) return '#FFD60A';
+  const ratio = Math.min(1, Math.max(0, (speedKmh - 1) / 34));
+  const hue = 120 * (1 - ratio);
+  return `hsl(${hue.toFixed(0)} 88% 52%)`;
 };
 
 const TelemetryChart: React.FC<{
@@ -195,7 +203,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [playSpeed, setPlaySpeed] = useState(2);
-  const [mapTileType, setMapTileType] = useState<'carto' | 'osm' | 'none'>('osm');
+  const [mapTileType, setMapTileType] = useState<MapTileType>('osm');
   const [tileStatus, setTileStatus] = useState<'loading' | 'ready' | 'error' | 'disabled'>(
     'loading'
   );
@@ -229,6 +237,20 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       ),
     [workout.telemetry]
   );
+  const routeSpeeds = useMemo(
+    () =>
+      routeCoords.map((_, index) => {
+        const directSpeed = workout.routeGpxPoints?.[index]?.speedKmh;
+        if (Number.isFinite(directSpeed)) return Number(directSpeed);
+        const telemetryIndex =
+          routeCoords.length <= 1
+            ? 0
+            : Math.round((index / (routeCoords.length - 1)) * Math.max(telemetry.length - 1, 0));
+        const matchedSpeed = telemetry[telemetryIndex]?.speedKmh;
+        return Number.isFinite(matchedSpeed) ? Number(matchedSpeed) : null;
+      }),
+    [routeCoords, telemetry, workout.routeGpxPoints]
+  );
   const currentTelemetryIndex = Math.min(
     Math.round(progress * Math.max(telemetry.length - 1, 0)),
     Math.max(telemetry.length - 1, 0)
@@ -253,16 +275,15 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     if (mapTileType === 'none') {
       setTileStatus('disabled');
     } else {
-      const provider =
-        mapTileType === 'carto' ? (isDark ? 'carto-dark' : 'carto-light') : 'osm';
       setTileStatus('loading');
       let tileErrors = 0;
       const tileLayer = L.tileLayer(
-        `/api/v1/map/tiles/${provider}/{z}/{x}/{y}`,
-        {
-          maxZoom: 19,
-          keepBuffer: 3,
-        }
+        mapTileType === 'topo'
+          ? 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
+          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        mapTileType === 'topo'
+          ? { maxZoom: 17, keepBuffer: 3, subdomains: 'abc' }
+          : { maxZoom: 19, keepBuffer: 3 }
       );
       tileLayer.on('tileload', () => setTileStatus('ready'));
       tileLayer.on('tileerror', () => {
@@ -272,13 +293,23 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       tileLayer.addTo(map);
     }
 
-    const polyline = L.polyline(routeCoords, {
-      color: '#00F5D4',
-      weight: 4.5,
-      opacity: 0.95,
+    L.polyline(routeCoords, {
+      color: isDark ? '#F8FAFC' : '#0F172A',
+      weight: 7,
+      opacity: 0.22,
       lineCap: 'round',
       lineJoin: 'round',
     }).addTo(map);
+    for (let index = 1; index < routeCoords.length; index += 1) {
+      const speed = routeSpeeds[index] ?? routeSpeeds[index - 1] ?? null;
+      L.polyline([routeCoords[index - 1], routeCoords[index]], {
+        color: speedColor(speed),
+        weight: 4.8,
+        opacity: 0.98,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(map);
+    }
 
     const markerIcon = (label: string, color: string) =>
       L.divIcon({
@@ -287,9 +318,9 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
         iconSize: [40, 20],
         iconAnchor: [20, 10],
       });
-    L.marker(routeCoords[0], { icon: markerIcon('起点', '#00F5D4') }).addTo(map);
+    L.marker(routeCoords[0], { icon: markerIcon('起点', '#22C55E') }).addTo(map);
     L.marker(routeCoords[routeCoords.length - 1], {
-      icon: markerIcon('终点', '#FFD60A'),
+      icon: markerIcon('终点', '#EF4444'),
     }).addTo(map);
 
     const beaconIcon = L.divIcon({
@@ -299,11 +330,12 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       iconAnchor: [10, 10],
     });
     beaconMarkerRef.current = L.marker(routeCoords[0], { icon: beaconIcon }).addTo(map);
-    map.fitBounds(polyline.getBounds(), { padding: [35, 35] });
+    const routeBounds = L.latLngBounds(routeCoords);
+    map.fitBounds(routeBounds, { padding: [35, 35] });
 
     const resizeTimer = window.setTimeout(() => {
       map.invalidateSize();
-      map.fitBounds(polyline.getBounds(), { padding: [35, 35] });
+      map.fitBounds(routeBounds, { padding: [35, 35] });
     }, 250);
 
     return () => {
@@ -312,7 +344,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       mapInstanceRef.current = null;
       beaconMarkerRef.current = null;
     };
-  }, [isDark, mapTileType, routeCoords]);
+  }, [isDark, mapTileType, routeCoords, routeSpeeds]);
 
   useEffect(() => {
     if (beaconMarkerRef.current && currentPoint) {
@@ -363,8 +395,8 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
         </div>
         <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-xl text-[10px] font-semibold">
           {[
-            { key: 'osm' as const, label: 'OpenStreetMap' },
-            { key: 'carto' as const, label: 'CARTO' },
+            { key: 'osm' as const, label: '街道' },
+            { key: 'topo' as const, label: '地形' },
             { key: 'none' as const, label: '纯轨迹' },
           ].map((option) => (
             <button
@@ -385,6 +417,15 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
 
       {routeCoords.length >= 2 ? (
         <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/5 bg-white/55 px-3 py-2 text-[10px] text-neutral-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-400">
+            <span className="font-semibold text-neutral-700 dark:text-neutral-200">轨迹颜色 · 速度</span>
+            <span className="flex items-center gap-1.5 font-mono">
+              <span className="h-2 w-2 rounded-full bg-[#FFD60A]" />
+              静止
+              <span className="ml-2 h-2 w-12 rounded-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500" />
+              慢 → 快
+            </span>
+          </div>
           <div
             ref={mapContainerRef}
             className="w-full h-[300px] rounded-2xl overflow-hidden border border-black/5 dark:border-white/10"
@@ -400,7 +441,8 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
           />
           <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
             <span>
-              地图瓦片经本地面板代理并缓存，无需 API Key · © OpenStreetMap contributors / CARTO
+              地图由浏览器直连免费公共瓦片，无需 API Key · © OpenStreetMap contributors
+              {mapTileType === 'topo' ? ' / OpenTopoMap' : ''}
             </span>
             <span
               className={

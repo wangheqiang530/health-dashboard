@@ -149,6 +149,13 @@ export function parseFitActivity(
       routePoints.push({
         lat: Number((lat * SEMICIRCLE_TO_DEGREES).toFixed(7)),
         lon: Number((lon * SEMICIRCLE_TO_DEGREES).toFixed(7)),
+        speedKmh: speed === null ? undefined : Number((speed * 3.6).toFixed(2)),
+        elapsedSec: Math.max(
+          0,
+          Math.round(
+            ((timestamp?.getTime() || startDate.getTime()) - startDate.getTime()) / 1000
+          )
+        ),
       });
     }
 

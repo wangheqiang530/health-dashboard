@@ -79,7 +79,7 @@ const allSourceParamSchema = z.object({
 });
 
 const storageSchema = z.object({
-  retentionDays: z.number().int().min(1).max(3650),
+  retentionDays: z.number().int().min(0).max(3650),
 });
 
 const publicEndpoint = (request: FastifyRequest): string => {
@@ -124,6 +124,10 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         workout_count: string;
         body_count: string;
         ride_count: string;
+        raw_record_count: string;
+        sample_count: string;
+        import_batch_count: string;
+        failed_batch_count: string;
         daily_earliest: string | null;
         daily_latest: string | null;
         body_earliest: string | null;
@@ -139,6 +143,10 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
           (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
           (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
+          (SELECT COUNT(*) FROM health_raw_records)::text AS raw_record_count,
+          (SELECT COUNT(*) FROM health_samples)::text AS sample_count,
+          (SELECT COUNT(*) FROM import_batches)::text AS import_batch_count,
+          (SELECT COUNT(*) FROM import_batches WHERE status = 'failed')::text AS failed_batch_count,
           (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
           (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
           (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
@@ -170,6 +178,10 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         workouts: Number(count?.workout_count || 0),
         bodyMeasurements: Number(count?.body_count || 0),
         cyclingActivities: Number(count?.ride_count || 0),
+        rawRecords: Number(count?.raw_record_count || 0),
+        healthSamples: Number(count?.sample_count || 0),
+        importBatches: Number(count?.import_batch_count || 0),
+        failedImportBatches: Number(count?.failed_batch_count || 0),
       },
       coverage: {
         dailySummaries: {
@@ -422,7 +434,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   app.put('/api/v1/config/storage', async (request, reply) => {
     const body = storageSchema.safeParse(request.body);
     if (!body.success) {
-      return reply.code(400).send({ error: '保留天数必须为 1 到 3650 的整数。' });
+      return reply.code(400).send({ error: '保留天数必须为 0 到 3650 的整数，0 表示永久保留。' });
     }
     const retentionDays = await setArchiveRetentionDays(body.data.retentionDays);
     const cleanup = await cleanupExpiredArchives(retentionDays);

@@ -6,6 +6,11 @@ const toPositiveInt = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 };
 
+const toNonNegativeInt = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+};
+
 const encryptionKey = process.env.APP_ENCRYPTION_KEY?.trim();
 if (!encryptionKey) {
   throw new Error('缺少 APP_ENCRYPTION_KEY。请根据 .env.example 创建 .env 后再启动后端。');
@@ -23,9 +28,9 @@ export const config = {
   dataDir: path.resolve(process.env.DATA_DIR ?? './data'),
   haeApiKey: process.env.HAE_API_KEY?.trim() || null,
   maxHaeBytes: toPositiveInt(process.env.MAX_HAE_BYTES, 256 * 1024 * 1024),
-  archiveRetentionDays: toPositiveInt(
+  archiveRetentionDays: toNonNegativeInt(
     process.env.BACKUP_RETENTION_DAYS ?? process.env.HAE_RETENTION_DAYS,
-    365
+    0
   ),
   publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') || null,
   dashboardPassword: process.env.DASHBOARD_PASSWORD?.trim() || null,

@@ -91,11 +91,11 @@ const buildBodySegments = (
       const impedance100 = impedance?.[frequency100Index] ?? null;
       segments[key] = {
         muscleKg:
-          skeletalMuscleKg === null
+          skeletalMuscleKg === null || skeletalMuscleKg <= 0
             ? null
             : Number((skeletalMuscleKg * MUSCLE_DISTRIBUTION[key]).toFixed(2)),
         fatKg:
-          fatMassKg === null
+          fatMassKg === null || fatMassKg <= 0
             ? null
             : Number((fatMassKg * FAT_DISTRIBUTION[key]).toFixed(2)),
         impedance20kHz: impedance20 !== null && impedance20 > 0 ? impedance20 : null,

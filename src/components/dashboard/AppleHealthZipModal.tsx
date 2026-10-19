@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { importAppleHealthZip } from '../../api/healthApi';
 import {
@@ -28,17 +28,30 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [uploadStep, setUploadStep] = useState<string>('');
   const [resultSummary, setResultSummary] = useState<{
     importedDays: number;
     earliestDate: string;
     latestDate: string;
     totalWorkouts: number;
+    rawRecordCount: number;
+    normalizedRecordCount: number;
     archivePath: string;
     archiveSizeBytes: number;
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isUploading || !uploadStartedAt) return;
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - uploadStartedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isUploading, uploadStartedAt]);
 
   if (!isOpen) return null;
 
@@ -73,6 +86,7 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
   const handleUploadAndProcess = async () => {
     if (!selectedFile) return;
     setIsUploading(true);
+    setUploadStartedAt(Date.now());
     setErrorMsg(null);
     setUploadStep('正在上传 ZIP 包并持久化到本地备份目录...');
 
@@ -85,6 +99,7 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
       setErrorMsg(err instanceof Error ? err.message : '解析或导入失败，请检查文件是否完整。');
     } finally {
       setIsUploading(false);
+      setUploadStartedAt(null);
     }
   };
 
@@ -130,7 +145,7 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
             导入 Apple Health 完整 ZIP 导出包
           </h2>
           <p className="text-xs text-neutral-400 mb-5 leading-relaxed">
-            支持直接上传 iPhone「健康」App 导出的 <code className="text-amber-300 font-mono">导出.zip</code> 或 <code className="text-amber-300 font-mono">export.zip</code>。服务端将自动持久化至本地备份目录（默认保留 365 天），流式提取全部三环、心率、睡眠分期、步态健康及 GPX 运动路线并无缝入库。
+            支持直接上传 iPhone「健康」App 导出的 <code className="text-amber-300 font-mono">导出.zip</code> 或 <code className="text-amber-300 font-mono">export.zip</code>。服务端会永久保留原始归档，并逐条保存 Record、Workout、ActivitySummary、Correlation 与标准化样本。
           </p>
 
           {/* Drag & Drop Box */}
@@ -189,8 +204,18 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
               <div>
                 <span className="font-semibold block">{uploadStep}</span>
                 <span className="text-[10px] text-neutral-400 mt-0.5 block">
-                  正在流式解析大数据集，请勿刷新页面，通常需要数秒至十余秒。
+                  正在流式解析并逐条写入原始层，请勿刷新页面；大型导出通常需要数十秒至数分钟。
                 </span>
+                <span className="mt-1 block font-mono text-[10px] text-sky-300">
+                  已用时 {elapsedSeconds} 秒
+                </span>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <motion.div
+                    className="h-full w-2/3 rounded-full bg-gradient-to-r from-sky-500 to-indigo-500"
+                    animate={{ x: ['-100%', '160%'] }}
+                    transition={{ repeat: Infinity, duration: 1.4, ease: 'linear' }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -214,7 +239,7 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
                 <CheckCircle2 className="w-4 h-4" />
                 <span>导入与本地归档完成！PostgreSQL 数据已就绪</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-neutral-300">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-neutral-300">
                 <div className="p-2.5 rounded-xl bg-black/25">
                   <span className="text-neutral-400 block text-[10px]">导入健康天数</span>
                   <span className="font-bold text-white text-sm">{resultSummary.importedDays} 天</span>
@@ -230,8 +255,17 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
                   <span className="block text-[10px] text-neutral-400">含心率/距离/GPX</span>
                 </div>
                 <div className="p-2.5 rounded-xl bg-black/25">
+                  <span className="text-neutral-400 block text-[10px]">原始对象</span>
+                  <span className="font-bold text-amber-400 text-sm">
+                    {resultSummary.rawRecordCount.toLocaleString()} 条
+                  </span>
+                  <span className="block text-[10px] text-neutral-400">
+                    标准化 {resultSummary.normalizedRecordCount.toLocaleString()} 条
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-xl bg-black/25">
                   <span className="text-neutral-400 block text-[10px]">本地持久化备份</span>
-                  <span className="font-bold text-amber-400 text-sm">保留 365 天</span>
+                  <span className="font-bold text-emerald-400 text-sm">永久保留</span>
                   <span className="block text-[10px] text-neutral-400 truncate">
                     {formatBytes(resultSummary.archiveSizeBytes)}
                   </span>
@@ -248,7 +282,7 @@ export const AppleHealthZipModal: React.FC<AppleHealthZipModalProps> = ({
           <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 text-[11px] text-neutral-400 flex items-center gap-2 mb-5">
             <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
             <span>
-              纯本地隐私存储：原始压缩包安全存档于本地，365 天后自动滚动清除或随时在配置中心手动清除。
+              纯本地隐私存储：原始压缩包默认永久保留；只有手动清理或显式修改保留策略后才会删除。
             </span>
           </div>
 

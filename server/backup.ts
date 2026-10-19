@@ -99,6 +99,7 @@ export async function cleanupExpiredBackups(retentionDays?: number): Promise<{
 }> {
   await ensureBackupDirectory();
   const days = retentionDays ?? (await getArchiveRetentionDays());
+  if (days === 0) return { deletedFiles: 0, deletedBytes: 0 };
   const cutoffMs = Date.now() - days * 86_400_000;
 
   let deletedFiles = 0;

@@ -4,10 +4,21 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import AdmZip from 'adm-zip';
+import type { PoolClient } from 'pg';
 import type { DailySummary, VitalityScore } from '../src/types/health.ts';
 import { archiveZip, registerArchive, type ArchiveFile } from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
+import {
+  completeImportBatch,
+  contentHash,
+  createImportBatch,
+  failImportBatch,
+  persistRawAndSampleRows,
+  type HealthSampleRow,
+  type RawRecordRow,
+} from './rawLibrary.ts';
+import { dateInTimeZone } from './time.ts';
 
 export interface AppleHealthZipResult {
   ok: true;
@@ -15,6 +26,8 @@ export interface AppleHealthZipResult {
   earliestDate: string;
   latestDate: string;
   totalWorkouts: number;
+  rawRecordCount: number;
+  normalizedRecordCount: number;
   archivePath: string;
   archiveSizeBytes: number;
 }
@@ -36,6 +49,100 @@ const numberOrNull = (value: string | number | null): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const APPLE_HEALTH_OBJECT_TAGS = new Set([
+  'Record',
+  'Workout',
+  'ActivitySummary',
+  'Correlation',
+  'ClinicalRecord',
+  'Audiogram',
+  'VisionPrescription',
+]);
+
+const decodeXml = (value: string): string =>
+  value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) =>
+      String.fromCodePoint(parseInt(code, 16))
+    );
+
+const parseXmlAttributes = (xml: string): Record<string, string> => {
+  const attributes: Record<string, string> = {};
+  const startTag = xml.match(/^\s*<([A-Za-z0-9_:-]+)\b[^>]*>/)?.[0] || '';
+  const attributeRegex = /([A-Za-z0-9_:.-]+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = attributeRegex.exec(startTag)) !== null) {
+    attributes[match[1]] = decodeXml(match[2]);
+  }
+  return attributes;
+};
+
+const parseMetadataEntries = (xml: string): Record<string, string> => {
+  const metadata: Record<string, string> = {};
+  const regex = /<MetadataEntry\b[^>]*\bkey="([^"]*)"[^>]*\bvalue="([^"]*)"[^>]*\/>/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(xml)) !== null) {
+    metadata[decodeXml(match[1])] = decodeXml(match[2]);
+  }
+  return metadata;
+};
+
+const parseAppleTimestamp = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const numericValue = (value?: string | null): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const distanceToKm = (value?: string | null, unit?: string | null): number | null => {
+  const quantity = numericValue(value);
+  if (quantity === null) return null;
+  const normalizedUnit = unit?.trim().toLowerCase() || '';
+  if (normalizedUnit === 'km' || normalizedUnit.includes('kilometer')) return quantity;
+  if (normalizedUnit === 'mi' || normalizedUnit.includes('mile')) {
+    return quantity * 1.609344;
+  }
+  return quantity / 1000;
+};
+
+const durationToSeconds = (
+  value?: string | null,
+  unit?: string | null
+): number | null => {
+  const quantity = numericValue(value);
+  if (quantity === null) return null;
+  const normalizedUnit = unit?.trim().toLowerCase() || 'min';
+  if (normalizedUnit.startsWith('sec') || normalizedUnit === 's') {
+    return Math.round(quantity);
+  }
+  if (normalizedUnit.startsWith('hour') || normalizedUnit === 'h') {
+    return Math.round(quantity * 3600);
+  }
+  return Math.round(quantity * 60);
+};
+
+const recordNaturalKey = (
+  type: string,
+  attributes: Record<string, string>
+): string =>
+  [
+    type,
+    attributes.startDate || '',
+    attributes.endDate || '',
+    attributes.sourceName || '',
+    attributes.creationDate || '',
+  ].join('|');
 
 function getDayInfo(dateStr: string) {
   const d = new Date(dateStr + 'T12:00:00+08:00');
@@ -92,6 +199,8 @@ export async function importAppleHealthZip(
 
   const tempDir = path.join(config.dataDir, 'temp_unzip', randomUUID());
   await fsp.mkdir(tempDir, { recursive: true });
+  let libraryClient: PoolClient | null = null;
+  let libraryBatchId: string | null = null;
 
   try {
     const zip = new AdmZip(zipBuffer);
@@ -124,6 +233,61 @@ export async function importAppleHealthZip(
     const extractedXmlPath = path.join(tempDir, path.basename(xmlEntry.entryName));
 
     const gpxRoutes = parseGpxDirectory(routesDir);
+
+    libraryClient = await pool.connect();
+    const client = libraryClient;
+    let batchId: string | null = null;
+    let archiveId: string | null = null;
+    let haeImportId: string | null = null;
+    try {
+      await client.query('BEGIN');
+      archiveId = await registerArchive(
+        client,
+        archive,
+        'hae',
+        'apple-health-export',
+        0,
+        {
+          source: 'Apple Health Export Zip',
+          filename: originalFilename || 'export.zip',
+          importMode: 'raw-library',
+        }
+      );
+      batchId = await createImportBatch(client, {
+        sourceId: 'hae',
+        importKind: 'apple-health-export',
+        fileName: originalFilename || 'export.zip',
+        archiveId,
+        archivePath: archive.relativePath,
+        sha256: archive.sha256,
+        sizeBytes: archive.sizeBytes,
+        metadata: { source: 'Apple Health Export Zip' },
+      });
+      libraryBatchId = batchId;
+      const haeImport = await client.query<{ id: string }>(
+        `INSERT INTO hae_imports
+          (payload_size_bytes, source_ip, date_from, date_to, metric_count,
+           workout_count, daily_summary_count, raw_payload, batch_id)
+         VALUES ($1, NULL, NULL, NULL, 0, 0, 0, $2::jsonb, $3)
+         RETURNING id`,
+        [
+          archive.sizeBytes,
+          JSON.stringify({
+            source: 'apple-health-export',
+            archivePath: archive.relativePath,
+            batchId,
+          }),
+          batchId,
+        ]
+      );
+      haeImportId = haeImport.rows[0].id;
+      await client.query('COMMIT');
+      await client.query('BEGIN');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw error;
+    }
 
     // Stream parse the extracted XML
     const fileStream = fs.createReadStream(extractedXmlPath, { encoding: 'utf8' });
@@ -198,73 +362,111 @@ export async function importAppleHealthZip(
       return dailyMetrics.get(dateStr)!;
     }
 
-    let inWorkout = false;
-    let currentWorkoutAttrs: string | null = null;
-    let currentWorkoutMetadata: Record<string, string> = {};
-    let lineCount = 0;
+    let pendingRawRows: RawRecordRow[] = [];
+    let pendingSampleRows: HealthSampleRow[] = [];
+    let rawObjectCount = 0;
+    let normalizedObjectCount = 0;
+    let skippedObjectCount = 0;
+    const rawOccurrenceByHash = new Map<string, number>();
+    const normalizedWorkouts: Array<{
+      name: string;
+      startedAt: string | null;
+      endedAt: string | null;
+      durationSec: number | null;
+      activeEnergyKcal: number | null;
+      distanceKm: number | null;
+      avgHeartRate: number | null;
+      maxHeartRate: number | null;
+      elevationGainM: number | null;
+      sourceName: string | null;
+      deviceName: string | null;
+      sourceUpdatedAt: string | null;
+      naturalKey: string;
+      rawContentHash: string;
+      rawWorkout: Record<string, unknown>;
+    }> = [];
 
-    for await (const line of rl) {
-      lineCount++;
-      if (line.includes('<ActivitySummary ')) {
-        const dateMatch = line.match(/dateComponents="([^"]+)"/);
-        if (dateMatch) {
-          const dStr = dateMatch[1];
-          const moveMatch = line.match(/activeEnergyBurned="([^"]+)"/);
-          const moveGoalMatch = line.match(/activeEnergyBurnedGoal="([^"]+)"/);
-          const exMatch = line.match(/appleExerciseTime="([^"]+)"/);
-          const exGoalMatch = line.match(/appleExerciseTimeGoal="([^"]+)"/);
-          const standMatch = line.match(/appleStandHours="([^"]+)"/);
-          const standGoalMatch = line.match(/appleStandHoursGoal="([^"]+)"/);
+    const flushPending = async () => {
+      if (!batchId || (pendingRawRows.length === 0 && pendingSampleRows.length === 0)) return;
+      await persistRawAndSampleRows(client, batchId, pendingRawRows, pendingSampleRows);
+      pendingRawRows = [];
+      pendingSampleRows = [];
+    };
 
-          activitySummaries.set(dStr, {
-            move: parseFloat(moveMatch?.[1] || '0'),
-            moveGoal: parseFloat(moveGoalMatch?.[1] || '600'),
-            exercise: parseFloat(exMatch?.[1] || '0'),
-            exerciseGoal: parseFloat(exGoalMatch?.[1] || '30'),
-            stand: parseFloat(standMatch?.[1] || '0'),
-            standGoal: parseFloat(standGoalMatch?.[1] || '12'),
-          });
-        }
-        continue;
+    const queueRawObject = async (
+      tag: string,
+      xml: string,
+      attributes: Record<string, string>,
+      metadata: Record<string, string> = {}
+    ): Promise<string> => {
+      const payload = { tag, attributes, metadata };
+      const hash = contentHash(payload);
+      const occurrenceIndex = (rawOccurrenceByHash.get(hash) || 0) + 1;
+      rawOccurrenceByHash.set(hash, occurrenceIndex);
+      const start = parseAppleTimestamp(attributes.startDate);
+      const end = parseAppleTimestamp(attributes.endDate);
+      const sourceUpdated = parseAppleTimestamp(attributes.creationDate);
+      const localDate = start ? dateInTimeZone(start, config.timezone) : null;
+      rawObjectCount += 1;
+      pendingRawRows.push({
+        sourceId: 'hae',
+        objectType: tag,
+        contentHash: hash,
+        occurrenceIndex,
+        metricType: attributes.type || null,
+        startAt: start?.toISOString() || null,
+        endAt: end?.toISOString() || null,
+        localDate,
+        valueText: attributes.value ?? null,
+        valueNum: numericValue(attributes.value),
+        unit: attributes.unit || null,
+        sourceName: attributes.sourceName || null,
+        deviceName: attributes.device || null,
+        sourceUpdatedAt: sourceUpdated?.toISOString() || null,
+        metadata,
+        rawAttributes: attributes,
+        rawPayload: payload,
+        rawXml: xml,
+      });
+      if (pendingRawRows.length >= 2500) await flushPending();
+      return hash;
+    };
+
+    const processRecord = async (xml: string) => {
+      const attributes = parseXmlAttributes(xml);
+      const metadata = parseMetadataEntries(xml);
+      const type = attributes.type;
+      const start = parseAppleTimestamp(attributes.startDate);
+      const end = parseAppleTimestamp(attributes.endDate);
+      const dateStr = parseDateStr(attributes.startDate);
+      if (!type || !start || !dateStr) {
+        skippedObjectCount += 1;
+        await queueRawObject('Record', xml, attributes, metadata);
+        return;
       }
 
-      if (line.includes('<Workout ') || line.includes('<Workout>')) {
-        inWorkout = true;
-        currentWorkoutAttrs = line;
-        currentWorkoutMetadata = {};
-        if (line.endsWith('/>')) {
-          inWorkout = false;
-          processWorkout(currentWorkoutAttrs, currentWorkoutMetadata);
-        }
-        continue;
-      } else if (inWorkout) {
-        if (line.includes('<MetadataEntry ')) {
-          const kMatch = line.match(/key="([^"]+)"/);
-          const vMatch = line.match(/value="([^"]+)"/);
-          if (kMatch && vMatch) {
-            currentWorkoutMetadata[kMatch[1]] = vMatch[1];
-          }
-        }
-        if (line.includes('</Workout>')) {
-          inWorkout = false;
-          processWorkout(currentWorkoutAttrs, currentWorkoutMetadata);
-        }
-        continue;
-      }
+      const rawHash = await queueRawObject('Record', xml, attributes, metadata);
+      const value = numericValue(attributes.value);
+      pendingSampleRows.push({
+        sourceId: 'hae',
+        rawContentHash: rawHash,
+        naturalKey: recordNaturalKey(type, attributes),
+        metricName: type,
+        startAt: start.toISOString(),
+        endAt: end?.toISOString() || null,
+        localDate: dateInTimeZone(start, config.timezone),
+        valueNum: value,
+        valueText: attributes.value ?? null,
+        unit: attributes.unit || null,
+        sourceName: attributes.sourceName || null,
+        deviceName: attributes.device || null,
+        sourceUpdatedAt: parseAppleTimestamp(attributes.creationDate)?.toISOString() || null,
+        metadata: { ...attributes, ...metadata },
+        rawPayload: { tag: 'Record', attributes, metadata },
+      });
+      normalizedObjectCount += 1;
 
-      if (!line.includes('<Record ')) continue;
-
-      const typeMatch = line.match(/type="([^"]+)"/);
-      if (!typeMatch) continue;
-      const type = typeMatch[1];
-
-      const startMatch = line.match(/startDate="([^"]+)"/);
-      if (!startMatch) continue;
-      const dateStr = parseDateStr(startMatch[1]);
-      if (!dateStr) continue;
-
-      const valMatch = line.match(/value="([^"]+)"/);
-      const numVal = valMatch ? parseFloat(valMatch[1]) : NaN;
+      const numVal = value ?? Number.NaN;
       const bucket = getDailyBucket(dateStr);
 
       switch (type) {
@@ -320,17 +522,15 @@ export async function importAppleHealthZip(
           if (!isNaN(numVal)) bucket.daylightMins += numVal;
           break;
         case 'HKCategoryTypeIdentifierMindfulSession': {
-          const endMatch = line.match(/endDate="([^"]+)"/);
-          if (endMatch) {
-            const diffMs = new Date(endMatch[1]).getTime() - new Date(startMatch[1]).getTime();
-            bucket.mindfulMins += Math.max(1, Math.round(diffMs / 60000));
+          if (end) {
+            bucket.mindfulMins += Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
           }
           break;
         }
         case 'HKQuantityTypeIdentifierHeartRate': {
           if (!isNaN(numVal) && numVal >= 30 && numVal <= 230) {
             if (!dailyHrPoints.has(dateStr)) dailyHrPoints.set(dateStr, []);
-            const timeMatch = startMatch[1].match(/\s(\d{2}):(\d{2})/);
+            const timeMatch = attributes.startDate.match(/\s(\d{2}):(\d{2})/);
             if (timeMatch) {
               const h = parseInt(timeMatch[1], 10);
               const m = parseInt(timeMatch[2], 10);
@@ -344,24 +544,21 @@ export async function importAppleHealthZip(
           break;
         }
         case 'HKCategoryTypeIdentifierSleepAnalysis': {
-          const endMatch = line.match(/endDate="([^"]+)"/);
-          if (endMatch && valMatch) {
-            const start = new Date(startMatch[1]);
-            const end = new Date(endMatch[1]);
+          if (end && attributes.value) {
             const durationMins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
-            const val = valMatch[1];
+            const val = attributes.value;
             if (!dailySleepStages.has(dateStr)) {
               dailySleepStages.set(dateStr, {
                 deep: 0,
                 core: 0,
                 rem: 0,
                 awake: 0,
-                bedTime: parseHourMinute(startMatch[1]),
-                wakeTime: parseHourMinute(endMatch[1]),
+                bedTime: parseHourMinute(attributes.startDate),
+                wakeTime: parseHourMinute(attributes.endDate),
               });
             }
             const sleepObj = dailySleepStages.get(dateStr)!;
-            sleepObj.wakeTime = parseHourMinute(endMatch[1]);
+            sleepObj.wakeTime = parseHourMinute(attributes.endDate);
             if (val.includes('Deep')) sleepObj.deep += durationMins;
             else if (val.includes('REM')) sleepObj.rem += durationMins;
             else if (val.includes('Awake')) sleepObj.awake += durationMins;
@@ -370,21 +567,89 @@ export async function importAppleHealthZip(
           break;
         }
       }
-    }
+    };
 
-    function processWorkout(attrs: string | null, metadata: Record<string, string>) {
-      if (!attrs) return;
-      const startMatch = attrs.match(/startDate="([^"]+)"/);
-      if (!startMatch) return;
-      const dateStr = parseDateStr(startMatch[1]);
+    const processActivitySummary = async (xml: string) => {
+      const attributes = parseXmlAttributes(xml);
+      await queueRawObject('ActivitySummary', xml, attributes);
+      const date = attributes.dateComponents;
+      if (!date) return;
+      const move = parseFloat(attributes.activeEnergyBurned || '0');
+      const exercise = parseFloat(attributes.appleExerciseTime || '0');
+      const stand = parseFloat(attributes.appleStandHours || '0');
+      if (move <= 0 && exercise <= 0 && stand <= 0) return;
+      activitySummaries.set(date, {
+        move,
+        moveGoal: parseFloat(attributes.activeEnergyBurnedGoal || '600'),
+        exercise,
+        exerciseGoal: parseFloat(attributes.appleExerciseTimeGoal || '30'),
+        stand,
+        standGoal: parseFloat(attributes.appleStandHoursGoal || '12'),
+      });
+    };
+
+    const processObject = async (tag: string, xml: string) => {
+      if (tag === 'Record') {
+        await processRecord(xml);
+        return;
+      }
+      if (tag === 'ActivitySummary') {
+        await processActivitySummary(xml);
+        return;
+      }
+      const attributes = parseXmlAttributes(xml);
+      const metadata = parseMetadataEntries(xml);
+      const rawHash = await queueRawObject(tag, xml, attributes, metadata);
+      if (tag === 'Workout') {
+        processWorkout(xml, metadata, rawHash);
+        const nestedRecords = xml.match(/<Record\b[^>]*\/>/g) || [];
+        for (const nestedRecord of nestedRecords) {
+          await processRecord(nestedRecord);
+        }
+      } else if (tag === 'Correlation' || tag === 'ClinicalRecord') {
+        const nestedRecords = xml.match(/<Record\b[^>]*\/>/g) || [];
+        for (const nestedRecord of nestedRecords) {
+          await processRecord(nestedRecord);
+        }
+      }
+    };
+
+    let activeTag: string | null = null;
+    let activeLines: string[] = [];
+    for await (const line of rl) {
+      if (!activeTag) {
+        const tag = line.match(/^\s*<([A-Za-z0-9_:-]+)\b/)?.[1];
+        if (!tag || !APPLE_HEALTH_OBJECT_TAGS.has(tag)) continue;
+        if (line.includes(`</${tag}>`) || /\/>\s*$/.test(line)) {
+          await processObject(tag, line);
+        } else {
+          activeTag = tag;
+          activeLines = [line];
+        }
+        continue;
+      }
+
+      activeLines.push(line);
+      if (line.includes(`</${activeTag}>`)) {
+        const xml = activeLines.join('\n');
+        const tag = activeTag;
+        activeTag = null;
+        activeLines = [];
+        await processObject(tag, xml);
+      }
+    }
+    await flushPending();
+
+    function processWorkout(
+      xml: string,
+      metadata: Record<string, string>,
+      rawHash: string
+    ) {
+      const attributes = parseXmlAttributes(xml);
+      const dateStr = parseDateStr(attributes.startDate);
       if (!dateStr) return;
 
-      const typeMatch = attrs.match(/workoutActivityType="([^"]+)"/);
-      const durMatch = attrs.match(/duration="([^"]+)"/);
-      const energyMatch = attrs.match(/totalEnergyBurned="([^"]+)"/);
-      const distMatch = attrs.match(/totalDistance="([^"]+)"/);
-
-      const rawType = typeMatch?.[1] || '';
+      const rawType = attributes.workoutActivityType || '';
       let category: DailySummary['workouts'][0]['category'] = 'running';
       let name = '体能训练';
 
@@ -405,9 +670,10 @@ export async function importAppleHealthZip(
         name = '高强度间歇训练';
       }
 
-      const durationMinutes = Math.max(0, Math.round(parseFloat(durMatch?.[1] || '0')));
-      const activeCalories = Math.round(parseFloat(energyMatch?.[1] || '0'));
-      const distanceKm = distMatch ? parseFloat(parseFloat(distMatch[1]).toFixed(2)) : undefined;
+      const durationMinutes = Math.max(0, Math.round(parseFloat(attributes.duration || '0')));
+      const activeCalories = Math.round(parseFloat(attributes.totalEnergyBurned || '0'));
+      const distanceKm =
+        distanceToKm(attributes.totalDistance, attributes.totalDistanceUnit) ?? undefined;
       const avgHeartRate = metadata.HKAverageHeartRate
         ? Math.round(parseFloat(metadata.HKAverageHeartRate))
         : 0;
@@ -427,7 +693,7 @@ export async function importAppleHealthZip(
         category,
         source: 'hae',
         date: dateStr,
-        startTime: parseHourMinute(startMatch[1]),
+        startTime: parseHourMinute(attributes.startDate),
         durationMinutes,
         activeCalories,
         totalCalories: activeCalories,
@@ -441,6 +707,34 @@ export async function importAppleHealthZip(
         hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
         routeGpxPoints,
       });
+
+      const startedAt = parseAppleTimestamp(attributes.startDate);
+      const endedAt = parseAppleTimestamp(attributes.endDate);
+      const sourceUpdatedAt = parseAppleTimestamp(attributes.creationDate);
+      normalizedWorkouts.push({
+        name,
+        startedAt: startedAt?.toISOString() || null,
+        endedAt: endedAt?.toISOString() || null,
+        durationSec: durationToSeconds(attributes.duration, attributes.durationUnit),
+        activeEnergyKcal: numericValue(attributes.totalEnergyBurned),
+        distanceKm: distanceToKm(attributes.totalDistance, attributes.totalDistanceUnit),
+        avgHeartRate: metadata.HKAverageHeartRate
+          ? Math.round(parseFloat(metadata.HKAverageHeartRate))
+          : null,
+        maxHeartRate: metadata.HKMaximumHeartRate
+          ? Math.round(parseFloat(metadata.HKMaximumHeartRate))
+          : null,
+        elevationGainM: metadata.HKElevationAscended
+          ? numericValue(metadata.HKElevationAscended)
+          : null,
+        sourceName: attributes.sourceName || null,
+        deviceName: attributes.device || null,
+        sourceUpdatedAt: sourceUpdatedAt?.toISOString() || null,
+        naturalKey: `workout|${name.toLowerCase()}|${startedAt?.toISOString() || dateStr}|${attributes.sourceName || ''}`,
+        rawContentHash: rawHash,
+        rawWorkout: { attributes, metadata },
+      });
+      normalizedObjectCount += 1;
     }
 
     // Blend with Fitdays body measurements
@@ -471,25 +765,82 @@ export async function importAppleHealthZip(
     const restingHrBaseline = averageOrZero(restingHrValues);
     const hrvBaseline = averageOrZero(hrvValues);
 
-    const client = await pool.connect();
     let totalWorkoutsCount = 0;
 
     try {
-      await client.query('BEGIN');
-      await registerArchive(
-        client,
-        archive,
-        'hae',
-        'apple-health-export',
-        allTargetDates.length,
-        {
-          source: 'Apple Health Export Zip',
-          dateFrom: allTargetDates[0],
-          dateTo: allTargetDates[allTargetDates.length - 1],
-          totalDays: allTargetDates.length,
-          filename: originalFilename || 'export.zip',
-        }
+      await client.query(
+        `DELETE FROM daily_summaries
+         WHERE day < DATE '2000-01-01'
+            OR (
+              COALESCE((summary->'steps'->>'count')::numeric, 0) = 0
+              AND COALESCE((summary->'sleep'->>'totalMinutes')::numeric, 0) = 0
+              AND COALESCE((summary->'vitals'->>'latestHr')::numeric, 0) = 0
+              AND jsonb_array_length(COALESCE(summary->'workouts', '[]'::jsonb)) = 0
+              AND COALESCE((summary->'body'->>'weightKg')::numeric, 0) = 0
+            )`
       );
+      const workoutHashes = normalizedWorkouts.map((workout) => workout.rawContentHash);
+      const rawWorkoutRows =
+        workoutHashes.length > 0
+          ? await client.query<{ id: string; content_hash: string }>(
+              `SELECT id, content_hash
+               FROM health_raw_records
+               WHERE source_id = 'hae' AND object_type = 'Workout'
+                 AND content_hash = ANY($1::text[])`,
+              [workoutHashes]
+            )
+          : { rows: [] };
+      const rawWorkoutIdByHash = new Map(
+        rawWorkoutRows.rows.map((row) => [row.content_hash, Number(row.id)])
+      );
+
+      for (const workout of normalizedWorkouts) {
+        await client.query(
+          `INSERT INTO health_workouts
+            (import_id, fingerprint, natural_key, source_id, name, started_at, ended_at,
+             duration_sec, active_energy_kcal, distance_km, avg_heart_rate, max_heart_rate,
+             elevation_gain_m, source_name, device_name, source_updated_at,
+             raw_record_id, raw_workout)
+           VALUES ($1, $2, $3, 'hae', $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   $13, $14, $15, $16, $17::jsonb)
+           ON CONFLICT (source_id, natural_key) DO UPDATE SET
+             import_id = EXCLUDED.import_id,
+             fingerprint = EXCLUDED.fingerprint,
+             name = EXCLUDED.name,
+             started_at = EXCLUDED.started_at,
+             ended_at = EXCLUDED.ended_at,
+             duration_sec = EXCLUDED.duration_sec,
+             active_energy_kcal = EXCLUDED.active_energy_kcal,
+             distance_km = EXCLUDED.distance_km,
+             avg_heart_rate = EXCLUDED.avg_heart_rate,
+             max_heart_rate = EXCLUDED.max_heart_rate,
+             elevation_gain_m = EXCLUDED.elevation_gain_m,
+             source_name = EXCLUDED.source_name,
+             device_name = EXCLUDED.device_name,
+             source_updated_at = EXCLUDED.source_updated_at,
+             raw_record_id = EXCLUDED.raw_record_id,
+             raw_workout = EXCLUDED.raw_workout`,
+          [
+            haeImportId,
+            contentHash(workout.rawWorkout),
+            workout.naturalKey,
+            workout.name,
+            workout.startedAt,
+            workout.endedAt,
+            workout.durationSec,
+            workout.activeEnergyKcal,
+            workout.distanceKm,
+            workout.avgHeartRate,
+            workout.maxHeartRate,
+            workout.elevationGainM,
+            workout.sourceName,
+            workout.deviceName,
+            workout.sourceUpdatedAt,
+            rawWorkoutIdByHash.get(workout.rawContentHash) || null,
+            JSON.stringify(workout.rawWorkout),
+          ]
+        );
+      }
 
       for (const dateStr of allTargetDates) {
         const dayInfo = getDayInfo(dateStr);
@@ -804,13 +1155,80 @@ export async function importAppleHealthZip(
         };
 
         await client.query(
-          `INSERT INTO daily_summaries (day, summary, updated_at)
-           VALUES ($1, $2::jsonb, NOW())
+          `INSERT INTO daily_summaries
+             (day, summary, hae_import_id, import_batch_id, updated_at)
+           VALUES ($1, $2::jsonb, $3, $4, NOW())
            ON CONFLICT (day) DO UPDATE SET
              summary = EXCLUDED.summary,
+             hae_import_id = EXCLUDED.hae_import_id,
+             import_batch_id = EXCLUDED.import_batch_id,
              updated_at = NOW()`,
-          [dateStr, JSON.stringify(dailySummary)]
+          [dateStr, JSON.stringify(dailySummary), haeImportId, batchId]
         );
+      }
+
+      await client.query(
+        `UPDATE hae_imports
+         SET date_from = $2, date_to = $3, metric_count = $4, workout_count = $5,
+             daily_summary_count = $6, batch_id = $7
+         WHERE id = $1`,
+        [
+          haeImportId,
+          allTargetDates[0],
+          allTargetDates[allTargetDates.length - 1],
+          normalizedObjectCount - normalizedWorkouts.length,
+          normalizedWorkouts.length,
+          allTargetDates.length,
+          batchId,
+        ]
+      );
+
+      if (archiveId) {
+        await client.query(
+          `UPDATE source_archive_files
+           SET record_count = $2,
+               metadata = metadata || $3::jsonb
+           WHERE id = $1`,
+          [
+            archiveId,
+            rawObjectCount,
+            JSON.stringify({
+              dateFrom: allTargetDates[0],
+              dateTo: allTargetDates[allTargetDates.length - 1],
+              totalDays: allTargetDates.length,
+              rawRecordCount: rawObjectCount,
+              normalizedCount: normalizedObjectCount,
+              skippedCount: skippedObjectCount,
+            }),
+          ]
+        );
+      }
+
+      const storedCounts = await client.query<{
+        sample_count: string;
+        workout_count: string;
+      }>(
+        `SELECT
+           (SELECT COUNT(*)::text FROM health_samples WHERE batch_id = $1) AS sample_count,
+           (SELECT COUNT(*)::text FROM health_workouts WHERE import_id = $2) AS workout_count`,
+        [batchId, haeImportId]
+      );
+      normalizedObjectCount =
+        Number(storedCounts.rows[0]?.sample_count || 0) +
+        Number(storedCounts.rows[0]?.workout_count || 0);
+
+      if (batchId) {
+        await completeImportBatch(client, batchId, {
+          rawCount: rawObjectCount,
+          normalizedCount: normalizedObjectCount,
+          skippedCount: skippedObjectCount,
+          metadata: {
+            dateFrom: allTargetDates[0],
+            dateTo: allTargetDates[allTargetDates.length - 1],
+            validDays: allTargetDates.length,
+            workoutCount: normalizedWorkouts.length,
+          },
+        });
       }
 
       await client.query(
@@ -822,9 +1240,10 @@ export async function importAppleHealthZip(
       await client.query('COMMIT');
     } catch (dbErr) {
       await client.query('ROLLBACK');
+      if (batchId) {
+        await failImportBatch(client, batchId, dbErr).catch(() => undefined);
+      }
       throw dbErr;
-    } finally {
-      client.release();
     }
 
     return {
@@ -833,10 +1252,19 @@ export async function importAppleHealthZip(
       earliestDate: allTargetDates[0],
       latestDate: allTargetDates[allTargetDates.length - 1],
       totalWorkouts: totalWorkoutsCount,
+      rawRecordCount: rawObjectCount,
+      normalizedRecordCount: normalizedObjectCount,
       archivePath: archive.relativePath,
       archiveSizeBytes: archive.sizeBytes,
     };
+  } catch (error) {
+    if (libraryClient && libraryBatchId) {
+      await libraryClient.query('ROLLBACK').catch(() => undefined);
+      await failImportBatch(libraryClient, libraryBatchId, error).catch(() => undefined);
+    }
+    throw error;
   } finally {
+    libraryClient?.release();
     // Clean up temporary extraction folder
     await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   }

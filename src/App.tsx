@@ -499,7 +499,7 @@ function DashboardContent() {
               transition={{ duration: 0.15 }}
             >
               <WorkoutsView
-                onRefreshData={() => void refreshDashboard(false)}
+                onRefreshData={() => refreshDashboard(false)}
               />
             </motion.div>
           )}
@@ -528,7 +528,7 @@ function DashboardContent() {
                 }
                 days={daysData}
                 onOpenImport={() => setIsImportOpen(true)}
-                onRefreshData={() => void refreshDashboard(false)}
+                onRefreshData={() => refreshDashboard(false)}
                 isRefreshing={isRefreshing}
                 onResetLayout={resetDefaultLayout}
                 onOpenWizard={() => setIsOnboardingOpen(true)}

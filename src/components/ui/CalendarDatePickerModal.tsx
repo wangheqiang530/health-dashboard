@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import {
+  X,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Check,
+} from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
 interface CalendarDatePickerModalProps {
@@ -38,6 +45,7 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
   const [viewMonth, setViewMonth] = useState(
     () => parseInt(initialDate.slice(5, 7), 10) || new Date().getMonth() + 1
   );
+  const [openPicker, setOpenPicker] = useState<'year' | 'month' | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -49,7 +57,32 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
 
   if (!isOpen) return null;
 
+  const availableYearSet = new Set(availableDates.map((date) => date.slice(0, 4)));
+  availableYearSet.add(String(viewYear));
+  const availableYears = [...availableYearSet].sort((left, right) =>
+    right.localeCompare(left)
+  );
+  const availableMonthSet = new Set(
+    availableDates
+      .filter((date) => date.startsWith(`${viewYear}-`))
+      .map((date) => date.slice(5, 7))
+  );
+
+  const selectYear = (year: number) => {
+    setViewYear(year);
+    const months = availableDates
+      .filter((date) => date.startsWith(`${year}-`))
+      .map((date) => Number(date.slice(5, 7)))
+      .filter((month) => Number.isFinite(month));
+    const closestMonth = months.includes(viewMonth)
+      ? viewMonth
+      : months.sort((left, right) => left - right)[0] || viewMonth;
+    setViewMonth(closestMonth);
+    setOpenPicker('month');
+  };
+
   const prevMonth = () => {
+    setOpenPicker(null);
     if (viewMonth === 1) {
       setViewYear((y) => y - 1);
       setViewMonth(12);
@@ -59,6 +92,7 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
   };
 
   const nextMonth = () => {
+    setOpenPicker(null);
     if (viewMonth === 12) {
       setViewYear((y) => y + 1);
       setViewMonth(1);
@@ -141,9 +175,100 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
           </div>
 
           <div className="flex items-center justify-between mb-4">
-            <span className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white font-mono">
-              {viewYear}年 {viewMonth}月
-            </span>
+            <div className="relative flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setOpenPicker((current) => current === 'year' ? null : 'year')}
+                className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-lg font-bold font-mono transition-colors ${
+                  isDark
+                    ? 'hover:bg-white/10 text-white'
+                    : 'hover:bg-black/5 text-neutral-900'
+                }`}
+              >
+                {viewYear}年
+                <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setOpenPicker((current) => current === 'month' ? null : 'month')}
+                className={`flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-lg font-bold font-mono transition-colors ${
+                  isDark
+                    ? 'hover:bg-white/10 text-white'
+                    : 'hover:bg-black/5 text-neutral-900'
+                }`}
+              >
+                {viewMonth}月
+                <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
+              </button>
+
+              {openPicker === 'year' && (
+                <div
+                  className={`absolute left-0 top-full z-30 mt-1 max-h-64 w-36 overflow-y-auto rounded-2xl border p-1.5 shadow-2xl ${
+                    isDark
+                      ? 'border-white/15 bg-[#171a21]'
+                      : 'border-black/10 bg-white'
+                  }`}
+                >
+                  {availableYears.map((year) => {
+                    const hasData = availableDates.some((date) => date.startsWith(`${year}-`));
+                    return (
+                      <button
+                        key={year}
+                        type="button"
+                        onClick={() => selectYear(Number(year))}
+                        className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs font-mono ${
+                          Number(year) === viewYear
+                            ? 'bg-sky-500/15 text-sky-500'
+                            : isDark
+                              ? 'text-neutral-200 hover:bg-white/10'
+                              : 'text-neutral-700 hover:bg-black/5'
+                        }`}
+                      >
+                        <span>{year} 年</span>
+                        {hasData && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {openPicker === 'month' && (
+                <div
+                  className={`absolute left-24 top-full z-30 mt-1 grid w-56 grid-cols-3 gap-1 rounded-2xl border p-2 shadow-2xl ${
+                    isDark
+                      ? 'border-white/15 bg-[#171a21]'
+                      : 'border-black/10 bg-white'
+                  }`}
+                >
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => {
+                    const key = String(month).padStart(2, '0');
+                    const hasData = availableMonthSet.has(key);
+                    return (
+                      <button
+                        key={month}
+                        type="button"
+                        onClick={() => {
+                          setViewMonth(month);
+                          setOpenPicker(null);
+                        }}
+                        className={`relative rounded-xl px-2 py-2 text-xs font-mono ${
+                          month === viewMonth
+                            ? 'bg-sky-500/15 text-sky-500'
+                            : isDark
+                              ? 'text-neutral-200 hover:bg-white/10'
+                              : 'text-neutral-700 hover:bg-black/5'
+                        }`}
+                      >
+                        {month} 月
+                        {hasData && (
+                          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"

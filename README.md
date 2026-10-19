@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.12-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.13-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -11,15 +11,17 @@
 
 ![综合看板预览](docs/images/overview.png)
 
-## 🆕 v0.0.12 更新
+## 🆕 v0.0.13 更新
 
-- **睡眠悬停读数**：睡眠分期时间轴恢复鼠标跟随浮层，实时展示分期名称、起止时间、时长与占比。
-- **身体详情精简**：移除顶部“当日测量明细”重复区块，保留日历中的历史测量切换。
-- **周期趋势联动**：体重、体脂率、去脂瘦体重及八项体脂秤指标的悬浮趋势跟随顶部周期，支持当日、近 7 天、近 30 天、近一季与近半年。
-- **趋势明细增强**：悬浮图新增十字读数、最高点、最低点及对应日期；自动过滤缺失项返回的 `0` 值，避免趋势线异常下探。
-- **悬浮层层级修复**：身体详情趋势卡提升至页面顶层，不再被后续指标卡遮挡。
-- **心率图精简**：24 小时心率曲线移除静态采样点，保留鼠标十字导航与实时读数。
-- **心率区间说明**：Apple Health 汇总记录缺少心率区间字段时明确标注“数据源未提供”，区分数据源限制与读取失败。
+- **全量原始数据层**：Apple Health ZIP、HAE、Fitdays 与 iGPSPORT 均逐条保存原始对象，新增导入批次、标准化样本和幂等校验。
+- **Fitdays 刷新竞态修复**：手动同步完成后等待看板重新读取数据库，再展示成功结果，避免体测已入库但页面暂时无数据。
+- **历史占位日清理**：自动移除 1969/2017 全零占位日，健康档案天数只统计有实际信号的数据。
+- **综合看板增强**：体重与体脂率悬浮展示最近 7 日折线，身体成分长条悬浮展示最近 7 日柱状趋势。
+- **睡眠交互增强**：睡眠分期时间轴、分期卡片与 7 日柱状图加入鼠标悬浮微放大动画。
+- **身体趋势修复**：分段肌脂和阻抗趋势跳过缺失值，不再出现异常跌至 0 的折线。
+- **训练页增强**：默认最近一周，食物热量换算改为悬浮展示，日期区间统计与筛选结果保持一致。
+- **GPS 轨迹升级**：浏览器直连 OpenStreetMap / OpenTopoMap 免费瓦片，无需 API Key；轨迹按速度绿到红渐变，静止路段为黄色。
+- **日期快速跳转**：综合看板、健康趋势、身体详情和体能训练均支持年/月下拉，并标记有数据的年月。
 
 ---
 
@@ -73,7 +75,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.12
+    image: wangheqiang/health-dashboard:0.0.13
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -87,7 +89,7 @@ services:
       TZ: Asia/Shanghai
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456     # 单次上传允许最大字节（默认 256MB，ZIP 导入支持 500MB）
-      BACKUP_RETENTION_DAYS: 365   # 归档及备份保留天数（默认 365 天）
+      BACKUP_RETENTION_DAYS: 0     # 0 表示永久保留；正整数表示滚动保留天数
     ports:
       - "8443:8080"
     volumes:
@@ -132,7 +134,7 @@ cat ./data/dashboard-password.txt
 ├── logs/            # 应用运行日志与错误输出（app.log，自带 10MB 自动轮转防护）
 ├── backups/         # 数据库定时 SQL 快照（每日 03:15 自动生成 .sql.gz 冷备）
 ├── dashboard-password.txt # 当前面板密码的本地明文找回文件（0600 权限）
-├── archive/         # 各数据源抓取到的原始数据报文（默认保留 365 天滚动清理）
+├── archive/         # 各数据源抓取到的原始数据报文（默认永久保留）
 │   ├── hae/         # iOS 导入的原始 JSON/ZIP
 │   ├── fitdays/     # 沃莱云端每次拉取的原始 JSON.gz
 │   └── igpsport/    # 码表原始活动报文与 .fit 轨迹原件
@@ -148,7 +150,7 @@ cat ./data/dashboard-password.txt
 
 ### 1. iOS 苹果健康
 * **自动化无感上报**：在 iPhone 安装 *Health Auto Export* App，设置 REST API Webhook 地址为 `http://<你的IP>:8443/api/v1/health-auto-export`，在 `X-Api-Key` Header 填入配置中心展示的专属 API Key；
-* **历史全量导入**：在 iPhone“健康”App 点击右上角头像 ➔“导出所有健康数据”➔ 将生成的 `导出.zip` 在看板设置页直接点击“导入苹果健康 ZIP 包”，数秒即可完整回溯多年历史！
+* **历史全量导入**：在 iPhone“健康”App 点击右上角头像 ➔“导出所有健康数据”➔ 将生成的 `导出.zip` 在看板设置页直接点击“导入苹果健康 ZIP 包”，系统会逐条保存原始对象与标准化样本，并重建多年历史汇总。
 
 ### 2. Fitdays (沃莱) 智能体脂秤
 * 填入 Fitdays App 的账号与密码，系统内嵌 AES 加密保护；
@@ -194,10 +196,12 @@ tail -f ./data/logs/app.log
 
 ### 5. 配置中心与数据管道 (Config Center)
 配置中心提供完整的后端管理与个性化控制：
-- **官方导出 ZIP 一键导入**：直接上传 iPhone「健康」App 导出的 `导出.zip`，流式解析数百 MB XML 并将压缩包存档至本地（默认保留 365 天）。
+- **官方导出 ZIP 一键导入**：直接上传 iPhone「健康」App 导出的 `导出.zip`，流式解析数百 MB XML，逐条保存 `Record`、`Workout`、`ActivitySummary`、`Correlation` 原始对象与标准化样本。
 - **Health Auto Export 自动化 Webhook**：提供局域网 REST URL 与密钥，支持自动推送。
 - **Fitdays & iGPSPORT 定时同步**：配置 Cron 定时器，凭据 AES-256-GCM 密文入库，支持测试连通性与立即同步。
-- **本地来源备份管理**：默认 365 天滚动清除，支持随时调整保留期、下载备份包或单项手动删除。
+- **本地来源备份管理**：默认永久保留，支持随时调整保留期、下载备份包或单项手动删除。
+- **GPS 轨迹回放**：浏览器直连 OpenStreetMap / OpenTopoMap 免费瓦片，无需 API Key；轨迹按实时速度从绿色渐变到红色，静止路段显示黄色。
+- **多视图日期导航**：综合看板、健康趋势、身体详情和体能训练均支持年/月下拉快速跳跃，并标记有数据的年月。
 - **苹果液态玻璃与弥散流光动态调节**：实时拖动滑块自定义底色流光速度、模糊半径、玻璃饱和度与高光反射。
 
 ![配置中心](docs/images/config.png)
@@ -236,7 +240,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.12
+    image: wangheqiang/health-dashboard:0.0.13
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -251,8 +255,8 @@ services:
       TZ: Asia/Shanghai
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
-      BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.12
+      BACKUP_RETENTION_DAYS: 0
+      APP_VERSION: 0.0.13
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -309,7 +313,7 @@ pnpm lint
 2. 滑动到最下方，点击 **导出所有健康数据**，等待 iPhone 打包完成并生成 `导出.zip`。
 3. 将 `导出.zip` 发送至电脑端。
 4. 打开大屏 **配置中心 ➔ 导入 iOS 健康 App 官方导出包 (.zip)**，拖入文件点击开始导入。
-5. 系统将自动保存压缩包至本地备份目录（保留 365 天），并在数秒内完成数百 MB XML 数据流式入库。
+5. 系统将永久保存原始压缩包，并在导入事务内逐条写入原始对象、标准化样本、训练明细与每日聚合。
 
 ### 2. Health Auto Export 实时自动推送 (Webhook)
 1. 在 iPhone 安装并打开 **Health Auto Export** App。
@@ -343,9 +347,9 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `0.0.12` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `0.0.13` | 当前发布的容器镜像版本号 |
 | `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
-| `BACKUP_RETENTION_DAYS` | `365` | 本地原始备份（ZIP / gzip / FIT）滚动保留天数（默认 1 年） |
+| `BACKUP_RETENTION_DAYS` | `0` | 本地原始备份（ZIP / gzip / FIT）保留天数；`0` 表示永久保留 |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |
 | `TZ` | `Asia/Shanghai` | 系统与 Cron 调度时区 |
 | `CONTAINER_HTTP_PROXY` | - | 容器内部外部同步请求的 HTTP 代理 (例如 `http://host.docker.internal:10808`) |
@@ -395,6 +399,9 @@ curl -H 'Authorization: Bearer <登录响应中的 token>' \
 | `cycling_activities` | 码表骑行活动全记录（里程、踏频、功率、爬升） | `started_at`, `distance_km`, `avg_speed_kmh`, `avg_cadence`, `avg_power`, `ascent_m`, `fit_file_path` |
 | `health_workouts` | 苹果健康训练明细（跑步、力量、骑行、游泳等） | `name`, `started_at`, `duration_sec`, `active_energy_kcal`, `avg_heart_rate` |
 | `health_metric_points` | 高频生理指标时序采样点（心率、步数、血氧等） | `metric_name`, `recorded_at`, `local_date`, `value` |
+| `import_batches` | 每次 ZIP、HAE、Fitdays、iGPSPORT 导入的批次、计数与错误状态 | `source_id`, `import_kind`, `status`, `raw_count`, `normalized_count` |
+| `health_raw_records` | 所有来源逐条原始对象，保留原始 JSON/XML、内容哈希与多次出现记录 | `source_id`, `object_type`, `content_hash`, `raw_payload`, `raw_xml` |
+| `health_samples` | 由原始对象生成的统一时序样本，按自然键保存最新修正值 | `source_id`, `natural_key`, `metric_name`, `start_at`, `value_num` |
 
 ---
 
@@ -405,7 +412,7 @@ curl -H 'Authorization: Bearer <登录响应中的 token>' \
 - [x] iGPSPORT 码表全量骑行活动、踏频、气压计爬升与原始 `.fit` 归档
 - [x] 全页面历史任意日期日历选择与全屏数据联动
 - [x] 交互折线图垂直十字探针与悬停数据标注
-- [x] 备份文件 365 天自动滚动清除与单项手动清理
+- [x] 原始归档默认永久保留、可配置滚动清理与单项手动删除
 - [ ] Strava / Garmin 码表云端直连适配
 - [ ] 导出 PDF 格式的体检与体态报告
 
