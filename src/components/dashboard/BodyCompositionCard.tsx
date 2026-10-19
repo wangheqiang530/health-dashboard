@@ -81,8 +81,8 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
               </div>
               {trendPoints.length > 0 ? (
                 <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                  {trendPoints.slice(-4).map((t) => (
-                    <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
+                  {trendPoints.slice(-4).map((t, index) => (
+                    <div key={`${t.date}-${index}`} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
                       <span className="text-neutral-400 block">{t.date}</span>
                       <span className="font-bold text-white block mt-0.5 font-mono text-xs">{t.weight}</span>
                     </div>
@@ -122,8 +122,8 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
               </div>
               {trendPoints.length > 0 ? (
                 <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                  {trendPoints.slice(-4).map((t) => (
-                    <div key={t.date} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
+                  {trendPoints.slice(-4).map((t, index) => (
+                    <div key={`${t.date}-${index}`} className="p-1.5 rounded-xl bg-white/10 border border-white/5">
                       <span className="text-neutral-400 block">{t.date}</span>
                       <span className="font-bold text-amber-300 block mt-0.5 font-mono text-xs">{t.bodyFat}%</span>
                     </div>
@@ -157,10 +157,10 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <span className="text-emerald-400 text-[10px]">占比 {leanPercent}%</span>
                 </div>
                 <div className="flex items-end justify-between h-9 gap-1 pt-1">
-                  {trendPoints.slice(-5).map((t) => {
+                  {trendPoints.slice(-5).map((t, index) => {
                     const leanVal = parseFloat((t.weight * (1 - t.bodyFat / 100)).toFixed(1));
                     return (
-                      <div key={t.date} className="flex-1 flex flex-col items-center">
+                      <div key={`${t.date}-${index}`} className="flex-1 flex flex-col items-center">
                         <span className="font-mono text-[9px] text-white font-bold">{leanVal}</span>
                         <div className="w-full bg-indigo-500/80 rounded-t h-4 mt-0.5" />
                         <span className="text-[8px] text-neutral-400 font-mono mt-0.5">{t.date}</span>
@@ -183,10 +183,10 @@ export const BodyCompositionCard: React.FC<BodyCompositionCardProps> = ({ body }
                   <span className="text-amber-400 text-[10px]">{body.fatMassKg} kg ({fatPercent}%)</span>
                 </div>
                 <div className="flex items-end justify-between h-9 gap-1 pt-1">
-                  {trendPoints.slice(-5).map((t) => {
+                  {trendPoints.slice(-5).map((t, index) => {
                     const fatVal = parseFloat((t.weight * (t.bodyFat / 100)).toFixed(1));
                     return (
-                      <div key={t.date} className="flex-1 flex flex-col items-center">
+                      <div key={`${t.date}-${index}`} className="flex-1 flex flex-col items-center">
                         <span className="font-mono text-[9px] text-amber-300 font-bold">{fatVal}</span>
                         <div className="w-full bg-amber-500/80 rounded-t h-4 mt-0.5" />
                         <span className="text-[8px] text-neutral-400 font-mono mt-0.5">{t.date}</span>
