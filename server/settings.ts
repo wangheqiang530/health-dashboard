@@ -15,6 +15,7 @@ const DASHBOARD_PASSWORD_HASH_SETTING = 'dashboard_password_hash';
 const DASHBOARD_SESSION_DURATION_SETTING = 'dashboard_session_duration';
 const ARCHIVE_RETENTION_SETTING = 'archive_retention_days';
 const INITIAL_PASSWORD_FILENAME = 'dashboard-initial-password.txt';
+const PASSWORD_RECOVERY_FILENAME = 'dashboard-password.txt';
 let cachedHaeApiKey: string | null = null;
 let cachedDashboardPasswordHash: string | null = null;
 
@@ -33,7 +34,7 @@ export const DASHBOARD_SESSION_DURATIONS: ReadonlyArray<{
   { value: '365d', label: '1 年', description: '仅建议在完全可信的设备上使用' },
 ];
 
-const DEFAULT_SESSION_DURATION: DashboardSessionDuration = '30d';
+const DEFAULT_SESSION_DURATION: DashboardSessionDuration = '1d';
 
 const scrypt = promisify(scryptCallback);
 const PASSWORD_SCHEME = 'scrypt-v1';
@@ -125,12 +126,17 @@ const verifyDashboardPasswordHash = async (
 const initialPasswordPath = (): string =>
   path.join(config.dataDir, INITIAL_PASSWORD_FILENAME);
 
-const writeInitialPasswordFile = async (password: string): Promise<void> => {
-  const passwordPath = initialPasswordPath();
-  await fs.mkdir(path.dirname(passwordPath), { recursive: true });
-  await fs.writeFile(passwordPath, `${password}\n`, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(passwordPath, 0o600);
+const passwordRecoveryPath = (): string =>
+  path.join(config.dataDir, PASSWORD_RECOVERY_FILENAME);
+
+const writePasswordFile = async (filePath: string, password: string): Promise<void> => {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${password}\n`, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(filePath, 0o600);
 };
+
+const writePasswordRecoveryFile = async (password: string): Promise<void> =>
+  writePasswordFile(passwordRecoveryPath(), password);
 
 const removeInitialPasswordFile = async (): Promise<void> => {
   try {
@@ -149,6 +155,15 @@ export async function getDashboardInitialPasswordPath(): Promise<string | null> 
   }
 }
 
+export async function getDashboardPasswordRecoveryPath(): Promise<string | null> {
+  try {
+    await fs.access(passwordRecoveryPath());
+    return passwordRecoveryPath();
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureDashboardPassword(): Promise<void> {
   if (cachedDashboardPasswordHash) return;
 
@@ -158,6 +173,18 @@ export async function ensureDashboardPassword(): Promise<void> {
   );
   if (existing.rows[0]) {
     cachedDashboardPasswordHash = decryptSecret(existing.rows[0].encrypted_value);
+    try {
+      await fs.access(passwordRecoveryPath());
+    } catch {
+      try {
+        const initialPassword = (await fs.readFile(initialPasswordPath(), 'utf8')).trim();
+        if (initialPassword) {
+          await writePasswordRecoveryFile(initialPassword);
+        }
+      } catch {
+        // Existing custom passwords created before v0.0.11 cannot be recovered.
+      }
+    }
     return;
   }
 
@@ -173,10 +200,11 @@ export async function ensureDashboardPassword(): Promise<void> {
   );
   cachedDashboardPasswordHash = passwordHash;
 
-  if (config.dashboardPassword) {
-    await removeInitialPasswordFile();
+  await writePasswordRecoveryFile(initialPassword);
+  if (!config.dashboardPassword) {
+    await writePasswordFile(initialPasswordPath(), initialPassword);
   } else {
-    await writeInitialPasswordFile(initialPassword);
+    await removeInitialPasswordFile();
   }
 }
 
@@ -190,7 +218,7 @@ export async function setDashboardPassword(password: string): Promise<void> {
   const passwordHash = await hashDashboardPassword(password);
   await writeEncryptedSetting(DASHBOARD_PASSWORD_HASH_SETTING, passwordHash);
   cachedDashboardPasswordHash = passwordHash;
-  await removeInitialPasswordFile();
+  await writePasswordRecoveryFile(password);
 }
 
 export function isDashboardSessionDuration(

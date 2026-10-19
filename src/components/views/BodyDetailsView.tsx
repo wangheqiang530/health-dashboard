@@ -120,6 +120,117 @@ const formatMeasurementDate = (value: string): string =>
     hour12: false,
   }).format(new Date(value));
 
+interface HeroTrendPoint {
+  date: string;
+  value: number;
+}
+
+const HeroTrendPopover: React.FC<{
+  title: string;
+  unit: string;
+  color: string;
+  points: HeroTrendPoint[];
+}> = ({ title, unit, color, points }) => {
+  const [activeIndex, setActiveIndex] = useState(points.length - 1);
+  const width = 260;
+  const height = 82;
+  const padding = 10;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const coords = points.map((point, index) => ({
+    ...point,
+    x:
+      padding +
+      (points.length === 1
+        ? (width - padding * 2) / 2
+        : (index / (points.length - 1)) * (width - padding * 2)),
+    y: height - padding - ((point.value - min) / range) * (height - padding * 2),
+  }));
+  const path = coords
+    .map(
+      (point, index) =>
+        `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    )
+    .join(' ');
+  const active = coords[Math.min(Math.max(activeIndex, 0), coords.length - 1)];
+
+  const handleMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    setActiveIndex(Math.round(ratio * Math.max(points.length - 1, 0)));
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      className="absolute right-0 top-full mt-2 z-40 w-[290px] p-3 rounded-2xl bg-white/95 dark:bg-neutral-950/95 border border-black/10 dark:border-white/20 shadow-2xl backdrop-blur-2xl"
+    >
+      <div className="flex items-center justify-between text-[10px] mb-1.5">
+        <span className="font-bold text-neutral-800 dark:text-neutral-100">
+          {title} · 最近 {points.length} 次
+        </span>
+        <span className="font-mono font-bold" style={{ color }}>
+          {active ? `${active.value} ${unit}` : '—'}
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-[82px] overflow-visible"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setActiveIndex(points.length - 1)}
+      >
+        {[0, 1, 2].map((line) => (
+          <line
+            key={line}
+            x1={padding}
+            x2={width - padding}
+            y1={padding + (line / 2) * (height - padding * 2)}
+            y2={padding + (line / 2) * (height - padding * 2)}
+            stroke="currentColor"
+            strokeOpacity="0.08"
+            strokeDasharray="3 4"
+          />
+        ))}
+        <path d={path} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+        {coords.map((point, index) => (
+          <circle
+            key={`${point.date}-${index}`}
+            cx={point.x}
+            cy={point.y}
+            r={index === activeIndex ? 3.6 : 2.3}
+            fill="white"
+            stroke={color}
+            strokeWidth={index === activeIndex ? 2 : 1.2}
+          />
+        ))}
+        {active && (
+          <>
+            <line
+              x1={active.x}
+              x2={active.x}
+              y1={padding}
+              y2={height - padding}
+              stroke={color}
+              strokeOpacity="0.35"
+              strokeDasharray="3 3"
+            />
+            <circle cx={active.x} cy={active.y} r="4" fill={color} />
+          </>
+        )}
+      </svg>
+      <div className="flex items-center justify-between text-[9px] text-neutral-400 font-mono mt-1">
+        <span>{active?.date || '—'}</span>
+        <span>
+          区间 {min.toFixed(unit === '%' ? 1 : 2)} ~ {max.toFixed(unit === '%' ? 1 : 2)} {unit}
+        </span>
+      </div>
+    </motion.div>
+  );
+};
+
 export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   currentDay,
   days = {},
@@ -145,6 +256,9 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   const [activeDateRange, setActiveDateRange] = useState<'today' | '7d' | '30d' | '90d' | '180d'>('today');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [focusedDate, setFocusedDate] = useState<string | null>(null);
+  const [hoveredHeroMetric, setHoveredHeroMetric] = useState<
+    'weight' | 'bodyFat' | 'lean' | null
+  >(null);
 
   useEffect(() => {
     try {
@@ -240,6 +354,15 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
         date: measurement.measuredDate.slice(5),
         value: numberValue(measurement[key]),
         measuredAt: measurement.measuredAt,
+      }));
+
+  const heroSeries = (key: 'weightKg' | 'bodyFatPercent' | 'leanMassKg'): HeroTrendPoint[] =>
+    measurementsUpToDate
+      .filter((measurement) => measurement[key] !== null)
+      .slice(-12)
+      .map((measurement) => ({
+        date: measurement.measuredDate.slice(5),
+        value: numberValue(measurement[key]),
       }));
 
   const latestMeasurement = selectedMeasurement ||
@@ -474,28 +597,63 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-6 self-start md:self-auto">
-              <div className="text-right">
-                <span className="text-[11px] text-neutral-400 block">当前体重</span>
-                <span className="text-2xl font-black text-neutral-900 dark:text-white font-mono">
-                  {body.weightKg > 0 ? body.weightKg : '—'}{' '}
-                  <span className="text-xs font-normal text-neutral-400">kg</span>
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] text-neutral-400 block">体脂率</span>
-                <span className="text-2xl font-black text-amber-500 font-mono">
-                  {body.bodyFatPercent > 0 ? body.bodyFatPercent : '—'}{' '}
-                  <span className="text-xs font-normal text-neutral-400">%</span>
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[11px] text-neutral-400 block">去脂瘦体重</span>
-                <span className="text-2xl font-black text-indigo-500 font-mono">
-                  {body.leanMassKg > 0 ? body.leanMassKg : '—'}{' '}
-                  <span className="text-xs font-normal text-neutral-400">kg</span>
-                </span>
-              </div>
+            <div className="flex flex-wrap items-start gap-3 self-start md:self-auto">
+              {[
+                {
+                  key: 'weight' as const,
+                  label: '当前体重',
+                  value: body.weightKg > 0 ? body.weightKg : '—',
+                  unit: 'kg',
+                  color: '#64748B',
+                  seriesKey: 'weightKg' as const,
+                },
+                {
+                  key: 'bodyFat' as const,
+                  label: '体脂率',
+                  value: body.bodyFatPercent > 0 ? body.bodyFatPercent : '—',
+                  unit: '%',
+                  color: '#F59E0B',
+                  seriesKey: 'bodyFatPercent' as const,
+                },
+                {
+                  key: 'lean' as const,
+                  label: '去脂瘦体重',
+                  value: body.leanMassKg > 0 ? body.leanMassKg : '—',
+                  unit: 'kg',
+                  color: '#6366F1',
+                  seriesKey: 'leanMassKg' as const,
+                },
+              ].map((metric) => {
+                const series = heroSeries(metric.seriesKey);
+                return (
+                  <div
+                    key={metric.key}
+                    className="relative min-w-[108px] rounded-2xl border border-transparent hover:border-black/10 dark:hover:border-white/10 hover:bg-black/[0.02] dark:hover:bg-white/[0.03] px-2.5 py-1.5 transition-all cursor-default"
+                    onMouseEnter={() => setHoveredHeroMetric(metric.key)}
+                    onMouseLeave={() => setHoveredHeroMetric(null)}
+                  >
+                    <span className="text-[11px] text-neutral-400 block">{metric.label}</span>
+                    <span
+                      className="text-2xl font-black font-mono"
+                      style={{ color: metric.color }}
+                    >
+                      {metric.value}{' '}
+                      <span className="text-xs font-normal text-neutral-400">{metric.unit}</span>
+                    </span>
+                    <span className="block text-[9px] text-neutral-400 mt-0.5">
+                      悬停查看最近 {series.length} 次趋势
+                    </span>
+                    {hoveredHeroMetric === metric.key && series.length > 0 && (
+                      <HeroTrendPopover
+                        title={metric.label}
+                        unit={metric.unit}
+                        color={metric.color}
+                        points={series}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -685,6 +843,46 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
           onSelectDate?.(date);
         }}
         title="身体详情 · 历史体测数据日期选择"
+        closeOnSelect={false}
+        footer={
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-neutral-700 dark:text-neutral-200">
+                当日测量明细
+              </span>
+              <span className="text-[10px] text-neutral-400 font-mono">
+                {currentDate} · {measurementsForDate.length} 次
+              </span>
+            </div>
+            {measurementsForDate.length > 0 ? (
+              <div className="space-y-1.5">
+                {measurementsForDate.map((measurement) => (
+                  <div
+                    key={measurement.id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-white/70 dark:bg-black/25 border border-black/5 dark:border-white/10 px-2.5 py-1.5 text-[10px] font-mono"
+                  >
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      {formatMeasurementTime(measurement.measuredAt)}
+                    </span>
+                    <span className="text-neutral-900 dark:text-white font-bold">
+                      {measurement.weightKg === null ? '—' : `${measurement.weightKg} kg`}
+                    </span>
+                    <span className="text-amber-500">
+                      体脂 {measurement.bodyFatPercent === null ? '—' : `${measurement.bodyFatPercent}%`}
+                    </span>
+                    <span className="text-indigo-500">
+                      去脂 {measurement.leanMassKg === null ? '—' : `${measurement.leanMassKg} kg`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-neutral-400 py-1">
+                该日期没有体脂秤测量记录，可选择带绿点的日期。
+              </p>
+            )}
+          </div>
+        }
       />
 
       {isManageOpen && (

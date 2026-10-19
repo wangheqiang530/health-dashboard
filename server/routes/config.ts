@@ -589,6 +589,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           JSON.stringify({
             heartRateZones: activity.heartRateZones,
             routePoints: activity.routePoints,
+            telemetry: activity.telemetry,
             session: activity.rawSession,
           }),
         ]

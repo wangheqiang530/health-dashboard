@@ -11,7 +11,7 @@ import {
 } from '../auth.ts';
 import {
   DASHBOARD_SESSION_DURATIONS,
-  getDashboardInitialPasswordPath,
+  getDashboardPasswordRecoveryPath,
   getDashboardSessionDuration,
   isDashboardSessionDuration,
   setDashboardPassword,
@@ -73,7 +73,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       expiresAt: session?.expiresAt.toISOString() || null,
       sessionDuration: session?.duration || null,
       defaultSessionDuration: await getDashboardSessionDuration(),
-      initialPasswordFile: await getDashboardInitialPasswordPath(),
+      passwordRecoveryFile: await getDashboardPasswordRecoveryPath(),
       sessionDurations: DASHBOARD_SESSION_DURATIONS,
     };
   });
@@ -119,7 +119,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/auth/settings', async () => ({
     defaultSessionDuration: await getDashboardSessionDuration(),
-    initialPasswordFile: await getDashboardInitialPasswordPath(),
+    passwordRecoveryFile: await getDashboardPasswordRecoveryPath(),
     sessionDurations: DASHBOARD_SESSION_DURATIONS,
   }));
 

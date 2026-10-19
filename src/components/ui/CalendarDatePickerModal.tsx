@@ -10,6 +10,8 @@ interface CalendarDatePickerModalProps {
   availableDates: string[]; // YYYY-MM-DD list from database
   onSelectDate: (date: string) => void;
   title?: string;
+  footer?: React.ReactNode;
+  closeOnSelect?: boolean;
 }
 
 export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = ({
@@ -19,6 +21,8 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
   availableDates,
   onSelectDate,
   title = '选择健康记录日期',
+  footer,
+  closeOnSelect = true,
 }) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
@@ -78,14 +82,14 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
   const handleDayClick = (day: number) => {
     const dateStr = `${viewYear}-${viewMonth.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
     onSelectDate(dateStr);
-    onClose();
+    if (closeOnSelect) onClose();
   };
 
   const handleQuickJumpLatest = () => {
     const latest = availableDates[availableDates.length - 1];
     if (latest) {
       onSelectDate(latest);
-      onClose();
+      if (closeOnSelect) onClose();
     }
   };
 
@@ -107,7 +111,7 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 16 }}
           transition={{ type: 'spring', damping: 25, stiffness: 320 }}
-          className={`relative w-full max-w-md rounded-3xl p-6 z-10 border shadow-2xl backdrop-blur-2xl ${
+          className={`relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 z-10 border shadow-2xl backdrop-blur-2xl ${
             isDark
               ? 'bg-[#11141b]/95 border-white/20 text-white'
               : 'bg-white/95 border-black/10 text-neutral-900'
@@ -217,6 +221,12 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
               );
             })}
           </div>
+
+          {footer && (
+            <div className="mb-3 rounded-2xl border border-black/5 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03] p-3">
+              {footer}
+            </div>
+          )}
 
           {/* Footer Info & Quick Jump */}
           <div className="flex items-center justify-between pt-3 border-t border-black/5 dark:border-white/10 text-xs">

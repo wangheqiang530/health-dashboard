@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.10-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.11-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -11,14 +11,15 @@
 
 ![综合看板预览](docs/images/overview.png)
 
-## 🆕 v0.0.10 更新
+## 🆕 v0.0.11 更新
 
-- **密码与会话**：面板访问 token 改为密码登录，首次启动生成随机密码并写入 `data/dashboard-initial-password.txt`；支持本次会话、1 小时、1 天、7 天、1 个月、1 年有效期，配置中心可修改密码与默认有效期。
-- **身体详情恢复**：恢复五部位版式，展示躯干、左右上肢、左右下肢的肌肉量、脂肪量与 20 kHz / 100 kHz 双频阻抗，并支持分段历史趋势。
-- **训练记录修复**：训练清单改为独立数据库查询，不再受 HAE 日期边界限制；新增日期区间与最近一周、本月、最近 30 天、本季度、今年、全部快捷筛选。
-- **全量同步修复**：Fitdays 与 iGPSPORT 全量任务会等待真实完成后再刷新；iGPSPORT 全量拉取不再限制 500 条，并展示各数据源实际覆盖日期。
-- **GPS 轨迹修复**：iGPSPORT 同步时解析 FIT 轨迹，启动时自动回填历史 FIT；地图继续使用免费无 Key 的 OpenStreetMap / CARTO，并提供纯轨迹降级。
-- **圆环可读性**：七日圆环增加站立小时数直读与完整 tooltip，明确区分“数据未同步”和“站立目标已超额完成”。
+- **密码找回**：首次登录只显示“仅本次”和“保持登录”两个选项；保持登录时长在配置中心调整。当前明文密码同步写入 `data/dashboard-password.txt`，忘记密码时可直接在宿主机查看。
+- **身体详情交互**：日历底部逐行展示当日测量明细；体重、体脂率、去脂瘦体重分别支持悬停趋势；五部位趋势改为独立双纵轴并加入十字线与数值明细。
+- **训练负荷重排**：重新设计 7 日负荷与 28 日基线卡片，修复拥挤布局，加入悬停十字线、每日明细与更清晰的状态反馈。
+- **训练逻辑修正**：力量训练不再显示速度、距离等骑行指标；Apple Watch 训练热量从原始 `activeEnergyBurned` 字段回填。
+- **骑行遥测回放**：FIT 逐点解析心率、踏频、功率、速度、左右平衡与 GPS；播放条可拖动，四组折线图与地图光点同步。
+- **骑行指标解释**：详情新增 IF、NP、TSS 与左右平衡，并提供悬停名词解释。
+- **地图稳定性**：OpenStreetMap / CARTO 瓦片改由面板服务端代理并本地缓存，浏览器不再直连瓦片服务，仍不需要 API Key。
 
 ---
 
@@ -72,7 +73,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.10
+    image: wangheqiang/health-dashboard:0.0.11
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -114,10 +115,10 @@ docker compose up -d
 首次启动时服务端会自动生成随机面板密码，保存在宿主机：
 
 ```bash
-cat ./data/dashboard-initial-password.txt
+cat ./data/dashboard-password.txt
 ```
 
-登录一次后，服务端会按所选有效期签发 HttpOnly 会话 Cookie，有效期内访问页面不再重复验证。登录后可在配置中心修改密码；修改成功后初始密码文件会被移除。也可以在 Compose 中通过可选的 `DASHBOARD_PASSWORD` 指定首次密码。HAE Webhook 使用另一把独立密钥。
+首次登录只提供“仅本次”和“保持登录”两个选项。登录一次后，服务端会按配置中心设置的保持时长签发 HttpOnly 会话 Cookie，有效期内访问页面不再重复验证。登录后可在配置中心修改密码；当前明文密码始终同步到 `data/dashboard-password.txt` 供本地找回。也可以在 Compose 中通过可选的 `DASHBOARD_PASSWORD` 指定首次密码。HAE Webhook 使用另一把独立密钥。
 
 ---
 
@@ -130,11 +131,12 @@ cat ./data/dashboard-initial-password.txt
 ├── postgres/        # PostgreSQL 数据库物理文件（数据表、索引、WAL 日志，换机直接拷贝走）
 ├── logs/            # 应用运行日志与错误输出（app.log，自带 10MB 自动轮转防护）
 ├── backups/         # 数据库定时 SQL 快照（每日 03:15 自动生成 .sql.gz 冷备）
-├── dashboard-initial-password.txt # 首次随机密码（修改密码后自动移除）
+├── dashboard-password.txt # 当前面板密码的本地明文找回文件（0600 权限）
 ├── archive/         # 各数据源抓取到的原始数据报文（默认保留 365 天滚动清理）
 │   ├── hae/         # iOS 导入的原始 JSON/ZIP
 │   ├── fitdays/     # 沃莱云端每次拉取的原始 JSON.gz
 │   └── igpsport/    # 码表原始活动报文与 .fit 轨迹原件
+├── map-tiles/       # 地图瓦片服务端缓存（OSM / CARTO，无需 API Key）
 └── temp_unzip/      # 大包解析临时解压池（解析完毕即刻自动清理，零空间残留）
 ```
 
@@ -234,7 +236,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.10
+    image: wangheqiang/health-dashboard:0.0.11
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -250,7 +252,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.10
+      APP_VERSION: 0.0.11
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -341,8 +343,8 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `0.0.10` | 当前发布的容器镜像版本号 |
-| `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；留空时随机生成到 `data/dashboard-initial-password.txt`，登录后可在配置中心修改 |
+| `APP_VERSION` | `0.0.11` | 当前发布的容器镜像版本号 |
+| `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
 | `BACKUP_RETENTION_DAYS` | `365` | 本地原始备份（ZIP / gzip / FIT）滚动保留天数（默认 1 年） |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |
 | `TZ` | `Asia/Shanghai` | 系统与 Cron 调度时区 |
@@ -412,7 +414,7 @@ curl -H 'Authorization: Bearer <登录响应中的 token>' \
 ## 安全与隐私说明
 
 - **无外泄风险**：所有个人体征指标与运动轨迹仅存储于您自己的 PostgreSQL 数据库和本地归档目录。
-- **密码与会话隔离**：面板使用 scrypt 密码哈希与随机服务端会话，浏览器 Cookie 设置 HttpOnly + SameSite=Strict；Health Auto Export Webhook 使用独立 `X-Api-Key`。
+- **密码与会话隔离**：面板使用 scrypt 密码哈希与随机服务端会话，浏览器 Cookie 设置 HttpOnly + SameSite=Strict；明文找回文件仅保存在宿主机数据目录并限制为 `0600`；Health Auto Export Webhook 使用独立 `X-Api-Key`。
 - **敏感凭据加密**：三方数据源密码与 Webhook API Key 使用 `AES-256-GCM` 硬件级强加密落盘。
 - **开源安全发布**：发布版本默认 0 数据，不含任何内置账号密码或演示测试数据。
 

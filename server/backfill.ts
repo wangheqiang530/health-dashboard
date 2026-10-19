@@ -44,11 +44,18 @@ export async function backfillCyclingRoutes(): Promise<{
     `SELECT id::text, external_id, fit_file_path, fit_file_name, raw_record
      FROM cycling_activities
      WHERE fit_file_path IS NOT NULL
-       AND CASE
-         WHEN jsonb_typeof(raw_record->'routePoints') = 'array'
-           THEN jsonb_array_length(raw_record->'routePoints') = 0
-         ELSE TRUE
-       END
+       AND (
+         CASE
+           WHEN jsonb_typeof(raw_record->'routePoints') = 'array'
+             THEN jsonb_array_length(raw_record->'routePoints') = 0
+           ELSE TRUE
+         END
+         OR CASE
+           WHEN jsonb_typeof(raw_record->'telemetry') = 'array'
+             THEN jsonb_array_length(raw_record->'telemetry') < 2
+           ELSE TRUE
+         END
+       )
      ORDER BY started_at DESC`
   );
 
@@ -69,7 +76,7 @@ export async function backfillCyclingRoutes(): Promise<{
         buffer,
         row.fit_file_name || path.basename(fitPath)
       );
-      if (activity.routePoints.length === 0) continue;
+      if (activity.routePoints.length === 0 && activity.telemetry.length === 0) continue;
 
       await pool.query(
         `UPDATE cycling_activities
@@ -80,6 +87,7 @@ export async function backfillCyclingRoutes(): Promise<{
           row.id,
           JSON.stringify({
             routePoints: activity.routePoints,
+            telemetry: activity.telemetry,
             heartRateZones: activity.heartRateZones,
           }),
         ]

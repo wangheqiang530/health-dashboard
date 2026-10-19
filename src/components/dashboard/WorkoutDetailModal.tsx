@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { WorkoutRecord } from '../../types/health';
-import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Zap } from 'lucide-react';
+import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Zap, Info } from 'lucide-react';
 import { WorkoutRoutePlayback } from './WorkoutRoutePlayback';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { PowerDurationCurveCard } from './PowerDurationCurveCard';
@@ -11,6 +11,19 @@ interface WorkoutDetailModalProps {
   onClose: () => void;
 }
 
+const TermHelp: React.FC<{ term: string; explanation: string }> = ({
+  term,
+  explanation,
+}) => (
+  <span className="relative inline-flex items-center group/help">
+    <Info className="w-3 h-3 text-neutral-400 cursor-help" />
+    <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-xl border border-black/10 dark:border-white/15 bg-white/98 dark:bg-neutral-950/98 px-3 py-2 text-[10px] font-normal leading-relaxed text-neutral-600 dark:text-neutral-300 opacity-0 shadow-2xl transition-opacity group-hover/help:opacity-100">
+      <strong className="block text-neutral-900 dark:text-white mb-0.5">{term}</strong>
+      {explanation}
+    </span>
+  </span>
+);
+
 export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout, onClose }) => {
   if (!workout) return null;
 
@@ -18,6 +31,16 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
   const foodEquiv = getCalorieFoodEquivalents(workout.activeCalories);
   const hasRoute = Boolean(workout.routeGpxPoints?.length);
   const hasHrZones = Object.values(workout.hrZones).some((value) => value > 0);
+  const isStrengthLike = workout.category === 'strength' || workout.category === 'hiit';
+  const showDistanceMetric =
+    !isStrengthLike && Boolean(workout.distanceKm);
+  const showPaceMetric =
+    !isStrengthLike &&
+    (workout.category === 'cycling' ||
+      workout.category === 'running' ||
+      workout.category === 'walking' ||
+      workout.category === 'swimming' ||
+      Boolean(workout.paceAvg));
 
   return (
     <AnimatePresence>
@@ -121,7 +144,36 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               <span className="text-[10px] text-neutral-400 dark:text-neutral-500">最高 {workout.maxHeartRate} bpm</span>
             </div>
 
-            {workout.distanceKm && (
+            {isStrengthLike && (
+              <>
+                <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/[0.06]">
+                  <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+                    <Activity className="w-4 h-4 text-sky-500" />
+                    <span>训练时长</span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-extrabold text-neutral-900 dark:text-white">
+                      {workout.durationMinutes}
+                    </span>
+                    <span className="text-xs text-neutral-400">分钟</span>
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/[0.06]">
+                  <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+                    <Heart className="w-4 h-4 text-rose-500" />
+                    <span>峰值心率</span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-extrabold text-neutral-900 dark:text-white">
+                      {workout.maxHeartRate || '—'}
+                    </span>
+                    <span className="text-xs text-neutral-400">bpm</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {showDistanceMetric && (
               <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/[0.06]">
                 <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   <MapPin className="w-4 h-4 text-[#00F5D4]" />
@@ -136,7 +188,7 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               </div>
             )}
 
-            {(workout.paceAvg || workout.category === 'cycling' || workout.distanceKm) && (
+            {showPaceMetric && (
               <div className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/[0.06]">
                 <div className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   <Gauge className="w-4 h-4 text-[#A1FF00]" />
@@ -198,11 +250,75 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
                   <span className="text-xs text-neutral-400">W</span>
                 </div>
                 <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                  TSS: {workout.tss ?? '—'}
+                  最高功率: {workout.maxPower ? `${workout.maxPower} W` : '—'}
                 </span>
               </div>
             )}
           </div>
+
+          {(workout.category === 'cycling' || isIgpsport) && (
+            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-br from-amber-500/[0.06] to-cyan-500/[0.05] border border-amber-500/15">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider m-0 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <span>骑行强度指标</span>
+                </h4>
+                <span className="text-[10px] text-neutral-400">悬停问号查看名词解释</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-3 rounded-2xl bg-white/65 dark:bg-black/25 border border-black/5 dark:border-white/10">
+                  <span className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                    IF
+                    <TermHelp
+                      term="IF · 强度因子"
+                      explanation="Intensity Factor，标准化功率与 FTP 的比值。越高表示整场骑行相对阈值强度的负荷越大。"
+                    />
+                  </span>
+                  <span className="text-xl font-black text-amber-500 font-mono block mt-1">
+                    {workout.intensityFactor ? workout.intensityFactor.toFixed(2) : '—'}
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white/65 dark:bg-black/25 border border-black/5 dark:border-white/10">
+                  <span className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                    NP
+                    <TermHelp
+                      term="NP · 标准化功率"
+                      explanation="Normalized Power，对功率波动进行加权后的等效功率，比平均功率更能反映真实生理负荷。"
+                    />
+                  </span>
+                  <span className="text-xl font-black text-cyan-500 font-mono block mt-1">
+                    {workout.normalizedPower ? `${workout.normalizedPower} W` : '—'}
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white/65 dark:bg-black/25 border border-black/5 dark:border-white/10">
+                  <span className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                    TSS
+                    <TermHelp
+                      term="TSS · 训练压力分数"
+                      explanation="Training Stress Score，综合时长与强度衡量一次训练造成的生理压力。100 通常约等于 1 小时 FTP 强度训练。"
+                    />
+                  </span>
+                  <span className="text-xl font-black text-purple-500 font-mono block mt-1">
+                    {workout.tss ? workout.tss.toFixed(1) : '—'}
+                  </span>
+                </div>
+                <div className="p-3 rounded-2xl bg-white/65 dark:bg-black/25 border border-black/5 dark:border-white/10">
+                  <span className="flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                    左右平衡
+                    <TermHelp
+                      term="左右平衡"
+                      explanation="左腿与右腿输出功率占比。轻微差异常见，长期明显偏侧可能需要关注踩踏对称性与肌力平衡。"
+                    />
+                  </span>
+                  <span className="text-xl font-black text-emerald-500 font-mono block mt-1">
+                    {workout.leftRightBalance
+                      ? `${workout.leftRightBalance.left}/${workout.leftRightBalance.right}`
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Heart Rate Zones Breakdown */}
           <div className="mb-6 p-4 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/[0.05]">

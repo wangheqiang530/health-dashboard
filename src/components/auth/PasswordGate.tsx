@@ -13,7 +13,6 @@ import {
   fetchAuthStatus,
   loginDashboard,
   type DashboardSessionDuration,
-  type DashboardSessionOption,
 } from '../../api/healthApi';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -31,9 +30,10 @@ export const PasswordGate: React.FC<PasswordGateProps> = ({ children }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [initialPasswordFile, setInitialPasswordFile] = useState<string | null>(null);
-  const [duration, setDuration] = useState<DashboardSessionDuration>('30d');
-  const [durationOptions, setDurationOptions] = useState<DashboardSessionOption[]>([]);
+  const [passwordRecoveryFile, setPasswordRecoveryFile] = useState<string | null>(null);
+  const [duration, setDuration] = useState<DashboardSessionDuration>('1d');
+  const [trustedDuration, setTrustedDuration] =
+    useState<DashboardSessionDuration>('1d');
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -51,9 +51,13 @@ export const PasswordGate: React.FC<PasswordGateProps> = ({ children }) => {
     void fetchAuthStatus()
       .then((status) => {
         if (!active) return;
-        setInitialPasswordFile(status.initialPasswordFile);
-        setDuration(status.defaultSessionDuration);
-        setDurationOptions(status.sessionDurations);
+        setPasswordRecoveryFile(status.passwordRecoveryFile);
+        const configuredTrustedDuration =
+          status.defaultSessionDuration === 'session'
+            ? '1d'
+            : status.defaultSessionDuration;
+        setTrustedDuration(configuredTrustedDuration);
+        setDuration(configuredTrustedDuration);
         setState(status.authenticated ? 'authenticated' : 'locked');
       })
       .catch(() => {
@@ -176,29 +180,49 @@ export const PasswordGate: React.FC<PasswordGateProps> = ({ children }) => {
             本次登录有效期
           </span>
         </label>
-        <select
-          value={duration}
-          onChange={(event) => setDuration(event.target.value as DashboardSessionDuration)}
-          className={`w-full h-11 px-3 rounded-xl border outline-none text-sm transition-colors ${
-            isDark
-              ? 'bg-black/30 border-white/10 focus:border-sky-500/60'
-              : 'bg-white border-black/10 focus:border-sky-500/60'
-          }`}
-        >
-          {(durationOptions.length > 0
-            ? durationOptions
-            : [
-                { value: 'session' as const, label: '本次会话', description: '关闭浏览器后失效' },
-                { value: '1h' as const, label: '1 小时', description: '1 小时后失效' },
-                { value: '1d' as const, label: '1 天', description: '24 小时内免密' },
-                { value: '30d' as const, label: '1 个月', description: '30 天内免密' },
-              ]
-          ).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label} · {option.description}
-            </option>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            {
+              value: 'session' as DashboardSessionDuration,
+              label: '仅本次',
+              description: '关闭浏览器后失效',
+            },
+            {
+              value: trustedDuration,
+              label:
+                trustedDuration === '1d'
+                  ? '保持 1 天'
+                  : trustedDuration === '30d'
+                    ? '保持 1 个月'
+                    : trustedDuration === '365d'
+                      ? '保持 1 年'
+                      : trustedDuration === '7d'
+                        ? '保持 7 天'
+                        : '保持 1 小时',
+              description: '可在配置中心调整时长',
+            },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setDuration(option.value)}
+              className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                duration === option.value
+                  ? 'bg-sky-500/12 border-sky-500/40 ring-1 ring-sky-500/25'
+                  : isDark
+                    ? 'bg-black/20 border-white/10 hover:border-sky-500/25'
+                    : 'bg-white/70 border-black/10 hover:border-sky-500/25'
+              }`}
+            >
+              <span className="block text-xs font-bold text-neutral-900 dark:text-white">
+                {option.label}
+              </span>
+              <span className="block text-[10px] text-neutral-400 mt-0.5">
+                {option.description}
+              </span>
+            </button>
           ))}
-        </select>
+        </div>
 
         {error && (
           <p className="mt-3 text-xs leading-relaxed text-rose-500 dark:text-rose-400">
@@ -220,17 +244,17 @@ export const PasswordGate: React.FC<PasswordGateProps> = ({ children }) => {
         </button>
 
         <p className="mt-4 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-          {initialPasswordFile ? (
+          {passwordRecoveryFile ? (
             <>
-              首次随机密码保存在服务端
+              忘记密码时，可在服务端查看明文找回文件
               <span className="font-mono text-neutral-700 dark:text-neutral-300">
                 {' '}
-                {initialPasswordFile}
+                {passwordRecoveryFile}
               </span>
-              ，登录后可在配置中心修改。
+              。登录后可在配置中心修改密码。
             </>
           ) : (
-            '初始密码已被自定义密码替换。忘记密码时，可由管理员在数据目录中重置面板密码。'
+            '当前没有密码找回文件。登录后在配置中心重新设置一次密码，即可生成 data/dashboard-password.txt。'
           )}
         </p>
       </motion.form>

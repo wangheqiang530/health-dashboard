@@ -17,13 +17,14 @@ import { authRoutes } from './routes/auth.ts';
 import { configRoutes } from './routes/config.ts';
 import { dashboardRoutes } from './routes/dashboard.ts';
 import { haeRoutes } from './routes/hae.ts';
+import { mapRoutes } from './routes/map.ts';
 import { repairHistoricalHaeSummaries } from './hae.ts';
 import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
 import { bodyRoutes } from './routes/body.ts';
 import {
   ensureDashboardPassword,
-  getDashboardInitialPasswordPath,
+  getDashboardPasswordRecoveryPath,
   ensureHaeApiKey,
 } from './settings.ts';
 import { reloadSchedules, stopScheduler } from './sync.ts';
@@ -69,7 +70,10 @@ app.addHook('onSend', async (request, reply) => {
   reply.header('X-Frame-Options', 'SAMEORIGIN');
   reply.header('Referrer-Policy', 'no-referrer');
   reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  if ((request.raw.url || '').startsWith('/api/')) {
+  const url = request.raw.url || '';
+  if (url.startsWith('/api/v1/map/tiles/')) {
+    reply.header('Cache-Control', 'public, max-age=604800, immutable');
+  } else if (url.startsWith('/api/')) {
     reply.header('Cache-Control', 'no-store');
   }
 });
@@ -99,6 +103,7 @@ app.get('/api/health', async () => {
 await app.register(haeRoutes);
 await app.register(authRoutes);
 await app.register(dashboardRoutes);
+await app.register(mapRoutes);
 await app.register(configRoutes);
 await app.register(versionRoutes);
 await app.register(bodyRoutes);
@@ -156,9 +161,9 @@ try {
   await migrate();
   await ensureHaeApiKey();
   await ensureDashboardPassword();
-  const initialPasswordFile = await getDashboardInitialPasswordPath();
-  if (initialPasswordFile) {
-    app.log.info(`面板初始密码已写入 ${initialPasswordFile}`);
+  const passwordRecoveryFile = await getDashboardPasswordRecoveryPath();
+  if (passwordRecoveryFile) {
+    app.log.info(`面板密码找回文件：${passwordRecoveryFile}`);
   }
   try {
     const repair = await repairHistoricalHaeSummaries();

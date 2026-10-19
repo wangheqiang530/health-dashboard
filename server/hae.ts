@@ -165,6 +165,8 @@ interface HaeWorkout {
   end?: string;
   duration?: number;
   activeEnergy?: { qty?: number; units?: string } | Array<{ qty?: number; units?: string }>;
+  activeEnergyBurned?: { qty?: number; units?: string } | Array<{ qty?: number; units?: string }>;
+  totalEnergyBurned?: { qty?: number; units?: string } | Array<{ qty?: number; units?: string }>;
   distance?: { qty?: number; units?: string };
   cyclingDistance?: { qty?: number; units?: string };
   avgHeartRate?: { qty?: number; units?: string };
@@ -310,9 +312,11 @@ const normalizeWorkouts = (workouts: HaeWorkout[]): NormalizedWorkout[] =>
   workouts.map((workout) => {
     const start = parseTimestamp(workout.start);
     const end = parseTimestamp(workout.end);
-    const activeEnergy = Array.isArray(workout.activeEnergy)
+    const energySource =
+      workout.activeEnergyBurned ?? workout.activeEnergy ?? workout.totalEnergyBurned;
+    const activeEnergy = Array.isArray(energySource)
       ? energyToKcal(
-          workout.activeEnergy.reduce<{ qty?: number; units?: string }>(
+          energySource.reduce<{ qty?: number; units?: string }>(
             (total, item) => ({
               qty: (total.qty || 0) + (finiteNumber(item.qty) || 0),
               units: total.units || item.units,
@@ -320,7 +324,7 @@ const normalizeWorkouts = (workouts: HaeWorkout[]): NormalizedWorkout[] =>
             {}
           )
         )
-      : energyToKcal(workout.activeEnergy);
+      : energyToKcal(energySource);
     const distanceMeters =
       finiteNumber(workout.distance?.qty) ?? finiteNumber(workout.cyclingDistance?.qty);
 

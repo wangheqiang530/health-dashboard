@@ -13,11 +13,181 @@ import {
   RotateCcw,
   Zap,
 } from 'lucide-react';
-import type { WorkoutRecord } from '../../types/health';
+import type { WorkoutRecord, WorkoutTelemetryPoint } from '../../types/health';
 
 interface WorkoutRoutePlaybackProps {
   workout: WorkoutRecord;
 }
+
+type MetricKey = 'heartRate' | 'cadence' | 'power' | 'speedKmh';
+
+const METRICS: Array<{
+  key: MetricKey;
+  label: string;
+  unit: string;
+  color: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { key: 'heartRate', label: '心率', unit: 'bpm', color: '#F43F5E', icon: Heart },
+  { key: 'cadence', label: '踏频', unit: 'rpm', color: '#22C55E', icon: Activity },
+  { key: 'power', label: '功率', unit: 'W', color: '#F59E0B', icon: Zap },
+  { key: 'speedKmh', label: '速度', unit: 'km/h', color: '#0EA5E9', icon: Gauge },
+];
+
+const formatElapsed = (seconds: number): string => {
+  const safe = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`;
+};
+
+const TelemetryChart: React.FC<{
+  telemetry: WorkoutTelemetryPoint[];
+  metricKey: MetricKey;
+  label: string;
+  unit: string;
+  color: string;
+  icon: React.ComponentType<{ className?: string }>;
+  progress: number;
+  onScrub: (progress: number) => void;
+}> = ({ telemetry, metricKey, label, unit, color, icon: Icon, progress, onScrub }) => {
+  const width = 520;
+  const height = 102;
+  const padding = 10;
+  const values = telemetry
+    .map((point, index) => ({
+      index,
+      value: point[metricKey],
+    }))
+    .filter((point): point is { index: number; value: number } => Number.isFinite(point.value));
+  const min = values.length > 0 ? Math.min(...values.map((point) => point.value)) : 0;
+  const max = values.length > 0 ? Math.max(...values.map((point) => point.value)) : 1;
+  const range = max - min || 1;
+  const xFor = (index: number) =>
+    padding +
+    (index / Math.max(telemetry.length - 1, 1)) * (width - padding * 2);
+  const yFor = (value: number) =>
+    height - padding - ((value - min) / range) * (height - padding * 2);
+  const coords = values.map((point) => ({
+    ...point,
+    x: xFor(point.index),
+    y: yFor(point.value),
+  }));
+  const path = coords
+    .map(
+      (point, index) =>
+        `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    )
+    .join(' ');
+  const areaPath =
+    coords.length > 0
+      ? `${path} L ${coords[coords.length - 1].x} ${height - padding} L ${coords[0].x} ${
+          height - padding
+        } Z`
+      : '';
+  const currentIndex = Math.min(
+    Math.max(Math.round(progress * Math.max(telemetry.length - 1, 0)), 0),
+    Math.max(telemetry.length - 1, 0)
+  );
+  const currentValue = telemetry[currentIndex]?.[metricKey];
+  const currentX = xFor(currentIndex);
+  const gradientId = `telemetry-${metricKey}`;
+
+  return (
+    <div className="rounded-2xl border border-black/5 dark:border-white/10 bg-white/60 dark:bg-black/25 p-2.5">
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold text-neutral-500 dark:text-neutral-400">
+          <Icon className="w-3 h-3" />
+          {label}
+        </span>
+        <span className="text-xs font-black font-mono" style={{ color }}>
+          {Number.isFinite(currentValue) ? `${Math.round(Number(currentValue))} ${unit}` : '—'}
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-[102px] overflow-visible touch-none"
+        onMouseMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+          onScrub(ratio);
+        }}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0, 1, 2].map((line) => (
+          <line
+            key={line}
+            x1={padding}
+            x2={width - padding}
+            y1={padding + (line / 2) * (height - padding * 2)}
+            y2={padding + (line / 2) * (height - padding * 2)}
+            stroke="currentColor"
+            strokeOpacity="0.08"
+            strokeDasharray="3 5"
+          />
+        ))}
+        <path d={areaPath} fill={`url(#${gradientId})`} />
+        <path
+          d={path}
+          fill="none"
+          stroke={color}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <line
+          x1={currentX}
+          x2={currentX}
+          y1={padding}
+          y2={height - padding}
+          stroke={color}
+          strokeOpacity="0.55"
+          strokeWidth="1.3"
+        />
+        {Number.isFinite(currentValue) && (
+          <circle
+            cx={currentX}
+            cy={yFor(Number(currentValue))}
+            r="4"
+            fill={color}
+            stroke="white"
+            strokeWidth="2"
+          />
+        )}
+        <text
+          x={width - padding}
+          y="12"
+          textAnchor="end"
+          fill="currentColor"
+          fillOpacity="0.38"
+          fontSize="8"
+          fontFamily="monospace"
+        >
+          {Math.round(max)}
+        </text>
+        <text
+          x={width - padding}
+          y={height - 2}
+          textAnchor="end"
+          fill="currentColor"
+          fillOpacity="0.38"
+          fontSize="8"
+          fontFamily="monospace"
+        >
+          {Math.round(min)}
+        </text>
+      </svg>
+    </div>
+  );
+};
 
 export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ workout }) => {
   const { resolvedTheme } = useTheme();
@@ -32,7 +202,6 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const beaconMarkerRef = useRef<L.Marker | null>(null);
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
@@ -50,11 +219,28 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
         .map((point) => [point.lat, point.lon] as [number, number]),
     [workout.routeGpxPoints]
   );
-  const currentIndex = Math.min(
+  const telemetry = useMemo(
+    () =>
+      (workout.telemetry || []).filter(
+        (point) =>
+          Number.isFinite(point.elapsedSec) ||
+          Number.isFinite(point.heartRate) ||
+          Number.isFinite(point.power)
+      ),
+    [workout.telemetry]
+  );
+  const currentTelemetryIndex = Math.min(
+    Math.round(progress * Math.max(telemetry.length - 1, 0)),
+    Math.max(telemetry.length - 1, 0)
+  );
+  const currentTelemetry = telemetry[currentTelemetryIndex];
+  const currentRouteIndex = Math.min(
     Math.floor(progress * Math.max(routeCoords.length - 1, 0)),
     Math.max(routeCoords.length - 1, 0)
   );
-  const currentPoint = routeCoords[currentIndex];
+  const currentPoint = routeCoords[currentRouteIndex];
+  const currentElapsed = currentTelemetry?.elapsedSec ??
+    progress * Math.max(workout.durationMinutes * 60, 1);
 
   useEffect(() => {
     if (!mapContainerRef.current || routeCoords.length < 2) return;
@@ -67,26 +253,23 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     if (mapTileType === 'none') {
       setTileStatus('disabled');
     } else {
-      const tileUrl =
-        mapTileType === 'osm'
-          ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-          : isDark
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+      const provider =
+        mapTileType === 'carto' ? (isDark ? 'carto-dark' : 'carto-light') : 'osm';
       setTileStatus('loading');
       let tileErrors = 0;
-      const tileLayer = L.tileLayer(tileUrl, {
-        subdomains: mapTileType === 'osm' ? 'abc' : 'abcd',
-        maxZoom: 19,
-        crossOrigin: true,
-      });
+      const tileLayer = L.tileLayer(
+        `/api/v1/map/tiles/${provider}/{z}/{x}/{y}`,
+        {
+          maxZoom: 19,
+          keepBuffer: 3,
+        }
+      );
       tileLayer.on('tileload', () => setTileStatus('ready'));
       tileLayer.on('tileerror', () => {
         tileErrors += 1;
         if (tileErrors >= 3) setTileStatus('error');
       });
       tileLayer.addTo(map);
-      tileLayerRef.current = tileLayer;
     }
 
     const polyline = L.polyline(routeCoords, {
@@ -101,8 +284,8 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       L.divIcon({
         className: 'route-marker',
         html: `<div style="background:${color};color:#000;font-weight:700;font-size:10px;padding:2px 6px;border-radius:10px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;">${label}</div>`,
-        iconSize: [36, 20],
-        iconAnchor: [18, 10],
+        iconSize: [40, 20],
+        iconAnchor: [20, 10],
       });
     L.marker(routeCoords[0], { icon: markerIcon('起点', '#00F5D4') }).addTo(map);
     L.marker(routeCoords[routeCoords.length - 1], {
@@ -127,7 +310,6 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       window.clearTimeout(resizeTimer);
       map.remove();
       mapInstanceRef.current = null;
-      tileLayerRef.current = null;
       beaconMarkerRef.current = null;
     };
   }, [isDark, mapTileType, routeCoords]);
@@ -167,112 +349,95 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     };
   }, [isPlaying, playSpeed, workout.durationMinutes]);
 
-  if (routeCoords.length < 2) {
-    return (
-      <div className="p-5 rounded-3xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/10 text-center">
-        <Navigation className="w-6 h-6 mx-auto text-neutral-400 mb-2" />
-        <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          当前记录没有 GPS 轨迹点
-        </p>
-        <p className="text-xs text-neutral-400 mt-1">
-          仅展示设备实际提供的聚合指标，不生成模拟路线。
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 rounded-3xl bg-black/[0.02] dark:bg-black/60 border border-black/10 dark:border-white/10 space-y-4 shadow-xl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-black/5 dark:border-white/10 pb-3">
         <div className="flex items-center gap-2">
           <Navigation className="w-4 h-4 text-[#00F5D4]" />
           <span className="text-sm font-bold text-neutral-900 dark:text-white tracking-wide">
-            GPS 轨迹回放
+            GPS 轨迹与遥测回放
           </span>
           <span className="text-[10px] text-neutral-400 font-mono">
-            {routeCoords.length} 个轨迹点
+            {routeCoords.length} 轨迹点 · {telemetry.length} 遥测帧
           </span>
         </div>
         <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-xl text-[10px] font-semibold">
-          <button
-            type="button"
-            onClick={() => setMapTileType('osm')}
-            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
-              mapTileType === 'osm'
-                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400'
-            }`}
-          >
-            OpenStreetMap
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapTileType('carto')}
-            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
-              mapTileType === 'carto'
-                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400'
-            }`}
-          >
-            CARTO
-          </button>
-          <button
-            type="button"
-            onClick={() => setMapTileType('none')}
-            className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
-              mapTileType === 'none'
-                ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
-                : 'text-neutral-500 dark:text-neutral-400'
-            }`}
-          >
-            纯轨迹
-          </button>
+          {[
+            { key: 'osm' as const, label: 'OpenStreetMap' },
+            { key: 'carto' as const, label: 'CARTO' },
+            { key: 'none' as const, label: '纯轨迹' },
+          ].map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setMapTileType(option.key)}
+              className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
+                mapTileType === option.key
+                  ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
+                  : 'text-neutral-500 dark:text-neutral-400'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <div
-          ref={mapContainerRef}
-          className="w-full h-[280px] rounded-2xl overflow-hidden border border-black/5 dark:border-white/10"
-          style={
-            mapTileType === 'none'
-              ? {
-                  backgroundImage:
-                    'linear-gradient(rgba(127,127,127,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.08) 1px, transparent 1px)',
-                  backgroundSize: '24px 24px',
-                }
-              : undefined
-          }
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
-          <span>
-            底图无需 API Key · © OpenStreetMap contributors / CARTO；网络受限时可切换「纯轨迹」。
-          </span>
-          <span
-            className={
-              tileStatus === 'error'
-                ? 'text-amber-500 font-semibold'
-                : tileStatus === 'ready'
-                  ? 'text-emerald-500'
-                  : ''
+      {routeCoords.length >= 2 ? (
+        <div className="space-y-1.5">
+          <div
+            ref={mapContainerRef}
+            className="w-full h-[300px] rounded-2xl overflow-hidden border border-black/5 dark:border-white/10"
+            style={
+              mapTileType === 'none'
+                ? {
+                    backgroundImage:
+                      'linear-gradient(rgba(127,127,127,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.08) 1px, transparent 1px)',
+                    backgroundSize: '24px 24px',
+                  }
+                : undefined
             }
-          >
-            {tileStatus === 'loading'
-              ? '底图加载中'
-              : tileStatus === 'ready'
-                ? '底图已加载'
-                : tileStatus === 'error'
-                  ? '底图加载受限，轨迹仍可查看'
-                  : '纯轨迹模式'}
-          </span>
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
+            <span>
+              地图瓦片经本地面板代理并缓存，无需 API Key · © OpenStreetMap contributors / CARTO
+            </span>
+            <span
+              className={
+                tileStatus === 'error'
+                  ? 'text-amber-500 font-semibold'
+                  : tileStatus === 'ready'
+                    ? 'text-emerald-500'
+                    : ''
+              }
+            >
+              {tileStatus === 'loading'
+                ? '底图加载中'
+                : tileStatus === 'ready'
+                  ? '底图已加载'
+                  : tileStatus === 'error'
+                    ? '底图加载受限，轨迹仍可查看'
+                    : '纯轨迹模式'}
+            </span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-5 rounded-3xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/10 text-center">
+          <Navigation className="w-6 h-6 mx-auto text-neutral-400 mb-2" />
+          <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            当前记录没有 GPS 轨迹点
+          </p>
+          <p className="text-xs text-neutral-400 mt-1">
+            仍可查看下方设备实际记录的遥测曲线。
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={() => setIsPlaying((value) => !value)}
-          className="px-3 py-1.5 rounded-xl bg-[#00F5D4] text-neutral-950 text-xs font-bold flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-xl bg-[#00F5D4] text-neutral-950 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
         >
           {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
           {isPlaying ? '暂停' : '播放'}
@@ -283,7 +448,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
             setIsPlaying(false);
             setProgress(0);
           }}
-          className="px-3 py-1.5 rounded-xl bg-black/5 dark:bg-white/10 text-xs font-semibold text-neutral-600 dark:text-neutral-300 flex items-center gap-1.5"
+          className="px-3 py-1.5 rounded-xl bg-black/5 dark:bg-white/10 text-xs font-semibold text-neutral-600 dark:text-neutral-300 flex items-center gap-1.5 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           重置
@@ -294,7 +459,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
               key={speed}
               type="button"
               onClick={() => setPlaySpeed(speed)}
-              className={`px-2 py-1 rounded-lg text-[10px] font-bold ${
+              className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
                 playSpeed === speed
                   ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900'
                   : 'text-neutral-500 dark:text-neutral-400'
@@ -305,61 +470,113 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
           ))}
         </div>
         <span className="text-[11px] text-neutral-400 font-mono ml-auto">
-          {Math.round(progress * 100)}%
+          {formatElapsed(currentElapsed)} / {formatElapsed(workout.durationMinutes * 60)}
         </span>
       </div>
 
-      <div className="w-full h-1.5 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
-        <div
-          className="h-full bg-[#00F5D4] transition-[width] duration-100"
-          style={{ width: `${progress * 100}%` }}
+      <div className="space-y-1">
+        <input
+          type="range"
+          min="0"
+          max="1000"
+          step="1"
+          value={Math.round(progress * 1000)}
+          onChange={(event) => setProgress(Number(event.target.value) / 1000)}
+          className="w-full accent-[#00F5D4] cursor-pointer"
+          aria-label="拖动播放进度"
         />
+        <div className="flex justify-between text-[9px] text-neutral-400 font-mono">
+          <span>0:00</span>
+          <span>{Math.round(progress * 100)}%</span>
+          <span>{formatElapsed(workout.durationMinutes * 60)}</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-        <div className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
-          <span className="flex items-center gap-1 text-[10px] text-neutral-400">
-            <Heart className="w-3 h-3 text-rose-400" /> 平均心率
-          </span>
-          <span className="font-bold font-mono text-neutral-900 dark:text-white">
-            {workout.avgHeartRate > 0 ? `${workout.avgHeartRate} bpm` : '—'}
-          </span>
+      {telemetry.length > 1 ? (
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {METRICS.map((metric) => {
+              const value = currentTelemetry?.[metric.key];
+              const Icon = metric.icon;
+              return (
+                <div
+                  key={metric.key}
+                  className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-black/5 dark:border-white/10"
+                >
+                  <span className="flex items-center gap-1 text-[9px] text-neutral-400">
+                    <Icon className="w-3 h-3" />
+                    {metric.label}
+                  </span>
+                  <span
+                    className="font-bold font-mono text-sm block mt-0.5"
+                    style={{ color: metric.color }}
+                  >
+                    {Number.isFinite(value)
+                      ? `${Math.round(Number(value))} ${metric.unit}`
+                      : '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {METRICS.map((metric) => (
+              <TelemetryChart
+                key={metric.key}
+                telemetry={telemetry}
+                metricKey={metric.key}
+                label={metric.label}
+                unit={metric.unit}
+                color={metric.color}
+                icon={metric.icon}
+                progress={progress}
+                onScrub={(nextProgress) => {
+                  setIsPlaying(false);
+                  setProgress(nextProgress);
+                }}
+              />
+            ))}
+          </div>
+          <p className="text-[9px] text-neutral-400">
+            拖动进度条或在任一曲线图上横向移动，四条遥测曲线与地图光点会同步到同一时刻。
+          </p>
         </div>
-        <div className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
-          <span className="flex items-center gap-1 text-[10px] text-neutral-400">
-            <Gauge className="w-3 h-3 text-sky-400" /> 平均速度
-          </span>
-          <span className="font-bold font-mono text-neutral-900 dark:text-white">
-            {workout.distanceKm && workout.durationMinutes > 0
-              ? `${(workout.distanceKm / (workout.durationMinutes / 60)).toFixed(1)} km/h`
-              : '—'}
-          </span>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+          {[
+            { label: '平均心率', value: workout.avgHeartRate > 0 ? `${workout.avgHeartRate} bpm` : '—', icon: Heart },
+            {
+              label: '平均速度',
+              value:
+                workout.distanceKm && workout.durationMinutes > 0
+                  ? `${(workout.distanceKm / (workout.durationMinutes / 60)).toFixed(1)} km/h`
+                  : '—',
+              icon: Gauge,
+            },
+            { label: '踏频', value: workout.cadenceAvg ? `${workout.cadenceAvg} rpm` : '—', icon: Activity },
+            { label: '平均功率', value: workout.avgPower ? `${workout.avgPower} W` : '—', icon: Zap },
+            {
+              label: '累计爬升',
+              value: workout.elevationGainM ? `${workout.elevationGainM} m` : '—',
+              icon: Mountain,
+            },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
+                <span className="flex items-center gap-1 text-[10px] text-neutral-400">
+                  <Icon className="w-3 h-3" />
+                  {item.label}
+                </span>
+                <span className="font-bold font-mono text-neutral-900 dark:text-white">
+                  {item.value}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        <div className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
-          <span className="flex items-center gap-1 text-[10px] text-neutral-400">
-            <Activity className="w-3 h-3 text-emerald-400" /> 踏频
-          </span>
-          <span className="font-bold font-mono text-neutral-900 dark:text-white">
-            {workout.cadenceAvg ? `${workout.cadenceAvg} rpm` : '—'}
-          </span>
-        </div>
-        <div className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
-          <span className="flex items-center gap-1 text-[10px] text-neutral-400">
-            <Zap className="w-3 h-3 text-amber-400" /> 平均功率
-          </span>
-          <span className="font-bold font-mono text-neutral-900 dark:text-white">
-            {workout.avgPower ? `${workout.avgPower} W` : '—'}
-          </span>
-        </div>
-        <div className="p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04]">
-          <span className="flex items-center gap-1 text-[10px] text-neutral-400">
-            <Mountain className="w-3 h-3 text-orange-400" /> 累计爬升
-          </span>
-          <span className="font-bold font-mono text-neutral-900 dark:text-white">
-            {workout.elevationGainM ? `${workout.elevationGainM} m` : '—'}
-          </span>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

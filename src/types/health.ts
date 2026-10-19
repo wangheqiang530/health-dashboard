@@ -96,6 +96,17 @@ export interface GpxCoordinate {
   lon: number;
 }
 
+export interface WorkoutTelemetryPoint {
+  timestamp?: string;
+  elapsedSec: number;
+  heartRate?: number;
+  cadence?: number;
+  power?: number;
+  speedKmh?: number;
+  altitudeM?: number;
+  leftRightBalance?: number;
+}
+
 export interface WorkoutRecord {
   id: string;
   name: string;
@@ -115,7 +126,9 @@ export interface WorkoutRecord {
   avgPower?: number;
   maxPower?: number;
   normalizedPower?: number;
+  intensityFactor?: number;
   tss?: number;
+  leftRightBalance?: { left: number; right: number };
   hrZones: {
     zone1: number;
     zone2: number;
@@ -125,6 +138,7 @@ export interface WorkoutRecord {
   };
   splits?: { km: number; pace: string; hr: number }[];
   routeGpxPoints?: GpxCoordinate[];
+  telemetry?: WorkoutTelemetryPoint[];
 }
 
 export interface BodyComposition {

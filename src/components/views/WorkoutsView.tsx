@@ -184,6 +184,57 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     }
   };
 
+  const expandedMetricsFor = (
+    workout: WorkoutRecord
+  ): Array<{ label: string; value: string; color: string }> => {
+    if (workout.category === 'cycling') {
+      const speed =
+        workout.distanceKm && workout.durationMinutes > 0
+          ? `${(workout.distanceKm / (workout.durationMinutes / 60)).toFixed(1)} km/h`
+          : '—';
+      return [
+        { label: '峰值心率', value: workout.maxHeartRate > 0 ? `${workout.maxHeartRate} bpm` : '—', color: 'text-rose-500' },
+        { label: '平均速度', value: speed, color: 'text-neutral-900 dark:text-white' },
+        {
+          label: '踏频 / 平均功率',
+          value: `${workout.cadenceAvg ? `${workout.cadenceAvg} rpm` : '—'} / ${
+            workout.avgPower ? `${workout.avgPower} W` : '—'
+          }`,
+          color: 'text-[#73A800] dark:text-[#A1FF00]',
+        },
+        {
+          label: 'NP / IF',
+          value: `${workout.normalizedPower ? `${workout.normalizedPower} W` : '—'} / ${
+            workout.intensityFactor ? workout.intensityFactor.toFixed(2) : '—'
+          }`,
+          color: 'text-amber-500',
+        },
+        { label: 'TSS', value: workout.tss ? workout.tss.toFixed(1) : '—', color: 'text-purple-500' },
+        {
+          label: '左右平衡',
+          value: workout.leftRightBalance
+            ? `${workout.leftRightBalance.left}/${workout.leftRightBalance.right}`
+            : '—',
+          color: 'text-cyan-500',
+        },
+      ];
+    }
+    if (workout.category === 'strength' || workout.category === 'hiit') {
+      return [
+        { label: '峰值心率', value: workout.maxHeartRate > 0 ? `${workout.maxHeartRate} bpm` : '—', color: 'text-rose-500' },
+        { label: '平均心率', value: workout.avgHeartRate > 0 ? `${workout.avgHeartRate} bpm` : '—', color: 'text-rose-400' },
+        { label: '训练时长', value: `${workout.durationMinutes} 分钟`, color: 'text-sky-500' },
+        { label: '动态消耗', value: `${workout.activeCalories} kcal`, color: 'text-amber-500' },
+      ];
+    }
+    return [
+      { label: '峰值心率', value: workout.maxHeartRate > 0 ? `${workout.maxHeartRate} bpm` : '—', color: 'text-rose-500' },
+      { label: '平均配速', value: workout.paceAvg || '—', color: 'text-neutral-900 dark:text-white' },
+      { label: '步频', value: workout.cadenceAvg ? `${workout.cadenceAvg} spm` : '—', color: 'text-[#73A800] dark:text-[#A1FF00]' },
+      { label: '距离', value: workout.distanceKm ? `${workout.distanceKm} km` : '—', color: 'text-cyan-500' },
+    ];
+  };
+
   return (
     <div className="space-y-5">
       {/* Hero Stats Card with Multi-Range Selector */}
@@ -525,12 +576,13 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                         <span>{w.startTime}</span>
                         <span>•</span>
                         <span>{w.durationMinutes} 分钟</span>
-                        {w.distanceKm && (
+                        {w.distanceKm &&
+                          ['cycling', 'running', 'walking', 'swimming'].includes(w.category) && (
                           <>
                             <span>•</span>
                             <span className="text-neutral-700 dark:text-neutral-300 font-semibold">{w.distanceKm} km</span>
                           </>
-                        )}
+                          )}
                       </div>
                     </div>
                   </div>
@@ -564,36 +616,17 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                       transition={{ duration: 0.2 }}
                       className="pt-3 border-t border-black/5 dark:border-white/5 overflow-hidden"
                     >
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-2">
-                        <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">峰值心率</span>
-                          <span className="font-bold text-rose-500 font-mono text-sm">{w.maxHeartRate > 0 ? `${w.maxHeartRate} bpm` : '—'}</span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">平均速度 / 配速</span>
-                          <span className="font-bold text-neutral-900 dark:text-white font-mono text-sm">
-                            {w.category === 'cycling' && w.distanceKm && w.durationMinutes > 0
-                              ? `${(w.distanceKm / (w.durationMinutes / 60)).toFixed(1)} km/h`
-                              : w.paceAvg || '—'}
-                          </span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">
-                            {w.category === 'cycling' ? '踏频 / 功率' : w.category === 'strength' ? '训练部位' : '步频 / 动作'}
-                          </span>
-                          <span className="font-bold text-[#A1FF00] font-mono text-sm flex items-center gap-1">
-                            {w.cadenceAvg
-                              ? `${w.cadenceAvg} ${w.category === 'cycling' ? 'rpm' : 'spm'}`
-                              : '—'}
-                            {w.avgPower && <span className="text-amber-400 font-normal text-xs">({w.avgPower}W)</span>}
-                          </span>
-                        </div>
-                        <div className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
-                          <span className="text-neutral-400 block text-[10px]">食物热量等效</span>
-                          <span className="font-bold text-amber-400 text-xs truncate block" title={food.description}>
-                            {food.emojis} {food.description}
-                          </span>
-                        </div>
+                      <div className={`grid grid-cols-2 gap-2 text-xs mb-2 ${
+                        w.category === 'cycling' ? 'sm:grid-cols-3 xl:grid-cols-6' : 'sm:grid-cols-4'
+                      }`}>
+                        {expandedMetricsFor(w).map((metric) => (
+                          <div key={metric.label} className="p-2 rounded-xl bg-black/5 dark:bg-white/5">
+                            <span className="text-neutral-400 block text-[10px]">{metric.label}</span>
+                            <span className={`font-bold font-mono text-sm ${metric.color}`}>
+                              {metric.value}
+                            </span>
+                          </div>
+                        ))}
                       </div>
 
                       {/* Heart Rate Zones Mini Bar */}

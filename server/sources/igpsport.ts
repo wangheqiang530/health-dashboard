@@ -227,6 +227,7 @@ export async function syncRecentRides(
     let savedFitFilePath: string | null = fitFilePath;
     let savedFitFileName: string | null = fitFileName;
     let routePoints: Array<{ lat: number; lon: number }> = [];
+    let telemetry: Awaited<ReturnType<typeof parseFitActivity>>['telemetry'] = [];
     let heartRateZones:
       | { zone1: number; zone2: number; zone3: number; zone4: number; zone5: number }
       | null = null;
@@ -236,6 +237,7 @@ export async function syncRecentRides(
       try {
         const parsedFit = parseFitActivity(file.buffer, fitFileName);
         routePoints = parsedFit.routePoints;
+        telemetry = parsedFit.telemetry;
         heartRateZones = parsedFit.heartRateZones;
       } catch (parseError) {
         console.warn(`[igpsport] FIT 轨迹解析失败 (${rideId})，保留活动基础数据:`, parseError);
@@ -250,6 +252,7 @@ export async function syncRecentRides(
     const rawRecord: Record<string, unknown> = {
       ...detail,
       ...(routePoints.length > 0 ? { routePoints } : {}),
+      ...(telemetry.length > 0 ? { telemetry } : {}),
       ...(heartRateZones ? { heartRateZones } : {}),
     };
 

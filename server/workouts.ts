@@ -1,4 +1,4 @@
-import type { WorkoutRecord } from '../src/types/health.ts';
+import type { WorkoutRecord, WorkoutTelemetryPoint } from '../src/types/health.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
 
@@ -24,6 +24,9 @@ interface CyclingWorkoutRow {
   raw_record: {
     heartRateZones?: WorkoutRecord['hrZones'];
     routePoints?: Array<{ lat: number; lon: number }>;
+    telemetry?: WorkoutTelemetryPoint[];
+    pwrIF?: number;
+    avgBalance?: number[];
   } | null;
 }
 
@@ -48,6 +51,28 @@ const numberOrNull = (value: string | number | null): number | null => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const energyToKcal = (value: unknown): number | null => {
+  const source = Array.isArray(value) ? value : [value];
+  let total = 0;
+  let found = false;
+  for (const item of source) {
+    if (!item || typeof item !== 'object') continue;
+    const quantity = Number((item as { qty?: unknown }).qty);
+    if (!Number.isFinite(quantity)) continue;
+    const units = String((item as { units?: unknown }).units || '').toLowerCase();
+    total += units.includes('kj') ? quantity / 4.184 : quantity;
+    found = true;
+  }
+  return found ? total : null;
+};
+
+const rawWorkoutEnergy = (rawWorkout: Record<string, unknown> | null): number | null =>
+  energyToKcal(
+    rawWorkout?.activeEnergyBurned ??
+      rawWorkout?.activeEnergy ??
+      rawWorkout?.totalEnergyBurned
+  );
 
 const categoryFor = (name: string): WorkoutRecord['category'] => {
   if (/骑行|单车|cycling|bike/i.test(name)) return 'cycling';
@@ -91,7 +116,16 @@ const cyclingToWorkout = (row: CyclingWorkoutRow): WorkoutRecord => {
     avgPower: row.avg_power || undefined,
     maxPower: row.max_power || undefined,
     normalizedPower: row.normalized_power || undefined,
+    intensityFactor: numberOrNull(row.raw_record?.pwrIF ?? null) || undefined,
     tss: numberOrNull(row.tss) || undefined,
+    leftRightBalance:
+      Array.isArray(row.raw_record?.avgBalance) &&
+      row.raw_record.avgBalance.length >= 2
+        ? {
+            left: Math.round(Number(row.raw_record.avgBalance[0]) || 0),
+            right: Math.round(Number(row.raw_record.avgBalance[1]) || 0),
+          }
+        : undefined,
     hrZones: row.raw_record?.heartRateZones || {
       zone1: 0,
       zone2: 0,
@@ -100,12 +134,15 @@ const cyclingToWorkout = (row: CyclingWorkoutRow): WorkoutRecord => {
       zone5: 0,
     },
     routeGpxPoints: row.raw_record?.routePoints,
+    telemetry: row.raw_record?.telemetry,
   };
 };
 
 const haeToWorkout = (row: HaeWorkoutRow): WorkoutRecord => {
   const durationMinutes = Math.round((row.duration_sec || 0) / 60);
-  const activeCalories = Math.round(numberOrNull(row.active_energy_kcal) || 0);
+  const activeCalories = Math.round(
+    numberOrNull(row.active_energy_kcal) || rawWorkoutEnergy(row.raw_workout) || 0
+  );
   return {
     id: `hae-${row.id}`,
     name: row.name,

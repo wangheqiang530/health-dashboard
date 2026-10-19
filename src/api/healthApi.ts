@@ -139,13 +139,13 @@ export interface AuthStatus {
   expiresAt: string | null;
   sessionDuration: DashboardSessionDuration | null;
   defaultSessionDuration: DashboardSessionDuration;
-  initialPasswordFile: string | null;
+  passwordRecoveryFile: string | null;
   sessionDurations: DashboardSessionOption[];
 }
 
 export interface AuthSettings {
   defaultSessionDuration: DashboardSessionDuration;
-  initialPasswordFile: string | null;
+  passwordRecoveryFile: string | null;
   sessionDurations: DashboardSessionOption[];
 }
 

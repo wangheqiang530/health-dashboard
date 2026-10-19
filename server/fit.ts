@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { Decoder, Stream } from '@garmin/fitsdk';
-import type { GpxCoordinate } from '../src/types/health.ts';
+import type { GpxCoordinate, WorkoutTelemetryPoint } from '../src/types/health.ts';
 import { config } from './config.ts';
 import { dateInTimeZone } from './time.ts';
 
@@ -58,6 +58,7 @@ export interface ParsedFitActivity {
   avgPower: number | null;
   maxPower: number | null;
   normalizedPower: number | null;
+  intensityFactor: number | null;
   tss: number | null;
   ascentM: number | null;
   calories: number | null;
@@ -69,6 +70,7 @@ export interface ParsedFitActivity {
     zone5: number;
   };
   routePoints: GpxCoordinate[];
+  telemetry: WorkoutTelemetryPoint[];
   rawSession: Record<string, unknown>;
 }
 
@@ -131,16 +133,51 @@ export function parseFitActivity(
 
   const records = decoded.messages.recordMesgs || [];
   const routePoints: GpxCoordinate[] = [];
-  const routeStep = Math.max(1, Math.floor(records.length / 600));
+  const telemetry: WorkoutTelemetryPoint[] = [];
+  const routeStep = Math.max(1, Math.floor(records.length / 800));
   for (let index = 0; index < records.length; index += routeStep) {
     const record = records[index];
+    const timestamp = record.timestamp instanceof Date ? record.timestamp : null;
     const lat = finiteNumber(record.positionLat);
     const lon = finiteNumber(record.positionLong);
-    if (lat === null || lon === null) continue;
-    routePoints.push({
-      lat: Number((lat * SEMICIRCLE_TO_DEGREES).toFixed(7)),
-      lon: Number((lon * SEMICIRCLE_TO_DEGREES).toFixed(7)),
-    });
+    const speed = finiteNumber(record.enhancedSpeed) ?? finiteNumber(record.speed);
+    const altitude =
+      finiteNumber(record.enhancedAltitude) ?? finiteNumber(record.altitude);
+    const balanceRaw = finiteNumber(record.leftRightBalance);
+
+    if (lat !== null && lon !== null) {
+      routePoints.push({
+        lat: Number((lat * SEMICIRCLE_TO_DEGREES).toFixed(7)),
+        lon: Number((lon * SEMICIRCLE_TO_DEGREES).toFixed(7)),
+      });
+    }
+
+    if (
+      timestamp ||
+      speed !== null ||
+      altitude !== null ||
+      balanceRaw !== null ||
+      finiteNumber(record.heartRate) !== null ||
+      finiteNumber(record.cadence) !== null ||
+      finiteNumber(record.power) !== null
+    ) {
+      telemetry.push({
+        timestamp: timestamp?.toISOString(),
+        elapsedSec: Math.max(
+          0,
+          Math.round(
+            ((timestamp?.getTime() || startDate.getTime()) - startDate.getTime()) / 1000
+          )
+        ),
+        heartRate: integerOrNull(record.heartRate) ?? undefined,
+        cadence: integerOrNull(record.cadence) ?? undefined,
+        power: integerOrNull(record.power) ?? undefined,
+        speedKmh: speed === null ? undefined : Number((speed * 3.6).toFixed(2)),
+        altitudeM: altitude === null ? undefined : Number(altitude.toFixed(1)),
+        leftRightBalance:
+          balanceRaw === null ? undefined : Math.round(balanceRaw & 0x7f),
+      });
+    }
   }
 
   const lastRecord = records[records.length - 1];
@@ -181,11 +218,13 @@ export function parseFitActivity(
     avgPower: integerOrNull(session.avgPower),
     maxPower: integerOrNull(session.maxPower),
     normalizedPower: integerOrNull(session.normalizedPower),
+    intensityFactor: finiteNumber(session.intensityFactor),
     tss: finiteNumber(session.trainingStressScore),
     ascentM: finiteNumber(session.totalAscent),
     calories: integerOrNull(session.totalCalories),
     heartRateZones: normalizeHrZones(session.timeInHrZone),
     routePoints,
+    telemetry,
     rawSession: session as unknown as Record<string, unknown>,
   };
 }

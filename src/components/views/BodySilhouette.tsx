@@ -103,6 +103,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   const [selectedPart, setSelectedPart] = useState<BodySegmentKey>('trunk');
   const [mode, setMode] = useState<BodyMode>('muscle');
   const [historyWindow, setHistoryWindow] = useState<HistoryWindow>(30);
+  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
 
   const activeMeasurement =
     measurement ||
@@ -131,77 +132,85 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   const activeSegment = segmentOf(activeMeasurement, selectedPart);
   const activeDefinition = SEGMENTS.find((segment) => segment.key === selectedPart)!;
 
-  const muscleSeries = displayedHistory
-    .map((item) => ({
-      date: item.measuredDate.slice(5),
-      value: numberValue(segmentOf(item, selectedPart)?.muscleKg),
-    }))
-    .filter((item): item is { date: string; value: number } => item.value !== null);
-
-  const fatSeries = displayedHistory
-    .map((item) => ({
-      date: item.measuredDate.slice(5),
-      value: numberValue(segmentOf(item, selectedPart)?.fatKg),
-    }))
-    .filter((item): item is { date: string; value: number } => item.value !== null);
-
-  const impedance20Series = displayedHistory
-    .map((item) => ({
-      date: item.measuredDate.slice(5),
-      value: numberValue(segmentOf(item, selectedPart)?.impedance20kHz),
-    }))
-    .filter((item): item is { date: string; value: number } => item.value !== null);
-
-  const impedance100Series = displayedHistory
-    .map((item) => ({
-      date: item.measuredDate.slice(5),
-      value: numberValue(segmentOf(item, selectedPart)?.impedance100kHz),
-    }))
-    .filter((item): item is { date: string; value: number } => item.value !== null);
-
-  const chartWidth = 520;
-  const chartHeight = 178;
-  const chartPadding = 22;
+  const chartWidth = 560;
+  const chartHeight = 210;
+  const chartPaddingTop = 24;
+  const chartPaddingBottom = 26;
+  const chartPaddingLeft = 44;
+  const chartPaddingRight = 46;
   const showImpedance = mode === 'impedance';
-  const primaryValues = showImpedance ? impedance20Series : muscleSeries;
-  const secondaryValues = showImpedance ? impedance100Series : fatSeries;
+  const primaryRaw = displayedHistory.map((item, index) => ({
+    index,
+    date: item.measuredDate.slice(5),
+    value: numberValue(
+      showImpedance
+        ? segmentOf(item, selectedPart)?.impedance20kHz
+        : segmentOf(item, selectedPart)?.muscleKg
+    ),
+  }));
+  const secondaryRaw = displayedHistory.map((item, index) => ({
+    index,
+    date: item.measuredDate.slice(5),
+    value: numberValue(
+      showImpedance
+        ? segmentOf(item, selectedPart)?.impedance100kHz
+        : segmentOf(item, selectedPart)?.fatKg
+    ),
+  }));
+  const primaryValues = primaryRaw.filter(
+    (item): item is { index: number; date: string; value: number } => item.value !== null
+  );
+  const secondaryValues = secondaryRaw.filter(
+    (item): item is { index: number; date: string; value: number } => item.value !== null
+  );
   const allChartValues = [...primaryValues, ...secondaryValues];
-
-  const chartMinMax = (() => {
-    if (allChartValues.length === 0) return { min: 0, max: 1 };
-    const values = allChartValues.map((item) => item.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    return {
-      min,
-      max: max === min ? min + 1 : max,
-    };
-  })();
-
+  const minMaxFor = (values: Array<{ value: number }>) => {
+    if (values.length === 0) return { min: 0, max: 1 };
+    const min = Math.min(...values.map((item) => item.value));
+    const max = Math.max(...values.map((item) => item.value));
+    return { min, max: max === min ? min + 1 : max };
+  };
+  const primaryMinMax = minMaxFor(primaryValues);
+  const secondaryMinMax = minMaxFor(secondaryValues);
   const scalePoints = (
-    values: Array<{ value: number; date: string }>
-  ): Array<{ x: number; y: number; value: number; date: string }> => {
-    if (values.length === 0) return [];
-    return values.map((item, index) => ({
+    values: Array<{ index: number; date: string; value: number }>,
+    range: { min: number; max: number }
+  ) =>
+    values.map((item) => ({
+      ...item,
       x:
-        chartPadding +
-        (values.length === 1
-          ? (chartWidth - chartPadding * 2) / 2
-          : (index / (values.length - 1)) * (chartWidth - chartPadding * 2)),
+        chartPaddingLeft +
+        (displayedHistory.length <= 1
+          ? (chartWidth - chartPaddingLeft - chartPaddingRight) / 2
+          : (item.index / (displayedHistory.length - 1)) *
+            (chartWidth - chartPaddingLeft - chartPaddingRight)),
       y:
         chartHeight -
-        chartPadding -
-        ((item.value - chartMinMax.min) / (chartMinMax.max - chartMinMax.min)) *
-          (chartHeight - chartPadding * 2),
-      ...item,
+        chartPaddingBottom -
+        ((item.value - range.min) / (range.max - range.min)) *
+          (chartHeight - chartPaddingTop - chartPaddingBottom),
     }));
-  };
-
-  const primaryPoints = scalePoints(primaryValues);
-  const secondaryPoints = scalePoints(secondaryValues);
+  const primaryPoints = scalePoints(primaryValues, primaryMinMax);
+  const secondaryPoints = scalePoints(secondaryValues, secondaryMinMax);
   const chartColors = showImpedance
     ? { primary: '#06B6D4', secondary: '#6366F1' }
     : { primary: '#6366F1', secondary: '#F59E0B' };
+  const hoveredIndex =
+    hoveredTrendIndex === null
+      ? null
+      : Math.min(Math.max(hoveredTrendIndex, 0), Math.max(displayedHistory.length - 1, 0));
+  const hoveredX =
+    hoveredIndex === null
+      ? null
+      : chartPaddingLeft +
+        (displayedHistory.length <= 1
+          ? (chartWidth - chartPaddingLeft - chartPaddingRight) / 2
+          : (hoveredIndex / (displayedHistory.length - 1)) *
+            (chartWidth - chartPaddingLeft - chartPaddingRight));
+  const hoveredPrimary = primaryPoints.find((point) => point.index === hoveredIndex);
+  const hoveredSecondary = secondaryPoints.find((point) => point.index === hoveredIndex);
+  const hoveredDate =
+    hoveredIndex === null ? null : displayedHistory[hoveredIndex]?.measuredDate;
 
   const segmentCards = SEGMENTS.map((segment) => {
     const values = segmentOf(activeMeasurement, segment.key);
@@ -496,102 +505,228 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
 
             {allChartValues.length > 0 ? (
               <>
-                <svg
-                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                  className="w-full h-44 overflow-visible"
-                >
-                  {[0, 1, 2, 3].map((line) => {
-                    const y = chartPadding + (line / 3) * (chartHeight - chartPadding * 2);
-                    return (
-                      <line
-                        key={line}
-                        x1={chartPadding}
-                        x2={chartWidth - chartPadding}
-                        y1={y}
-                        y2={y}
-                        stroke="currentColor"
-                        strokeOpacity="0.08"
-                        strokeDasharray="3 5"
+                <div className="relative">
+                  <svg
+                    viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                    className="w-full h-[210px] overflow-visible touch-none"
+                    onMouseMove={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const ratio = Math.min(
+                        1,
+                        Math.max(0, (event.clientX - rect.left) / rect.width)
+                      );
+                      setHoveredTrendIndex(
+                        Math.round(ratio * Math.max(displayedHistory.length - 1, 0))
+                      );
+                    }}
+                    onMouseLeave={() => setHoveredTrendIndex(null)}
+                  >
+                    <defs>
+                      <linearGradient id="segmentPrimaryArea" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={chartColors.primary} stopOpacity="0.2" />
+                        <stop offset="100%" stopColor={chartColors.primary} stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    {[0, 1, 2, 3].map((line) => {
+                      const y =
+                        chartPaddingTop +
+                        (line / 3) *
+                          (chartHeight - chartPaddingTop - chartPaddingBottom);
+                      return (
+                        <line
+                          key={line}
+                          x1={chartPaddingLeft}
+                          x2={chartWidth - chartPaddingRight}
+                          y1={y}
+                          y2={y}
+                          stroke="currentColor"
+                          strokeOpacity="0.08"
+                          strokeDasharray="3 5"
+                        />
+                      );
+                    })}
+                    {primaryPoints.length > 1 && (
+                      <>
+                        <path
+                          d={`${linePath(primaryPoints)} L ${primaryPoints[primaryPoints.length - 1].x} ${
+                            chartHeight - chartPaddingBottom
+                          } L ${primaryPoints[0].x} ${chartHeight - chartPaddingBottom} Z`}
+                          fill="url(#segmentPrimaryArea)"
+                        />
+                        <path
+                          d={linePath(primaryPoints)}
+                          fill="none"
+                          stroke={chartColors.primary}
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </>
+                    )}
+                    {secondaryPoints.length > 1 && (
+                      <path
+                        d={linePath(secondaryPoints)}
+                        fill="none"
+                        stroke={chartColors.secondary}
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       />
-                    );
-                  })}
-                  {primaryPoints.length > 1 && (
-                    <path
-                      d={linePath(primaryPoints)}
-                      fill="none"
-                      stroke={chartColors.primary}
-                      strokeWidth="2.4"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                    )}
+                    {primaryPoints.map((point, index) => (
+                      <circle
+                        key={`primary-${index}`}
+                        cx={point.x}
+                        cy={point.y}
+                        r="2.8"
+                        fill="white"
+                        stroke={chartColors.primary}
+                        strokeWidth="1.5"
+                      />
+                    ))}
+                    {secondaryPoints.map((point, index) => (
+                      <circle
+                        key={`secondary-${index}`}
+                        cx={point.x}
+                        cy={point.y}
+                        r="2.4"
+                        fill="white"
+                        stroke={chartColors.secondary}
+                        strokeWidth="1.3"
+                      />
+                    ))}
+                    {hoveredX !== null && (
+                      <line
+                        x1={hoveredX}
+                        x2={hoveredX}
+                        y1={chartPaddingTop}
+                        y2={chartHeight - chartPaddingBottom}
+                        stroke="currentColor"
+                        strokeOpacity="0.4"
+                        strokeDasharray="3 3"
+                      />
+                    )}
+                    {hoveredPrimary && (
+                      <circle
+                        cx={hoveredPrimary.x}
+                        cy={hoveredPrimary.y}
+                        r="4.2"
+                        fill={chartColors.primary}
+                        stroke="white"
+                        strokeWidth="2"
+                      />
+                    )}
+                    {hoveredSecondary && (
+                      <circle
+                        cx={hoveredSecondary.x}
+                        cy={hoveredSecondary.y}
+                        r="4.2"
+                        fill={chartColors.secondary}
+                        stroke="white"
+                        strokeWidth="2"
+                      />
+                    )}
+                    <text
+                      x={chartPaddingLeft - 7}
+                      y={chartPaddingTop}
+                      textAnchor="end"
+                      fill={chartColors.primary}
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {primaryMinMax.max.toFixed(showImpedance ? 1 : 2)}
+                    </text>
+                    <text
+                      x={chartPaddingLeft - 7}
+                      y={chartHeight - chartPaddingBottom}
+                      textAnchor="end"
+                      fill={chartColors.primary}
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {primaryMinMax.min.toFixed(showImpedance ? 1 : 2)}
+                    </text>
+                    <text
+                      x={chartWidth - chartPaddingRight + 7}
+                      y={chartPaddingTop}
+                      fill={chartColors.secondary}
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {secondaryMinMax.max.toFixed(showImpedance ? 1 : 2)}
+                    </text>
+                    <text
+                      x={chartWidth - chartPaddingRight + 7}
+                      y={chartHeight - chartPaddingBottom}
+                      fill={chartColors.secondary}
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {secondaryMinMax.min.toFixed(showImpedance ? 1 : 2)}
+                    </text>
+                    <text
+                      x={chartPaddingLeft}
+                      y={chartHeight - 5}
+                      fill="currentColor"
+                      fillOpacity="0.45"
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {displayedHistory[0]?.measuredDate.slice(5) || '—'}
+                    </text>
+                    <text
+                      x={chartWidth - chartPaddingRight}
+                      y={chartHeight - 5}
+                      textAnchor="end"
+                      fill="currentColor"
+                      fillOpacity="0.45"
+                      fontSize="9"
+                      fontFamily="monospace"
+                    >
+                      {displayedHistory[displayedHistory.length - 1]?.measuredDate.slice(5) || '—'}
+                    </text>
+                  </svg>
+                  {hoveredX !== null && hoveredDate && (
+                    <div
+                      className="absolute top-2 z-10 -translate-x-1/2 rounded-xl border border-black/10 dark:border-white/15 bg-white/95 dark:bg-neutral-950/95 px-2.5 py-1.5 shadow-xl pointer-events-none whitespace-nowrap"
+                      style={{
+                        left: `${Math.min(88, Math.max(12, (hoveredX / chartWidth) * 100))}%`,
+                      }}
+                    >
+                      <div className="text-[9px] text-neutral-400 font-mono">{hoveredDate}</div>
+                      <div className="flex items-center gap-2 text-[10px] font-mono mt-0.5">
+                        <span style={{ color: chartColors.primary }}>
+                          {hoveredPrimary
+                            ? `${hoveredPrimary.value.toFixed(showImpedance ? 1 : 2)} ${
+                                showImpedance ? 'Ω' : 'kg'
+                              }`
+                            : '—'}
+                        </span>
+                        <span style={{ color: chartColors.secondary }}>
+                          {hoveredSecondary
+                            ? `${hoveredSecondary.value.toFixed(showImpedance ? 1 : 2)} ${
+                                showImpedance ? 'Ω' : 'kg'
+                              }`
+                            : '—'}
+                        </span>
+                      </div>
+                    </div>
                   )}
-                  {secondaryPoints.length > 1 && (
-                    <path
-                      d={linePath(secondaryPoints)}
-                      fill="none"
-                      stroke={chartColors.secondary}
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  )}
-                  {primaryPoints.map((point, index) => (
-                    <circle
-                      key={`primary-${index}`}
-                      cx={point.x}
-                      cy={point.y}
-                      r="2.8"
-                      fill="white"
-                      stroke={chartColors.primary}
-                      strokeWidth="1.5"
-                    />
-                  ))}
-                  {secondaryPoints.map((point, index) => (
-                    <circle
-                      key={`secondary-${index}`}
-                      cx={point.x}
-                      cy={point.y}
-                      r="2.4"
-                      fill="white"
-                      stroke={chartColors.secondary}
-                      strokeWidth="1.3"
-                    />
-                  ))}
-                  <text
-                    x={chartPadding}
-                    y="13"
-                    fill="currentColor"
-                    fillOpacity="0.45"
-                    fontSize="9"
-                    fontFamily="monospace"
-                  >
-                    {chartMinMax.max.toFixed(showImpedance ? 1 : 2)}
-                  </text>
-                  <text
-                    x={chartPadding}
-                    y={chartHeight - 4}
-                    fill="currentColor"
-                    fillOpacity="0.45"
-                    fontSize="9"
-                    fontFamily="monospace"
-                  >
-                    {chartMinMax.min.toFixed(showImpedance ? 1 : 2)}
-                  </text>
-                </svg>
+                </div>
                 <div className="flex flex-wrap items-center gap-4 text-[10px] text-neutral-500 dark:text-neutral-400 mt-1">
                   <span className="flex items-center gap-1.5">
                     <span
                       className="w-2.5 h-2.5 rounded-full"
                       style={{ backgroundColor: chartColors.primary }}
                     />
-                    {showImpedance ? '20 kHz 阻抗 (Ω)' : '肌肉量 (kg)'}
+                    左轴 · {showImpedance ? '20 kHz 阻抗 (Ω)' : '肌肉量 (kg)'}
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span
                       className="w-2.5 h-2.5 rounded-full"
                       style={{ backgroundColor: chartColors.secondary }}
                     />
-                    {showImpedance ? '100 kHz 阻抗 (Ω)' : '脂肪量 (kg)'}
+                    右轴 · {showImpedance ? '100 kHz 阻抗 (Ω)' : '脂肪量 (kg)'}
                   </span>
                   {displayedHistory.length > 1 && (
                     <span className="ml-auto font-mono">

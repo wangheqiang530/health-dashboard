@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.10)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.11)
 
 ## 1. 核心模块与实现状态
 
@@ -8,7 +8,7 @@
 | **体征走势 (Metrics Trend)** | Lucide + Recharts / SVG | ✅ 100% | 支持步数、活动能量、心率范围、静息心率、HRV（心率变异性）日/周/月跨度查看 |
 | **睡眠分析 (Sleep)** | Framer Motion + TS | ✅ 100% | 支持核心睡眠、深度睡眠、REM 快速眼动与清醒时间分期对比与规律性评分 |
 | **身体成分 (Body Composition)** | Fitdays API + Fastify | ✅ 100% | 13+ 整身指标、五部位肌脂、20 kHz / 100 kHz 双频阻抗与历史趋势 |
-| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 独立数据库查询、日期区间与快捷筛选、FIT 轨迹回填、单次活动完整明细 |
+| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 独立数据库查询、日期筛选、FIT 遥测回放、IF/NP/TSS/左右平衡、单次活动完整明细 |
 | **数据管道 (Ingestion Pipelines)**| Fastify + Adm-Zip + Zod | ✅ 100% | 支持 Health Auto Export (JSON/Zip/GPX)、Fitdays 定时拉取、iGPSPORT 批量同步 |
 | **首次启动向导 (Onboarding)** | React Modal + Wizard | ✅ 100% | 自动检测零数据状态，提供交互式 3 步向导引导配置 HAE、体脂秤与骑行码表 |
 | **实时诊断面板 (Live Diagnostics)**| API Health Endpoint | ✅ 100% | 实时检测 Webhook 连通性、最近同步包大小、时间戳与解析耗时 |
@@ -41,11 +41,12 @@
 - **构建验证**：前端 `pnpm build` 与服务端 `tsc` 校验 100% 通过，类型检查无错误。
 - **代码规范**：通过 `oxlint` 快速代码质量扫描。
 - **数据真实性**：HAE、Apple Health ZIP、FIT 与体脂详情均不再填充固定模拟值；缺数据时显示空状态。
-- **访问控制**：scrypt 密码哈希、随机初始密码文件、HttpOnly 会话 Cookie、可配置有效期；HAE Webhook 使用独立 `X-Api-Key`。
-- **FIT 解析**：使用 `@garmin/fitsdk` 解析实际会话、功率、心率区间与 GPS 轨迹。
+- **访问控制**：scrypt 密码哈希、本地明文密码找回文件、HttpOnly 会话 Cookie、配置中心可调保持时长；HAE Webhook 使用独立 `X-Api-Key`。
+- **FIT 解析**：使用 `@garmin/fitsdk` 解析实际会话、功率、心率、踏频、速度、左右平衡、GPS 与逐点遥测。
 - **真实数据回归**：冷备恢复后验证 `273` 次体测、`65` 次骑行、`78` 条统一训练记录；`65/65` 条骑行 FIT 已回填 GPS 轨迹。
-- **界面回归**：本地浏览器验证密码登录、刷新后会话保持、身体详情五部位、训练区间筛选与 OSM 地图轨迹渲染。
+- **遥测回归**：10 月 18 日骑行解析出 `907` 个轨迹点与 `907` 帧遥测；IF `1.05`、NP `210 W`、TSS `55.9`、左右平衡 `49/51`。
+- **界面回归**：本地浏览器验证日历底部测量明细、身体三项悬停趋势、双纵轴十字线、训练负荷明细、力量训练无速度框、可拖动播放条、四组同步曲线与服务端代理地图。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.10`（多平台构建，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.11`（多平台构建，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

@@ -24,7 +24,7 @@ type Message = { type: 'success' | 'error'; text: string } | null;
 
 export const SecuritySettings: React.FC = () => {
   const [settings, setSettings] = useState<AuthSettings | null>(null);
-  const [duration, setDuration] = useState<DashboardSessionDuration>('30d');
+  const [duration, setDuration] = useState<DashboardSessionDuration>('1d');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -89,7 +89,7 @@ export const SecuritySettings: React.FC = () => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setSettings((current) => (current ? { ...current, initialPasswordFile: null } : current));
+      setSettings(await fetchAuthSettings());
       setMessage({ type: 'success', text: result.message });
     } catch (error) {
       setMessage({
@@ -118,9 +118,9 @@ export const SecuritySettings: React.FC = () => {
         <div className="text-[11px] text-neutral-500 dark:text-neutral-400 rounded-xl bg-black/[0.02] dark:bg-white/[0.04] border border-black/5 dark:border-white/5 px-3 py-2">
           <span className="flex items-center gap-1.5">
             <FileKey2 className="w-3.5 h-3.5 text-amber-500" />
-            初始随机密码：
+            密码找回文件：
             <span className="font-mono text-neutral-700 dark:text-neutral-300 break-all">
-              {settings?.initialPasswordFile || '已由自定义密码替换 / 不可用'}
+              {settings?.passwordRecoveryFile || '尚未生成，请重新设置一次密码'}
             </span>
           </span>
         </div>
@@ -153,10 +153,13 @@ export const SecuritySettings: React.FC = () => {
           <div className="rounded-2xl border border-black/5 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.025] p-4">
             <div className="flex items-center gap-2 mb-3">
               <Clock3 className="w-4 h-4 text-sky-500" />
-              <h4 className="text-xs font-bold text-neutral-900 dark:text-white">默认会话有效期</h4>
+              <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
+                登录页“保持登录”时长
+              </h4>
             </div>
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed mb-3">
-              登录页仍可按次选择。这里设置的是下次登录的默认值，不影响当前已经建立的会话。
+              首次登录只显示“仅本次”和“保持登录”两个选项。这里设置“保持登录”对应的有效期，
+              不影响当前已经建立的会话。
             </p>
             <div className="grid grid-cols-2 gap-2">
               {settings.sessionDurations.map((option) => (
@@ -191,7 +194,7 @@ export const SecuritySettings: React.FC = () => {
               ) : (
                 <Save className="w-3.5 h-3.5" />
               )}
-              <span>{savingDuration ? '保存中...' : '保存默认有效期'}</span>
+              <span>{savingDuration ? '保存中...' : '保存登录有效期'}</span>
             </button>
           </div>
 
@@ -199,7 +202,7 @@ export const SecuritySettings: React.FC = () => {
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-4 h-4 text-amber-500" />
-                <h4 className="text-xs font-bold text-neutral-900 dark:text-white">修改面板密码</h4>
+                <h4 className="text-xs font-bold text-neutral-900 dark:text-white">修改面板密码与找回</h4>
               </div>
               <button
                 type="button"
@@ -210,6 +213,10 @@ export const SecuritySettings: React.FC = () => {
                 {showPasswords ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
             </div>
+            <p className="text-[10px] text-neutral-400 leading-relaxed mb-2">
+              修改或首次设置密码后，当前明文密码会写入宿主机
+              <span className="font-mono"> data/dashboard-password.txt</span>，用于本地找回。
+            </p>
             <div className="space-y-2.5">
               <input
                 type={showPasswords ? 'text' : 'password'}
