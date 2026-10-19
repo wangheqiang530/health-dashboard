@@ -25,8 +25,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
       icon: Flame,
       label: '动态能量',
       gradientId: 'moveGrad',
-      startColor: '#FF2D55',
-      endColor: '#FA114F',
+      glowColor: '#FA114F',
     },
     {
       key: 'exercise',
@@ -35,8 +34,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
       icon: Timer,
       label: '锻炼时间',
       gradientId: 'exerciseGrad',
-      startColor: '#B6FF3B',
-      endColor: '#99E834',
+      glowColor: '#A1FF00',
     },
     {
       key: 'stand',
@@ -45,8 +43,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
       icon: PersonStanding,
       label: '站立时间',
       gradientId: 'standGrad',
-      startColor: '#00F5D4',
-      endColor: '#00D0FF',
+      glowColor: '#00F5D4',
     },
   ];
 
@@ -97,23 +94,33 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
           >
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
               <defs>
-                <linearGradient id="moveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FF5277" />
-                  <stop offset="100%" stopColor="#FA114F" />
+                {/* Apple Official Move Gradient: Coral-Red to Hot Pink/Crimson */}
+                <linearGradient id="moveGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#FF3366" />
+                  <stop offset="30%" stopColor="#FF4955" />
+                  <stop offset="70%" stopColor="#FF1447" />
+                  <stop offset="100%" stopColor="#D60036" />
                 </linearGradient>
-                <linearGradient id="exerciseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#CCFF00" />
-                  <stop offset="100%" stopColor="#99E834" />
+
+                {/* Apple Official Exercise Gradient: Chartreuse to Electric Lime */}
+                <linearGradient id="exerciseGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#E4FF00" />
+                  <stop offset="50%" stopColor="#A1FF00" />
+                  <stop offset="100%" stopColor="#6EE000" />
                 </linearGradient>
-                <linearGradient id="standGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+
+                {/* Apple Official Stand Gradient: Cyan to Electric Blue */}
+                <linearGradient id="standGrad" x1="100%" y1="0%" x2="0%" y2="100%">
                   <stop offset="0%" stopColor="#00F5D4" />
-                  <stop offset="100%" stopColor="#00C4FF" />
+                  <stop offset="50%" stopColor="#00D2FF" />
+                  <stop offset="100%" stopColor="#0077FE" />
                 </linearGradient>
-                <filter id="ringCapShadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="2" dy="2" stdDeviation="2.5" floodColor="#000" floodOpacity="0.4" />
-                </filter>
-                <filter id="leadingCapShadow" x="-60%" y="-60%" width="220%" height="220%">
-                  <feDropShadow dx="-1.5" dy="2" stdDeviation="3" floodColor="#000000" floodOpacity="0.9" />
+
+                {/* Radial Depth Shadow for Overlapping Cap */}
+                <filter id="lapCapShadow" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="3.2" result="blur" />
+                  <feColorMatrix type="matrix" values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.85 0" />
+                  <feBlend in="SourceGraphic" in2="blur" mode="normal" />
                 </filter>
                 <filter id="glowMove" x="-30%" y="-30%" width="160%" height="160%">
                   <feGaussianBlur stdDeviation="3.5" result="blur" />
@@ -157,11 +164,22 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
               {ringConfigs.map((cfg, idx) => {
                 const circumference = 2 * Math.PI * cfg.radius;
                 const ratio = cfg.ring.current / Math.max(cfg.ring.goal, 1);
-                const strokeDashoffset = circumference * (1 - Math.min(ratio, 1));
+                const baseOffset = circumference * (1 - Math.min(ratio, 1));
                 const isHovered = hoveredRing === cfg.key;
                 const isDimmed = hoveredRing !== null && !isHovered;
                 const currentStroke = isHovered ? strokeWidth + 4 : strokeWidth;
                 const glowFilter = cfg.key === 'move' ? 'url(#glowMove)' : cfg.key === 'exercise' ? 'url(#glowExercise)' : 'url(#glowStand)';
+
+                // Overlap calculation
+                const hasOverlap = ratio > 1;
+                const overlapRatio = hasOverlap ? Math.min(ratio - 1, 0.999) : 0;
+                const overlapOffset = circumference * (1 - overlapRatio);
+
+                // Polar coordinates in rotated SVG:
+                // Angle 0 in SVG space corresponds to 12 o'clock on screen due to rotate-[-90deg].
+                const headAngle = overlapRatio * 2 * Math.PI;
+                const headX = center + cfg.radius * Math.cos(headAngle);
+                const headY = center + cfg.radius * Math.sin(headAngle);
 
                 return (
                   <g
@@ -173,6 +191,7 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                     opacity={isDimmed ? 0.35 : 1}
                     style={{ transition: 'opacity 0.25s ease, filter 0.25s ease' }}
                   >
+                    {/* Base Ring Lap 1 (0 to 100%) */}
                     <motion.circle
                       cx={center}
                       cy={center}
@@ -183,53 +202,52 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                       strokeLinecap="round"
                       strokeDasharray={circumference}
                       initial={{ strokeDashoffset: circumference }}
-                      animate={{ strokeDashoffset }}
+                      animate={{ strokeDashoffset: baseOffset }}
                       transition={{ duration: 1.6, delay: idx * 0.15, ease: [0.16, 1, 0.3, 1] }}
                     />
-                    {ratio > 1 && (
-                      (() => {
-                        const overlapRatio = Math.min(ratio - 1, 0.999);
-                        const headAngleRad = overlapRatio * 2 * Math.PI;
-                        const headX = center + cfg.radius * Math.cos(headAngleRad);
-                        const headY = center + cfg.radius * Math.sin(headAngleRad);
-                        return (
-                          <g>
-                            <motion.circle
-                              cx={center}
-                              cy={center}
-                              r={cfg.radius}
-                              stroke={`url(#${cfg.gradientId})`}
-                              strokeWidth={currentStroke}
-                              fill="none"
-                              strokeLinecap="round"
-                              strokeDasharray={circumference}
-                              initial={{ strokeDashoffset: circumference }}
-                              animate={{ strokeDashoffset: circumference * (1 - overlapRatio) }}
-                              transition={{ duration: 1.6, delay: 0.5 + idx * 0.1, ease: 'easeOut' }}
-                            />
-                            {/* Deep Drop Shadow behind the overlapping head to clearly terminate the lap */}
-                            <circle
-                              cx={headX}
-                              cy={headY}
-                              r={currentStroke / 2}
-                              fill="#000000"
-                              filter="url(#leadingCapShadow)"
-                              pointerEvents="none"
-                            />
-                            {/* Foreground Overlapping Cap disk */}
-                            <circle
-                              cx={headX}
-                              cy={headY}
-                              r={currentStroke / 2}
-                              fill={cfg.endColor}
-                              stroke="rgba(0,0,0,0.35)"
-                              strokeWidth="0.8"
-                              pointerEvents="none"
-                            />
-                          </g>
-                        );
-                      })()
+
+                    {/* Overlap Lap 2 (> 100%) with Realistic Apple Shadow */}
+                    {hasOverlap && (
+                      <g>
+                        {/* 1. Overlapping Stroke Arc on top */}
+                        <motion.circle
+                          cx={center}
+                          cy={center}
+                          r={cfg.radius}
+                          stroke={`url(#${cfg.gradientId})`}
+                          strokeWidth={currentStroke}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={circumference}
+                          initial={{ strokeDashoffset: circumference }}
+                          animate={{ strokeDashoffset: overlapOffset }}
+                          transition={{ duration: 1.6, delay: 0.4 + idx * 0.1, ease: 'easeOut' }}
+                        />
+
+                        {/* 2. Apple watchOS Depth Shadow beneath the leading end cap */}
+                        <circle
+                          cx={headX}
+                          cy={headY}
+                          r={currentStroke * 0.52}
+                          fill="#000000"
+                          filter="url(#lapCapShadow)"
+                          opacity="0.75"
+                          pointerEvents="none"
+                        />
+
+                        {/* 3. Terminal End Cap Disk resting firmly on top of the shadow */}
+                        <circle
+                          cx={headX}
+                          cy={headY}
+                          r={currentStroke * 0.5}
+                          fill={cfg.glowColor}
+                          stroke="rgba(0,0,0,0.25)"
+                          strokeWidth="0.8"
+                          pointerEvents="none"
+                        />
+                      </g>
                     )}
+
                     {/* Transparent hover hit target to ensure effortless mouse interaction */}
                     <circle
                       cx={center}
@@ -275,18 +293,18 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                       : 'bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.04] dark:hover:bg-white/[0.06] border border-black/[0.05] dark:border-white/[0.05]'
                   }`}
                   style={{
-                    borderColor: isHovered ? `${cfg.endColor}80` : undefined,
-                    backgroundColor: isHovered ? `${cfg.endColor}15` : undefined,
-                    boxShadow: isHovered ? `0 10px 25px -5px ${cfg.endColor}30` : undefined,
+                    borderColor: isHovered ? `${cfg.glowColor}80` : undefined,
+                    backgroundColor: isHovered ? `${cfg.glowColor}15` : undefined,
+                    boxShadow: isHovered ? `0 10px 25px -5px ${cfg.glowColor}30` : undefined,
                   }}
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="flex items-center gap-2">
                       <div
                         className="p-1.5 rounded-lg"
-                        style={{ backgroundColor: `${cfg.endColor}20` }}
+                        style={{ backgroundColor: `${cfg.glowColor}20` }}
                       >
-                        <Icon className="w-4 h-4" style={{ color: cfg.endColor }} />
+                        <Icon className="w-4 h-4" style={{ color: cfg.glowColor }} />
                       </div>
                       <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
                         {cfg.label}
@@ -309,14 +327,14 @@ export const AppleRingsCard: React.FC<AppleRingsCardProps> = ({ rings, onRingCli
                       animate={{ width: `${Math.min(percent, 100)}%` }}
                       transition={{ duration: 1.4, ease: 'easeOut' }}
                       className="h-full rounded-full"
-                      style={{ backgroundColor: cfg.endColor }}
+                      style={{ backgroundColor: cfg.glowColor }}
                     />
                   </div>
                   <div className="flex justify-between items-center mt-1 text-[11px] text-neutral-400">
                     <span>达成率</span>
                     <span
                       className="font-semibold"
-                      style={{ color: percent >= 100 ? cfg.endColor : undefined }}
+                      style={{ color: percent >= 100 ? cfg.glowColor : undefined }}
                     >
                       {percent}%
                     </span>

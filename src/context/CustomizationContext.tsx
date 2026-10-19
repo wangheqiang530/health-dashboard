@@ -7,6 +7,8 @@ export interface LiquidBackgroundSettings {
   blurPx: number; // 60px to 220px
   opacity: number; // 0.1 to 1.0
   brightness: number; // 0.4 to 2.0
+  vibrancy: number; // 0.3 to 1.0
+  saturation: number; // 100 to 250
   preset: LiquidColorPreset;
   color1: string;
   color2: string;
@@ -72,6 +74,8 @@ const DEFAULT_LIQUID: LiquidBackgroundSettings = {
   blurPx: 140,
   opacity: 0.75,
   brightness: 1.0,
+  vibrancy: 0.85,
+  saturation: 160,
   preset: 'aurora',
   color1: '#FA114F',
   color2: '#00F5D4',

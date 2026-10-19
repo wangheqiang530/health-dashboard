@@ -71,7 +71,7 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
   const chronicD = coordsChronic.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
 
   return (
-    <AppleCard className="overflow-hidden border border-indigo-500/20 bg-gradient-to-br from-indigo-950/20 via-black/40 to-black/60">
+    <AppleCard className="overflow-hidden border border-indigo-500/25 bg-gradient-to-br from-indigo-500/[0.04] via-indigo-500/[0.01] to-transparent dark:from-indigo-950/20 dark:via-black/40 dark:to-black/60">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-2.5">
           <div className="p-2.5 rounded-2xl bg-gradient-to-tr from-indigo-500 to-sky-400 text-white shadow-md shadow-indigo-500/20">
@@ -86,7 +86,7 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
                 {statusBadge}
               </span>
             </div>
-            <p className="text-xs text-neutral-400 mt-0.5">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
               对标 iOS 18 健身算法 · 综合 7 天急性疲劳与 28 天慢性体能基线比率
             </p>
           </div>
@@ -94,8 +94,8 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
 
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <span className="text-[10px] text-neutral-400 block font-mono">负荷负荷比率 (Strain Ratio)</span>
-            <span className="text-2xl font-black font-mono text-white flex items-baseline justify-end gap-1">
+            <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block font-mono">负荷应激比率 (Strain Ratio)</span>
+            <span className="text-2xl font-black font-mono text-neutral-900 dark:text-white flex items-baseline justify-end gap-1">
               {loadRatio} <span className="text-xs font-normal text-emerald-400">× 基线</span>
             </span>
           </div>
@@ -105,41 +105,41 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
         {/* Left: Metrics & Status Breakdown */}
         <div className="lg:col-span-7 space-y-3">
-          <p className="text-xs text-neutral-300 leading-relaxed m-0 bg-white/[0.03] p-3 rounded-2xl border border-white/5">
-            <span className="font-bold text-white mr-1.5">{statusText}:</span>
+          <p className="text-xs text-neutral-700 dark:text-neutral-300 leading-relaxed m-0 bg-black/[0.02] dark:bg-white/[0.03] p-3 rounded-2xl border border-black/5 dark:border-white/5">
+            <span className="font-bold text-neutral-900 dark:text-white mr-1.5">{statusText}:</span>
             {statusSubtext}
           </p>
 
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-400 block mb-0.5">7 日急性负荷</span>
-              <span className="text-lg font-black font-mono text-white block">
-                {acuteLoadScore} <span className="text-[10px] font-normal text-neutral-400">pts</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">7 日急性负荷</span>
+              <span className="text-lg font-black font-mono text-neutral-900 dark:text-white block">
+                {acuteLoadScore} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">pts</span>
               </span>
               <span className="text-[9px] text-emerald-400 font-mono mt-0.5 block">近期训练消耗累计</span>
             </div>
 
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-400 block mb-0.5">28 日长期基准</span>
-              <span className="text-lg font-black font-mono text-neutral-300 block">
-                {baseline28DayScore} <span className="text-[10px] font-normal text-neutral-400">pts</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">28 日长期基准</span>
+              <span className="text-lg font-black font-mono text-neutral-800 dark:text-neutral-300 block">
+                {baseline28DayScore} <span className="text-[10px] font-normal text-neutral-500 dark:text-neutral-400">pts</span>
               </span>
-              <span className="text-[9px] text-neutral-400 font-mono mt-0.5 block">机能适应稳态</span>
+              <span className="text-[9px] text-neutral-500 dark:text-neutral-400 font-mono mt-0.5 block">机能适应稳态</span>
             </div>
 
             <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
-              <span className="text-[10px] text-neutral-400 block mb-0.5">均次努力程度</span>
+              <span className="text-[10px] text-neutral-500 dark:text-neutral-400 block mb-0.5">均次努力程度</span>
               <span className="text-lg font-black font-mono text-amber-400 block">
                 7.2 <span className="text-[10px] font-normal text-neutral-400">/ 10</span>
               </span>
-              <span className="text-[9px] text-amber-300 font-mono mt-0.5 block">适度中等偏高</span>
+              <span className="text-[9px] text-amber-500 dark:text-amber-300 font-mono mt-0.5 block">适度中等偏高</span>
             </div>
           </div>
         </div>
 
         {/* Right: Dual-Layer Spline Trend Line Chart */}
-        <div className="lg:col-span-5 p-3 rounded-2xl bg-black/40 border border-white/5 space-y-2">
-          <div className="flex items-center justify-between text-[11px] text-neutral-400 font-mono">
+        <div className="lg:col-span-5 p-3 rounded-2xl bg-black/[0.03] dark:bg-black/40 border border-black/5 dark:border-white/5 space-y-2">
+          <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400 font-mono">
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-1 rounded-full bg-cyan-400" />
               <span>7 日急性负荷</span>
@@ -162,7 +162,7 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
             </svg>
           </div>
 
-          <div className="flex justify-between items-center text-[9px] text-neutral-500 font-mono px-1">
+          <div className="flex justify-between items-center text-[9px] text-neutral-400 dark:text-neutral-500 font-mono px-1">
             <span>28天前</span>
             <span>两周前</span>
             <span>今天</span>

@@ -328,6 +328,50 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                 <span>高亮 (200%)</span>
               </div>
             </div>
+
+            {/* Vibrancy Slider (User Main Request - clearer background) */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-neutral-600 dark:text-neutral-300 font-medium">光晕色彩浓度与穿透力</span>
+                <span className="font-mono font-bold text-neutral-900 dark:text-white">{Math.round((liquid.vibrancy ?? 0.85) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.3"
+                max="1.0"
+                step="0.05"
+                value={liquid.vibrancy ?? 0.85}
+                onChange={(e) => updateLiquid({ vibrancy: parseFloat(e.target.value) })}
+                className="w-full accent-rose-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-400 mt-0.5">
+                <span>朦胧漫射 (30%)</span>
+                <span>清透鲜明 (85%)</span>
+                <span>纯粹浓郁 (100%)</span>
+              </div>
+            </div>
+
+            {/* Saturation Slider */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-neutral-600 dark:text-neutral-300 font-medium">流光色彩饱和度</span>
+                <span className="font-mono font-bold text-neutral-900 dark:text-white">{liquid.saturation ?? 160}%</span>
+              </div>
+              <input
+                type="range"
+                min="100"
+                max="260"
+                step="10"
+                value={liquid.saturation ?? 160}
+                onChange={(e) => updateLiquid({ saturation: parseInt(e.target.value, 10) })}
+                className="w-full accent-purple-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-400 mt-0.5">
+                <span>自然 (100%)</span>
+                <span>鲜亮 (160%)</span>
+                <span>炫彩极光 (260%)</span>
+              </div>
+            </div>
           </div>
         </AppleCard>
 

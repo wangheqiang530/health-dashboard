@@ -4,7 +4,6 @@ import type { DailySummary, WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
 import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
-import { PowerDurationCurveCard } from '../dashboard/PowerDurationCurveCard';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { uploadFitFile } from '../../api/healthApi';
 import {
@@ -267,9 +266,6 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ days }) => {
 
       {/* iOS 18 Training Load Bento Module (User Requirement) */}
       <AppleTrainingLoadCard workouts={allWorkouts} />
-
-      {/* Cycling Power Duration Curve (PDC / MMP) */}
-      <PowerDurationCurveCard workouts={allWorkouts} />
 
       {/* Filter Tabs & Expandable Workouts List */}
       <AppleCard>

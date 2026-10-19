@@ -280,7 +280,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 p-0.5 shadow-xl shadow-amber-500/20 flex-shrink-0">
-              <div className="w-full h-full rounded-[22px] bg-neutral-950 dark:bg-neutral-950 light:bg-white flex items-center justify-center">
+              <div className="w-full h-full rounded-[22px] bg-white dark:bg-neutral-950 flex items-center justify-center">
                 <Scale className="w-10 h-10 text-amber-500" />
               </div>
             </div>
@@ -423,7 +423,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                     initial={{ opacity: 0, y: 6, scale: 0.96 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 6, scale: 0.96 }}
-                    className="absolute left-0 right-0 bottom-full mb-2 z-40 p-3 rounded-2xl bg-neutral-950/95 text-white border border-white/25 shadow-2xl backdrop-blur-2xl pointer-events-none"
+                    className="absolute left-0 right-0 bottom-full mb-2 z-40 p-3 rounded-2xl bg-white/95 dark:bg-neutral-950/95 text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 shadow-2xl backdrop-blur-2xl pointer-events-none"
                   >
                     <div className="flex items-center justify-between text-[11px] mb-1.5 font-bold text-amber-400">
                       <span>7 日折线趋势 ({item.unit})</span>
@@ -457,7 +457,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                       })()}
                     </div>
 
-                    <div className="flex justify-between items-center text-[8px] text-neutral-400 font-mono mt-1 px-1">
+                    <div className="flex justify-between items-center text-[8px] text-neutral-500 dark:text-neutral-400 font-mono mt-1 px-1">
                       <span>10-11 ({item.sevenDay[0]})</span>
                       <span>今天 ({item.sevenDay[item.sevenDay.length - 1]})</span>
                     </div>

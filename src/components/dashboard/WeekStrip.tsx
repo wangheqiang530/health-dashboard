@@ -12,73 +12,171 @@ interface WeekStripProps {
 }
 
 const MiniTriRings: React.FC<{ rings: ActivityRings; isSelected: boolean }> = ({ rings }) => {
-  const size = 36;
+  const size = 38;
   const center = size / 2;
-  const strokeWidth = 2.5;
+  const strokeWidth = 2.8;
 
   const moveR = 14;
   const moveC = 2 * Math.PI * moveR;
   const moveRatio = rings.move.current / Math.max(rings.move.goal, 1);
-  const moveOffset = moveC * (1 - Math.min(moveRatio, 1));
+  const moveOverlap = moveRatio > 1 ? Math.min(moveRatio - 1, 0.999) : 0;
 
   const exerciseR = 10.5;
   const exerciseC = 2 * Math.PI * exerciseR;
   const exerciseRatio = rings.exercise.current / Math.max(rings.exercise.goal, 1);
-  const exerciseOffset = exerciseC * (1 - Math.min(exerciseRatio, 1));
+  const exerciseOverlap = exerciseRatio > 1 ? Math.min(exerciseRatio - 1, 0.999) : 0;
 
-  const standR = 7;
+  const standR = 7.0;
   const standC = 2 * Math.PI * standR;
   const standRatio = rings.stand.current / Math.max(rings.stand.goal, 1);
-  const standOffset = standC * (1 - Math.min(standRatio, 1));
+  const standOverlap = standRatio > 1 ? Math.min(standRatio - 1, 0.999) : 0;
 
   return (
-    <div className="relative w-9 h-9 flex items-center justify-center my-1.5">
+    <div className="relative w-10 h-10 flex items-center justify-center my-1">
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="rotate-[-90deg]">
+        <defs>
+          <linearGradient id="miniMoveGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#FF3366" />
+            <stop offset="100%" stopColor="#FA114F" />
+          </linearGradient>
+          <linearGradient id="miniExerciseGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#E4FF00" />
+            <stop offset="100%" stopColor="#A1FF00" />
+          </linearGradient>
+          <linearGradient id="miniStandGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#00F5D4" />
+            <stop offset="100%" stopColor="#00A3FF" />
+          </linearGradient>
+          <filter id="miniCapShadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+          </filter>
+        </defs>
+
         {/* Background Tracks */}
         <circle cx={center} cy={center} r={moveR} stroke="rgba(250, 17, 79, 0.25)" strokeWidth={strokeWidth} fill="none" />
         <circle cx={center} cy={center} r={exerciseR} stroke="rgba(161, 255, 0, 0.25)" strokeWidth={strokeWidth} fill="none" />
         <circle cx={center} cy={center} r={standR} stroke="rgba(0, 245, 212, 0.25)" strokeWidth={strokeWidth} fill="none" />
 
         {/* Animated Active Arcs */}
+        {/* Move Ring */}
         <motion.circle
           cx={center}
           cy={center}
           r={moveR}
-          stroke="#FA114F"
+          stroke="url(#miniMoveGrad)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           fill="none"
           strokeDasharray={moveC}
           initial={{ strokeDashoffset: moveC }}
-          animate={{ strokeDashoffset: moveOffset }}
+          animate={{ strokeDashoffset: moveC * (1 - Math.min(moveRatio, 1)) }}
           transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
         />
+        {moveOverlap > 0 && (
+          <g>
+            <motion.circle
+              cx={center}
+              cy={center}
+              r={moveR}
+              stroke="url(#miniMoveGrad)"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={moveC}
+              initial={{ strokeDashoffset: moveC }}
+              animate={{ strokeDashoffset: moveC * (1 - moveOverlap) }}
+              transition={{ duration: 1.2, delay: 0.3, ease: 'easeOut' }}
+            />
+            <circle
+              cx={center + moveR * Math.cos(moveOverlap * 2 * Math.PI)}
+              cy={center + moveR * Math.sin(moveOverlap * 2 * Math.PI)}
+              r={strokeWidth * 0.5}
+              fill="#FA114F"
+              stroke="rgba(0,0,0,0.5)"
+              strokeWidth="0.5"
+            />
+          </g>
+        )}
+
+        {/* Exercise Ring */}
         <motion.circle
           cx={center}
           cy={center}
           r={exerciseR}
-          stroke="#A1FF00"
+          stroke="url(#miniExerciseGrad)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           fill="none"
           strokeDasharray={exerciseC}
           initial={{ strokeDashoffset: exerciseC }}
-          animate={{ strokeDashoffset: exerciseOffset }}
+          animate={{ strokeDashoffset: exerciseC * (1 - Math.min(exerciseRatio, 1)) }}
           transition={{ duration: 1.2, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
         />
+        {exerciseOverlap > 0 && (
+          <g>
+            <motion.circle
+              cx={center}
+              cy={center}
+              r={exerciseR}
+              stroke="url(#miniExerciseGrad)"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={exerciseC}
+              initial={{ strokeDashoffset: exerciseC }}
+              animate={{ strokeDashoffset: exerciseC * (1 - exerciseOverlap) }}
+              transition={{ duration: 1.2, delay: 0.4, ease: 'easeOut' }}
+            />
+            <circle
+              cx={center + exerciseR * Math.cos(exerciseOverlap * 2 * Math.PI)}
+              cy={center + exerciseR * Math.sin(exerciseOverlap * 2 * Math.PI)}
+              r={strokeWidth * 0.5}
+              fill="#A1FF00"
+              stroke="rgba(0,0,0,0.5)"
+              strokeWidth="0.5"
+            />
+          </g>
+        )}
+
+        {/* Stand Ring */}
         <motion.circle
           cx={center}
           cy={center}
           r={standR}
-          stroke="#00F5D4"
+          stroke="url(#miniStandGrad)"
           strokeWidth={strokeWidth}
           strokeLinecap="round"
           fill="none"
           strokeDasharray={standC}
           initial={{ strokeDashoffset: standC }}
-          animate={{ strokeDashoffset: standOffset }}
+          animate={{ strokeDashoffset: standC * (1 - Math.min(standRatio, 1)) }}
           transition={{ duration: 1.2, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
         />
+        {standOverlap > 0 && (
+          <g>
+            <motion.circle
+              cx={center}
+              cy={center}
+              r={standR}
+              stroke="url(#miniStandGrad)"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray={standC}
+              initial={{ strokeDashoffset: standC }}
+              animate={{ strokeDashoffset: standC * (1 - standOverlap) }}
+              transition={{ duration: 1.2, delay: 0.5, ease: 'easeOut' }}
+            />
+            <circle
+              cx={center + standR * Math.cos(standOverlap * 2 * Math.PI)}
+              cy={center + standR * Math.sin(standOverlap * 2 * Math.PI)}
+              r={strokeWidth * 0.5}
+              fill="#00F5D4"
+              stroke="rgba(0,0,0,0.5)"
+              strokeWidth="0.5"
+            />
+          </g>
+        )}
       </svg>
     </div>
   );
