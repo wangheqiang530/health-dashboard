@@ -7,14 +7,14 @@
 
 ## 1. 项目基本概况
 
-- **当前版本**：`v0.0.11`
+- **当前版本**：`v0.0.12`
 - **定位**：全功能私有化人体健康数据大盘（“人体探针”），基于苹果原生健康（Apple Health）精致质感设计，整合手机日常生理指标、Apple Watch 运动体征、Fitdays 智能体脂秤体成分，以及 iGPSPORT 专业骑行码表数据。
 - **核心架构**：
   - **前端**：React 19 + TypeScript + Vite + Tailwind CSS v4 + Lucide React + Framer Motion
   - **后端**：Node.js 22 (TSX) + Fastify v5 + node-cron + undici
   - **数据库**：PostgreSQL 16 Alpine
   - **部署形态**：Docker Compose 容器化部署（支持纯字面量无环境依赖启动）
-  - **官方镜像**：`wangheqiang/health-dashboard:0.0.11`
+  - **官方镜像**：`wangheqiang/health-dashboard:0.0.12`
   - **GitHub 仓库**：`https://github.com/wangheqiang530/health-dashboard.git`
 
 ---
@@ -71,7 +71,7 @@ data/
 
 ---
 
-## 5. 项目已完成功能与进度 (截至 v0.0.11)
+## 5. 项目已完成功能与进度 (截至 v0.0.12)
 
 - [x] **原生苹果风格 UI**：运动三环（活动、锻炼、站立）、心率趋势、睡眠深度分期、体重与体脂曲线、骑行里程与路线轨迹图。
 - [x] **首次使用向导 (First-Launch Wizard)**：初次进入或数据库为空时自动引导配置数据源，附带各数据源详细教程及快速诊断。
@@ -88,6 +88,7 @@ data/
 - [x] **体测多次测量**：同一天多次 Fitdays 测量默认取最新一次，并在身体详情提供时间/体重明细切换。
 - [x] **官方三环着色器**：主圆环与七日迷你圆环共用 WebGL ActivityRingsVisual。
 - [x] **真实 FIT 解析**：使用 Garmin FIT SDK 读取会话、功率、心率区间与 GPS 轨迹。
+- [x] **趋势交互细化**：睡眠分期悬停读数、身体指标周期联动趋势、最高/最低点标注与心率图无点十字导航。
 
 ---
 

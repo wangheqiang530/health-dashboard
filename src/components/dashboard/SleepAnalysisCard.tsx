@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import type { SleepAnalysis, DailySummary } from '../../types/health';
+import React, { useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { SleepAnalysis, DailySummary, SleepStageSegment } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { Moon, Wind, HeartPulse, Clock, Sparkles } from 'lucide-react';
 
@@ -20,6 +20,13 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
   const [activeStage, setActiveStage] = useState<string | null>(null);
   const [activeSpan, setActiveSpan] = useState<'day' | 'week'>('day');
   const [hoveredWeekDay, setHoveredWeekDay] = useState<DailySummary | null>(null);
+  const [hoveredSegment, setHoveredSegment] = useState<{
+    segment: SleepStageSegment;
+    label: string;
+    color: string;
+    xPercent: number;
+  } | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
 
   const hours = Math.floor(sleep.totalMinutes / 60);
   const minutes = sleep.totalMinutes % 60;
@@ -33,6 +40,34 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
 
   const totalStageMinutes =
     sleep.stages.awake + sleep.stages.rem + sleep.stages.core + sleep.stages.deep;
+
+  const formatClockOffset = (baseTime: string, offsetMinutes: number): string => {
+    const [hours, minutes] = baseTime.split(':').map(Number);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return '—';
+    const total = ((hours * 60 + minutes + offsetMinutes) % 1440 + 1440) % 1440;
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  };
+
+  const handleTimelineHover = (
+    event: React.MouseEvent<HTMLElement>,
+    segment: SleepStageSegment,
+    label: string,
+    color: string
+  ) => {
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const xPercent = Math.min(
+      88,
+      Math.max(12, ((event.clientX - rect.left) / rect.width) * 100)
+    );
+    setActiveStage(segment.stage);
+    setHoveredSegment({ segment, label, color, xPercent });
+  };
+
+  const clearTimelineHover = () => {
+    setActiveStage(null);
+    setHoveredSegment(null);
+  };
 
   // Extract recent 7 days for the weekly stacked chart
   const recentDaysList: DailySummary[] = days
@@ -131,8 +166,12 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             </div>
 
             {/* Hypnogram / Multi-segment Sleep Stage Timeline */}
-            <div className="mb-4">
-              <div className="relative w-full h-8 rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5">
+            <div className="relative mb-4">
+              <div
+                ref={timelineRef}
+                className="relative w-full h-8 rounded-xl overflow-hidden bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5"
+                onMouseLeave={clearTimelineHover}
+              >
                 {sleep.timeline.length > 0
                   ? sleep.timeline.map((seg, idx) => {
                       const widthPct =
@@ -143,8 +182,14 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                       return (
                         <motion.div
                           key={idx}
-                          onMouseEnter={() => setActiveStage(seg.stage)}
-                          onMouseLeave={() => setActiveStage(null)}
+                          onMouseMove={(event) =>
+                            handleTimelineHover(
+                              event,
+                              seg,
+                              stageCfg?.label || '睡眠分期',
+                              stageCfg?.color || '#888'
+                            )
+                          }
                           style={{
                             width: `${widthPct}%`,
                             backgroundColor: stageCfg?.color || '#888',
@@ -158,6 +203,18 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                   : stageConfigs.map((cfg) => (
                       <div
                         key={cfg.key}
+                        onMouseMove={(event) =>
+                          handleTimelineHover(
+                            event,
+                            {
+                              stage: cfg.key as SleepStageSegment['stage'],
+                              startMinutes: 0,
+                              durationMinutes: cfg.minutes,
+                            },
+                            cfg.label,
+                            cfg.color
+                          )
+                        }
                         style={{
                           width: `${(cfg.minutes / Math.max(totalStageMinutes, 1)) * 100}%`,
                           backgroundColor: cfg.color,
@@ -167,6 +224,51 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                       />
                     ))}
               </div>
+
+              <AnimatePresence>
+                {hoveredSegment && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                    transition={{ duration: 0.12 }}
+                    style={{ left: `${hoveredSegment.xPercent}%` }}
+                    className="pointer-events-none absolute top-0 z-30 w-[210px] -translate-x-1/2 -translate-y-[calc(100%+8px)] rounded-xl border border-white/20 bg-neutral-950/95 px-3 py-2 text-white shadow-2xl backdrop-blur-2xl"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: hoveredSegment.color }}
+                        />
+                        {hoveredSegment.label}
+                      </span>
+                      <span className="font-mono text-sm font-bold" style={{ color: hoveredSegment.color }}>
+                        {hoveredSegment.segment.durationMinutes}m
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-neutral-400">
+                      <span>
+                        {formatClockOffset(sleep.bedTime, hoveredSegment.segment.startMinutes)}
+                        {' - '}
+                        {formatClockOffset(
+                          sleep.bedTime,
+                          hoveredSegment.segment.startMinutes +
+                            hoveredSegment.segment.durationMinutes
+                        )}
+                      </span>
+                      <span>
+                        {Math.round(
+                          (hoveredSegment.segment.durationMinutes /
+                            Math.max(totalStageMinutes, 1)) *
+                            100
+                        )}
+                        %
+                      </span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Time Axis Labels */}
               <div className="flex justify-between items-center text-[10px] text-neutral-400 mt-1 px-1 font-mono">

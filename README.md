@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.11-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v0.0.12-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -11,15 +11,15 @@
 
 ![综合看板预览](docs/images/overview.png)
 
-## 🆕 v0.0.11 更新
+## 🆕 v0.0.12 更新
 
-- **密码找回**：首次登录只显示“仅本次”和“保持登录”两个选项；保持登录时长在配置中心调整。当前明文密码同步写入 `data/dashboard-password.txt`，忘记密码时可直接在宿主机查看。
-- **身体详情交互**：日历底部逐行展示当日测量明细；体重、体脂率、去脂瘦体重分别支持悬停趋势；五部位趋势改为独立双纵轴并加入十字线与数值明细。
-- **训练负荷重排**：重新设计 7 日负荷与 28 日基线卡片，修复拥挤布局，加入悬停十字线、每日明细与更清晰的状态反馈。
-- **训练逻辑修正**：力量训练不再显示速度、距离等骑行指标；Apple Watch 训练热量从原始 `activeEnergyBurned` 字段回填。
-- **骑行遥测回放**：FIT 逐点解析心率、踏频、功率、速度、左右平衡与 GPS；播放条可拖动，四组折线图与地图光点同步。
-- **骑行指标解释**：详情新增 IF、NP、TSS 与左右平衡，并提供悬停名词解释。
-- **地图稳定性**：OpenStreetMap / CARTO 瓦片改由面板服务端代理并本地缓存，浏览器不再直连瓦片服务，仍不需要 API Key。
+- **睡眠悬停读数**：睡眠分期时间轴恢复鼠标跟随浮层，实时展示分期名称、起止时间、时长与占比。
+- **身体详情精简**：移除顶部“当日测量明细”重复区块，保留日历中的历史测量切换。
+- **周期趋势联动**：体重、体脂率、去脂瘦体重及八项体脂秤指标的悬浮趋势跟随顶部周期，支持当日、近 7 天、近 30 天、近一季与近半年。
+- **趋势明细增强**：悬浮图新增十字读数、最高点、最低点及对应日期；自动过滤缺失项返回的 `0` 值，避免趋势线异常下探。
+- **悬浮层层级修复**：身体详情趋势卡提升至页面顶层，不再被后续指标卡遮挡。
+- **心率图精简**：24 小时心率曲线移除静态采样点，保留鼠标十字导航与实时读数。
+- **心率区间说明**：Apple Health 汇总记录缺少心率区间字段时明确标注“数据源未提供”，区分数据源限制与读取失败。
 
 ---
 
@@ -73,7 +73,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.11
+    image: wangheqiang/health-dashboard:0.0.12
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -236,7 +236,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:0.0.11
+    image: wangheqiang/health-dashboard:0.0.12
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -252,7 +252,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 365
-      APP_VERSION: 0.0.11
+      APP_VERSION: 0.0.12
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -343,7 +343,7 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `0.0.11` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `0.0.12` | 当前发布的容器镜像版本号 |
 | `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
 | `BACKUP_RETENTION_DAYS` | `365` | 本地原始备份（ZIP / gzip / FIT）滚动保留天数（默认 1 年） |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |

@@ -10,6 +10,7 @@ export interface Metric30DayModalData {
   eval: string;
   standard: string;
   points: { date: string; value: number }[];
+  periodLabel?: string;
 }
 
 interface Metric30DayModalProps {
@@ -77,7 +78,7 @@ export const Metric30DayModal: React.FC<Metric30DayModalProps> = ({ data, onClos
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1">
-            {data.title} · 最近 30 日连续走势
+            {data.title} · {data.periodLabel || '最近 30 日'}连续走势
           </h2>
           <div className="flex items-baseline gap-2 mb-4">
             <span className="text-3xl font-black font-mono text-amber-400">{data.current}</span>

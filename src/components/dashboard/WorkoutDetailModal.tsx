@@ -31,6 +31,10 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
   const foodEquiv = getCalorieFoodEquivalents(workout.activeCalories);
   const hasRoute = Boolean(workout.routeGpxPoints?.length);
   const hasHrZones = Object.values(workout.hrZones).some((value) => value > 0);
+  const hrZoneUnavailableMessage =
+    workout.source === 'hae'
+      ? '数据源限制：Apple Health 导出的训练记录只包含平均与最高心率，不包含五个心率区间的停留时长。'
+      : '该 FIT 文件未写入 time_in_hr_zone 字段，因此无法还原逐区间停留时长。';
   const isStrengthLike = workout.category === 'strength' || workout.category === 'hiit';
   const showDistanceMetric =
     !isStrengthLike && Boolean(workout.distanceKm);
@@ -322,9 +326,16 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
 
           {/* Heart Rate Zones Breakdown */}
           <div className="mb-6 p-4 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/[0.05]">
-            <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-3">
-              心率区间分布 (Apple Fitness Heart Rate Zones)
-            </h4>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h4 className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
+                心率区间分布 (Apple Fitness Heart Rate Zones)
+              </h4>
+              {!hasHrZones && (
+                <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-300">
+                  数据源未提供
+                </span>
+              )}
+            </div>
             {hasHrZones ? (
             <div className="space-y-2">
               {[
@@ -348,7 +359,10 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               ))}
             </div>
             ) : (
-              <p className="text-xs text-neutral-400">当前记录未提供心率区间明细。</p>
+              <div className="flex items-start gap-2 rounded-xl border border-black/5 bg-black/[0.02] px-3 py-2.5 text-[11px] leading-relaxed text-neutral-500 dark:border-white/5 dark:bg-white/[0.02] dark:text-neutral-400">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span>{hrZoneUnavailableMessage} 这不是读取失败。</span>
+              </div>
             )}
           </div>
 

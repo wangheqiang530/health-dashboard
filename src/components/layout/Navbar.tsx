@@ -172,7 +172,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }`}
                   title="点击查看 GitHub 仓库，鼠标悬停查看系统健康与运行状态"
                 >
-                  <span>v{versionInfo?.currentVersion || '0.0.11'}</span>
+                  <span>v{versionInfo?.currentVersion || '0.0.12'}</span>
                   {versionInfo?.updateAvailable ? (
                     <span className="flex items-center gap-0.5 text-[8px] text-amber-500 font-extrabold">
                       ● 新版 v{versionInfo.latestVersion}
@@ -273,7 +273,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       <div className="pt-1.5 border-t border-black/5 dark:border-white/10 text-[9px] text-neutral-400 flex items-center justify-between font-mono">
                         <span>Node.js {versionInfo?.system?.nodeVersion || 'v24'}</span>
-                        <span>当前系统镜像: v{versionInfo?.currentVersion || '0.0.11'}</span>
+                        <span>当前系统镜像: v{versionInfo?.currentVersion || '0.0.12'}</span>
                       </div>
                     </motion.div>
                   )}

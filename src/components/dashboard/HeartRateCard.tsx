@@ -401,20 +401,6 @@ export const HeartRateCard: React.FC<HeartRateCardProps> = ({ timeline, vitals }
                   transition={{ duration: 1.2, ease: 'easeOut' }}
                 />
 
-                {/* Points */}
-                {points.map((p, idx) => (
-                  <circle
-                    key={idx}
-                    cx={p.x}
-                    cy={p.y}
-                    r={p.pt.isWorkout ? 4 : 2}
-                    fill={p.pt.isWorkout ? '#FFD60A' : '#FA114F'}
-                    stroke="#1c1c22"
-                    strokeWidth="1"
-                    className="transition-all"
-                  />
-                ))}
-
                 {/* Crosshair Lines (User Comment 1) */}
                 {hoveredCoords && (
                   <g pointerEvents="none">

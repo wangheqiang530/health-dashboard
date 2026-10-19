@@ -14,7 +14,6 @@ import {
   Layers,
   Heart,
   Calendar,
-  Clock3,
   RefreshCw,
 } from 'lucide-react';
 import { Metric30DayModal, type Metric30DayModalData } from './Metric30DayModal';
@@ -125,19 +124,51 @@ interface HeroTrendPoint {
   value: number;
 }
 
+type BodyDateRange = 'today' | '7d' | '30d' | '90d' | '180d';
+
+const BODY_RANGE_LABELS: Record<BodyDateRange, string> = {
+  today: '当日',
+  '7d': '近 7 天',
+  '30d': '近 30 天',
+  '90d': '近一季',
+  '180d': '近半年',
+};
+
+const BODY_RANGE_DAYS: Record<BodyDateRange, number> = {
+  today: 1,
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+  '180d': 180,
+};
+
+const formatTrendValue = (value: number, unit: string): string =>
+  `${Number.isInteger(value) ? value : value.toFixed(unit === '%' ? 1 : 2)} ${unit}`;
+
 const HeroTrendPopover: React.FC<{
   title: string;
   unit: string;
   color: string;
   points: HeroTrendPoint[];
-}> = ({ title, unit, color, points }) => {
+  periodLabel: string;
+  className?: string;
+}> = ({ title, unit, color, points, periodLabel, className }) => {
   const [activeIndex, setActiveIndex] = useState(points.length - 1);
-  const width = 260;
-  const height = 82;
-  const padding = 10;
+  const width = 300;
+  const height = 92;
+  const padding = 12;
   const values = points.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
+  const minPoint = points[values.indexOf(min)];
+  const maxPoint = points[values.indexOf(max)];
+  const extrema =
+    min === max
+      ? [{ point: minPoint, label: '最高 / 最低', yOffset: -5 }]
+      : [
+          { point: minPoint, label: '最低', yOffset: 12 },
+          { point: maxPoint, label: '最高', yOffset: -5 },
+        ];
   const range = max - min || 1;
   const coords = points.map((point, index) => ({
     ...point,
@@ -166,19 +197,28 @@ const HeroTrendPopover: React.FC<{
     <motion.div
       initial={{ opacity: 0, y: 6, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      className="absolute right-0 top-full mt-2 z-40 w-[290px] p-3 rounded-2xl bg-white/95 dark:bg-neutral-950/95 border border-black/10 dark:border-white/20 shadow-2xl backdrop-blur-2xl"
+      className={
+        className ||
+        'absolute right-0 top-full z-[100] mt-2 w-[330px] max-w-[calc(100vw-2rem)] p-3.5 rounded-2xl bg-white/95 dark:bg-neutral-950/95 border border-black/10 dark:border-white/20 shadow-2xl backdrop-blur-2xl'
+      }
     >
-      <div className="flex items-center justify-between text-[10px] mb-1.5">
+      <div className="flex items-start justify-between gap-3 text-[10px] mb-2">
         <span className="font-bold text-neutral-800 dark:text-neutral-100">
-          {title} · 最近 {points.length} 次
+          {title} · {periodLabel}
+          <span className="block mt-0.5 font-normal text-neutral-400">
+            周期内 {points.length} 次实测
+          </span>
         </span>
-        <span className="font-mono font-bold" style={{ color }}>
-          {active ? `${active.value} ${unit}` : '—'}
+        <span className="text-right font-mono font-bold" style={{ color }}>
+          {active ? formatTrendValue(active.value, unit) : '—'}
+          <span className="block mt-0.5 text-[9px] font-normal text-neutral-400">
+            {active?.date || '—'}
+          </span>
         </span>
       </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-[82px] overflow-visible"
+        className="w-full h-[92px] overflow-visible"
         onMouseMove={handleMove}
         onMouseLeave={() => setActiveIndex(points.length - 1)}
       >
@@ -194,8 +234,13 @@ const HeroTrendPopover: React.FC<{
             strokeDasharray="3 4"
           />
         ))}
+        <path
+          d={`${path} L ${coords[coords.length - 1].x.toFixed(1)} ${height - padding} L ${coords[0].x.toFixed(1)} ${height - padding} Z`}
+          fill={color}
+          fillOpacity="0.08"
+        />
         <path d={path} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
-        {coords.map((point, index) => (
+        {(points.length <= 30 ? coords : []).map((point, index) => (
           <circle
             key={`${point.date}-${index}`}
             cx={point.x}
@@ -206,6 +251,27 @@ const HeroTrendPopover: React.FC<{
             strokeWidth={index === activeIndex ? 2 : 1.2}
           />
         ))}
+        {minPoint && maxPoint && (
+          <>
+            {extrema.map(({ point, label, yOffset }) => {
+              const pointIndex = points.indexOf(point);
+              const coord = coords[pointIndex];
+              return (
+                <g key={label}>
+                  <circle cx={coord.x} cy={coord.y} r="3.4" fill={color} />
+                  <text
+                    x={Math.min(Math.max(coord.x, 22), width - 22)}
+                    y={coord.y + yOffset}
+                    textAnchor="middle"
+                    className="fill-neutral-500 text-[8px] font-mono"
+                  >
+                    {label} {formatTrendValue(point.value, unit)}
+                  </text>
+                </g>
+              );
+            })}
+          </>
+        )}
         {active && (
           <>
             <line
@@ -221,11 +287,34 @@ const HeroTrendPopover: React.FC<{
           </>
         )}
       </svg>
-      <div className="flex items-center justify-between text-[9px] text-neutral-400 font-mono mt-1">
-        <span>{active?.date || '—'}</span>
-        <span>
-          区间 {min.toFixed(unit === '%' ? 1 : 2)} ~ {max.toFixed(unit === '%' ? 1 : 2)} {unit}
-        </span>
+      <div className="grid grid-cols-3 gap-1.5 mt-2 text-[9px] font-mono">
+        <div className="rounded-lg bg-black/[0.03] dark:bg-white/[0.05] px-2 py-1.5">
+          <span className="block text-neutral-400">明细</span>
+          <span className="block mt-0.5 text-neutral-500 dark:text-neutral-400">
+            {active?.date || '—'}
+          </span>
+          <span className="block font-bold text-neutral-800 dark:text-neutral-100">
+            {active ? formatTrendValue(active.value, unit) : '—'}
+          </span>
+        </div>
+        <div className="rounded-lg bg-black/[0.03] dark:bg-white/[0.05] px-2 py-1.5">
+          <span className="block text-neutral-400">最高</span>
+          <span className="block mt-0.5 text-neutral-500 dark:text-neutral-400">
+            {maxPoint?.date || '—'}
+          </span>
+          <span className="block font-bold text-neutral-800 dark:text-neutral-100">
+            {maxPoint ? formatTrendValue(maxPoint.value, unit) : '—'}
+          </span>
+        </div>
+        <div className="rounded-lg bg-black/[0.03] dark:bg-white/[0.05] px-2 py-1.5">
+          <span className="block text-neutral-400">最低</span>
+          <span className="block mt-0.5 text-neutral-500 dark:text-neutral-400">
+            {minPoint?.date || '—'}
+          </span>
+          <span className="block font-bold text-neutral-800 dark:text-neutral-100">
+            {minPoint ? formatTrendValue(minPoint.value, unit) : '—'}
+          </span>
+        </div>
       </div>
     </motion.div>
   );
@@ -253,7 +342,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   const [selectedMeasurementId, setSelectedMeasurementId] = useState<string | null>(null);
   const [hoveredCardIndex, setHoveredCardIndex] = useState<number | null>(null);
   const [modalData, setModalData] = useState<Metric30DayModalData | null>(null);
-  const [activeDateRange, setActiveDateRange] = useState<'today' | '7d' | '30d' | '90d' | '180d'>('today');
+  const [activeDateRange, setActiveDateRange] = useState<BodyDateRange>('today');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [focusedDate, setFocusedDate] = useState<string | null>(null);
   const [hoveredHeroMetric, setHoveredHeroMetric] = useState<
@@ -324,6 +413,22 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     [currentDate, measurements]
   );
 
+  const rangeStartDate = useMemo(() => {
+    const anchor = new Date(`${currentDate}T12:00:00+08:00`);
+    anchor.setDate(anchor.getDate() - (BODY_RANGE_DAYS[activeDateRange] - 1));
+    return anchor.toISOString().slice(0, 10);
+  }, [activeDateRange, currentDate]);
+
+  const rangeMeasurements = useMemo(
+    () =>
+      measurements.filter(
+        (measurement) =>
+          measurement.measuredDate >= rangeStartDate &&
+          measurement.measuredDate <= currentDate
+      ),
+    [currentDate, measurements, rangeStartDate]
+  );
+
   const bodyTrend = useMemo(
     () =>
       measurementsUpToDate
@@ -347,9 +452,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     : currentDay.body;
 
   const historyPoints = (key: MeasurementKey) =>
-    measurementsUpToDate
-      .filter((measurement) => measurement[key] !== null)
-      .slice(-30)
+    rangeMeasurements
+      .filter(
+        (measurement) =>
+          measurement[key] !== null && numberValue(measurement[key]) > 0
+      )
       .map((measurement) => ({
         date: measurement.measuredDate.slice(5),
         value: numberValue(measurement[key]),
@@ -357,9 +464,11 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
       }));
 
   const heroSeries = (key: 'weightKg' | 'bodyFatPercent' | 'leanMassKg'): HeroTrendPoint[] =>
-    measurementsUpToDate
-      .filter((measurement) => measurement[key] !== null)
-      .slice(-12)
+    rangeMeasurements
+      .filter(
+        (measurement) =>
+          measurement[key] !== null && numberValue(measurement[key]) > 0
+      )
       .map((measurement) => ({
         date: measurement.measuredDate.slice(5),
         value: numberValue(measurement[key]),
@@ -484,8 +593,9 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
               <span className="text-xs font-bold text-neutral-900 dark:text-white block">
                 体脂秤数据跨度查阅
               </span>
-              <span className="text-[10px] text-neutral-400">
+              <span className="text-[10px] text-neutral-400 inline-flex items-center gap-1.5">
                 当前日期 {currentDate} · 当日 {measurementsForDate.length} 次测量 · 共收录 {allDates.length} 天
+                {measurementsLoading && <RefreshCw className="w-3 h-3 animate-spin" />}
               </span>
             </div>
           </div>
@@ -524,55 +634,10 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
             </button>
           </div>
         </div>
-
-        <div className="mt-3 pt-3 border-t border-black/5 dark:border-white/5">
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400 mb-2">
-            <Clock3 className="w-3.5 h-3.5 text-amber-500" />
-            <span>当日测量明细</span>
-            {measurementsLoading && <RefreshCw className="w-3 h-3 animate-spin" />}
-          </div>
-          {measurementsForDate.length > 0 ? (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {measurementsForDate.map((measurement) => {
-                const selected = measurement.id === selectedMeasurement?.id;
-                return (
-                  <button
-                    key={measurement.id}
-                    type="button"
-                    onClick={() => setSelectedMeasurementId(measurement.id)}
-                    className={`flex-shrink-0 min-w-[128px] text-left px-3 py-2 rounded-xl border transition-all ${
-                      selected
-                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-700 dark:text-amber-300'
-                        : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/5 dark:border-white/5 text-neutral-600 dark:text-neutral-300 hover:border-amber-500/25'
-                    }`}
-                  >
-                    <span className="block text-[10px] font-mono opacity-70">
-                      {formatMeasurementTime(measurement.measuredAt)}
-                    </span>
-                    <span className="block text-sm font-bold font-mono mt-0.5">
-                      {measurement.weightKg === null ? '—' : measurement.weightKg} kg
-                    </span>
-                    <span className="block text-[10px] mt-0.5">
-                      体脂 {measurement.bodyFatPercent === null ? '—' : `${measurement.bodyFatPercent}%`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-[11px] text-neutral-400">
-              {measurementsLoading
-                ? '正在读取体脂秤历史记录...'
-                : latestMeasurement
-                ? `当日没有新的体测记录，当前显示 ${formatMeasurementDate(latestMeasurement.measuredAt)} 的最近一次测量。`
-                : '尚未收到体脂秤测量记录。'}
-            </p>
-          )}
-        </div>
       </AppleCard>
 
       {isVisible('hero') && (
-        <AppleCard>
+        <AppleCard className="relative z-20 overflow-visible">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 p-0.5 shadow-xl shadow-amber-500/20 flex-shrink-0">
@@ -641,7 +706,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                       <span className="text-xs font-normal text-neutral-400">{metric.unit}</span>
                     </span>
                     <span className="block text-[9px] text-neutral-400 mt-0.5">
-                      悬停查看最近 {series.length} 次趋势
+                      悬停查看{BODY_RANGE_LABELS[activeDateRange]}趋势 · {series.length} 次
                     </span>
                     {hoveredHeroMetric === metric.key && series.length > 0 && (
                       <HeroTrendPopover
@@ -649,6 +714,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                         unit={metric.unit}
                         color={metric.color}
                         points={series}
+                        periodLabel={BODY_RANGE_LABELS[activeDateRange]}
                       />
                     )}
                   </div>
@@ -701,9 +767,13 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
             const points = historyPoints(metric.key);
             const currentValue = body[metric.key];
             const isHovered = hoveredCardIndex === index;
-            const recent = points.slice(-7);
             return (
-              <div key={metric.key} className="relative">
+              <div
+                key={metric.key}
+                className={`relative transition-[z-index] ${isHovered ? 'z-40' : 'z-0'}`}
+                onMouseEnter={() => setHoveredCardIndex(index)}
+                onMouseLeave={() => setHoveredCardIndex(null)}
+              >
                 <AppleCard
                   onClick={() => {
                     if (points.length === 0) return;
@@ -720,14 +790,12 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                         date: point.date,
                         value: point.value,
                       })),
+                      periodLabel: BODY_RANGE_LABELS[activeDateRange],
                     });
                   }}
                   className="p-4 flex flex-col justify-between h-full cursor-pointer hover:border-amber-500/40 transition-all"
                 >
-                  <div
-                    onMouseEnter={() => setHoveredCardIndex(index)}
-                    onMouseLeave={() => setHoveredCardIndex(null)}
-                  >
+                  <div>
                     <div className="flex items-center justify-between mb-2">
                       <div
                         className="p-1.5 rounded-xl border flex-shrink-0"
@@ -740,7 +808,9 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                         <Icon className="w-4 h-4" />
                       </div>
                       <span className="text-[10px] text-neutral-400">
-                        {recent.length > 0 ? `${recent.length} 次记录` : '暂无数据'}
+                        {points.length > 0
+                          ? `${BODY_RANGE_LABELS[activeDateRange]} · ${points.length} 次`
+                          : '暂无数据'}
                       </span>
                     </div>
                     <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 block mb-1">
@@ -764,59 +834,18 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                   </div>
                 </AppleCard>
 
-                {isHovered && recent.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 6, scale: 0.96 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    className="absolute left-0 right-0 bottom-full mb-2 z-40 p-3 rounded-2xl bg-white/95 dark:bg-neutral-950/95 text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 shadow-2xl backdrop-blur-2xl pointer-events-none"
-                  >
-                    <div className="flex items-center justify-between text-[11px] mb-1.5 font-bold text-amber-500">
-                      <span>最近 {recent.length} 次实测</span>
-                      <span>最新 {recent[recent.length - 1].value}</span>
-                    </div>
-                    <div className="h-10 w-full">
-                      {recent.length >= 2 ? (
-                        <svg viewBox="0 0 180 32" className="w-full h-full overflow-visible">
-                          {(() => {
-                            const values = recent.map((point) => point.value);
-                            const min = Math.min(...values);
-                            const max = Math.max(...values);
-                            const range = max - min || 1;
-                            const coords = recent.map((point, pointIndex) => ({
-                              x: 10 + (pointIndex / (recent.length - 1)) * 160,
-                              y: 26 - ((point.value - min) / range) * 18,
-                            }));
-                            const path = coords
-                              .map(
-                                (point, pointIndex) =>
-                                  `${pointIndex === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
-                              )
-                              .join(' ');
-                            return (
-                              <>
-                                <path d={path} fill="none" stroke={metric.color} strokeWidth="2.2" />
-                                {coords.map((point, pointIndex) => (
-                                  <circle
-                                    key={pointIndex}
-                                    cx={point.x}
-                                    cy={point.y}
-                                    r="2.2"
-                                    fill="#FFF"
-                                    stroke={metric.color}
-                                    strokeWidth="1.2"
-                                  />
-                                ))}
-                              </>
-                            );
-                          })()}
-                        </svg>
-                      ) : (
-                        <div className="h-full flex items-center text-[10px] text-neutral-400">
-                          至少需要两次测量才能绘制趋势线。
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
+                {isHovered && points.length > 0 && (
+                  <HeroTrendPopover
+                    title={metric.title}
+                    unit={metric.unit}
+                    color={metric.color}
+                    points={points.map((point) => ({
+                      date: point.date,
+                      value: point.value,
+                    }))}
+                    periodLabel={BODY_RANGE_LABELS[activeDateRange]}
+                    className="absolute left-1/2 bottom-full mb-2 z-[100] w-[330px] max-w-[calc(100vw-2rem)] -translate-x-1/2 p-3.5 rounded-2xl bg-white/95 dark:bg-neutral-950/95 text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 shadow-2xl backdrop-blur-2xl"
+                  />
                 )}
               </div>
             );
