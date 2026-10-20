@@ -257,6 +257,7 @@ WITH ranked AS (
       ) || '|' || COALESCE(r.source_name, '') || '|' || COALESCE(r.unit, '') AS sample_key,
     ROW_NUMBER() OVER (
       PARTITION BY
+        r.source_id,
         r.metric_type,
         COALESCE(
           to_char(r.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -385,7 +386,7 @@ INSERT INTO health_samples (
   source_id, batch_id, raw_record_id, natural_key, metric_name, start_at,
   local_date, value_num, unit, source_name, metadata, raw_payload
 )
-SELECT
+SELECT DISTINCT ON (r.source_id, 'body_mass|' || COALESCE(r.metadata->>'externalId', r.content_hash))
   'fitdays',
   '00000000-0000-0000-0000-000000000401',
   r.id,
@@ -400,6 +401,7 @@ SELECT
   r.raw_payload
 FROM health_raw_records r
 WHERE r.source_id = 'fitdays' AND r.object_type = 'FitdaysRecord'
+ORDER BY r.source_id, 'body_mass|' || COALESCE(r.metadata->>'externalId', r.content_hash), r.id DESC
 ON CONFLICT (source_id, natural_key) DO UPDATE SET
   batch_id = EXCLUDED.batch_id,
   raw_record_id = EXCLUDED.raw_record_id,
@@ -411,7 +413,7 @@ INSERT INTO health_samples (
   source_id, batch_id, raw_record_id, natural_key, metric_name, start_at,
   end_at, local_date, value_num, unit, source_name, metadata, raw_payload
 )
-SELECT
+SELECT DISTINCT ON (r.source_id, 'cycling_distance|' || COALESCE(r.metadata->>'externalId', r.content_hash))
   'igpsport',
   '00000000-0000-0000-0000-000000000402',
   r.id,
@@ -427,6 +429,7 @@ SELECT
   r.raw_payload
 FROM health_raw_records r
 WHERE r.source_id = 'igpsport' AND r.object_type = 'CyclingActivity'
+ORDER BY r.source_id, 'cycling_distance|' || COALESCE(r.metadata->>'externalId', r.content_hash), r.id DESC
 ON CONFLICT (source_id, natural_key) DO UPDATE SET
   batch_id = EXCLUDED.batch_id,
   raw_record_id = EXCLUDED.raw_record_id,
