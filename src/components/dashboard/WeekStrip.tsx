@@ -27,6 +27,21 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const allDates = Object.keys(days).sort();
 
+  const availableDatesWithData = React.useMemo(() => {
+    return allDates.filter((date) => {
+      const item = days[date];
+      if (!item) return false;
+      return (
+        (item.steps && item.steps.count > 0) ||
+        (item.rings && item.rings.move && item.rings.move.current > 0) ||
+        (item.sleep && item.sleep.totalMinutes > 0) ||
+        (item.vitals && (item.vitals.restingHr > 0 || item.vitals.hrvCurrent > 0)) ||
+        (item.body && item.body.weightKg > 0) ||
+        (item.workouts && item.workouts.length > 0)
+      );
+    });
+  }, [allDates, days]);
+
   // Center 7 days around selectedDate when selectedDate is in the past
   const selectedIndex = allDates.indexOf(selectedDate);
   let displayDates: string[] = [];
@@ -170,7 +185,7 @@ export const WeekStrip: React.FC<WeekStripProps> = ({
       isOpen={isCalendarOpen}
       onClose={() => setIsCalendarOpen(false)}
       selectedDate={selectedDate}
-      availableDates={allDates}
+      availableDates={availableDatesWithData}
       onSelectDate={onSelectDate}
       title="综合看板 · 历史数据日期选择"
     />

@@ -111,19 +111,89 @@ const buildBodyComposition = (
 ): BodyComposition => {
   if (!latest) return current;
   const weight = numberOrNull(latest.weight_kg) ?? current.weightKg;
-  const bodyFat = numberOrNull(latest.body_fat_rate) ?? current.bodyFatPercent;
-  const leanMass = numberOrNull(latest.lean_body_mass_kg) ?? weight * (1 - bodyFat / 100);
-  const bmi = numberOrNull(latest.bmi) ?? current.bmi;
+
+  // Find most recent valid row with actual body fat rate > 0
+  const validRows = trendRows.filter(
+    (row) => numberOrNull(row.body_fat_rate) !== null && Number(row.body_fat_rate) > 0
+  );
+  const lastValid = validRows[validRows.length - 1];
+
+  const rawFat = numberOrNull(latest.body_fat_rate);
+  const bodyFat =
+    rawFat !== null && rawFat > 0
+      ? rawFat
+      : lastValid && Number(lastValid.body_fat_rate) > 0
+        ? Number(lastValid.body_fat_rate)
+        : current.bodyFatPercent;
+  const leanMass = Number((weight * (1 - bodyFat / 100)).toFixed(2));
+  const rawBmi = numberOrNull(latest.bmi);
+  const bmi =
+    rawBmi !== null && rawBmi > 0
+      ? rawBmi
+      : weight > 0
+        ? Number((weight / (1.84 ** 2)).toFixed(1))
+        : current.bmi;
+
+  const rawSkeletal = numberOrNull(latest.skeletal_muscle_rate);
   const skeletalMuscleRate =
-    numberOrNull(latest.skeletal_muscle_rate) ?? current.skeletalMusclePercent ?? 0;
+    rawSkeletal !== null && rawSkeletal > 0
+      ? rawSkeletal
+      : lastValid && Number(lastValid.skeletal_muscle_rate) > 0
+        ? Number(lastValid.skeletal_muscle_rate)
+        : current.skeletalMusclePercent ?? 0;
   const skeletalMuscleKg = Number((weight * (skeletalMuscleRate / 100)).toFixed(2));
-  const waterRate = numberOrNull(latest.water_rate) ?? current.waterPercent ?? 0;
-  const visceralFat = numberOrNull(latest.visceral_fat_level) ?? current.visceralFatLevel ?? 0;
-  const bmr = numberOrNull(latest.bmr_kcal) ?? current.bmrKcal ?? 0;
-  const boneMass = numberOrNull(latest.bone_mass_kg) ?? current.boneMassKg ?? 0;
-  const proteinRate = numberOrNull(latest.protein_rate) ?? current.proteinPercent ?? 0;
-  const bodyAge = latest.body_age ?? current.bodyAge ?? 0;
-  const bodyScore = numberOrNull(latest.score) ?? current.bodyScore ?? 0;
+
+  const rawWater = numberOrNull(latest.water_rate);
+  const waterRate =
+    rawWater !== null && rawWater > 0
+      ? rawWater
+      : lastValid && Number(lastValid.water_rate) > 0
+        ? Number(lastValid.water_rate)
+        : current.waterPercent ?? 0;
+
+  const rawVisceral = numberOrNull(latest.visceral_fat_level);
+  const visceralFat =
+    rawVisceral !== null && rawVisceral > 0
+      ? rawVisceral
+      : lastValid && Number(lastValid.visceral_fat_level) > 0
+        ? Number(lastValid.visceral_fat_level)
+        : current.visceralFatLevel ?? 0;
+
+  const rawBmr = numberOrNull(latest.bmr_kcal);
+  const bmr =
+    rawBmr !== null && rawBmr > 0
+      ? rawBmr
+      : lastValid && Number(lastValid.bmr_kcal) > 0
+        ? Number(lastValid.bmr_kcal)
+        : current.bmrKcal ?? 0;
+
+  const rawBone = numberOrNull(latest.bone_mass_kg);
+  const boneMass =
+    rawBone !== null && rawBone > 0
+      ? rawBone
+      : lastValid && Number(lastValid.bone_mass_kg) > 0
+        ? Number(lastValid.bone_mass_kg)
+        : current.boneMassKg ?? 0;
+
+  const rawProtein = numberOrNull(latest.protein_rate);
+  const proteinRate =
+    rawProtein !== null && rawProtein > 0
+      ? rawProtein
+      : lastValid && Number(lastValid.protein_rate) > 0
+        ? Number(lastValid.protein_rate)
+        : current.proteinPercent ?? 0;
+
+  const bodyAge =
+    latest.body_age && latest.body_age > 0
+      ? latest.body_age
+      : (lastValid?.body_age ?? current.bodyAge ?? 33);
+  const rawScore = numberOrNull(latest.score);
+  const bodyScore =
+    rawScore !== null && rawScore > 0
+      ? rawScore
+      : lastValid && Number(lastValid.score) > 0
+        ? Number(lastValid.score)
+        : current.bodyScore ?? 0;
 
   return {
     weightKg: Number(weight.toFixed(2)),
@@ -154,12 +224,15 @@ const buildBodyComposition = (
     trend:
       trendRows.length > 0
         ? trendRows
-            .filter((row) => row.weight_kg !== null && row.body_fat_rate !== null)
-            .map((row) => ({
-              date: row.measured_date.slice(5),
-              weight: numberOrNull(row.weight_kg) ?? 0,
-              bodyFat: numberOrNull(row.body_fat_rate) ?? 0,
-            }))
+            .filter((row) => row.weight_kg !== null && numberOrNull(row.weight_kg)! > 0)
+            .map((row) => {
+              const rowFat = numberOrNull(row.body_fat_rate);
+              return {
+                date: row.measured_date.slice(5),
+                weight: numberOrNull(row.weight_kg) ?? 0,
+                bodyFat: rowFat !== null && rowFat > 0 ? rowFat : bodyFat,
+              };
+            })
         : current.trend,
   };
 };

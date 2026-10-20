@@ -8,6 +8,22 @@
     <meta name="description" content="基于 iOS 健康与 Apple Watch 数据的私有化健康看板，支持 Health Auto Export 自动化推送与 NAS Docker 部署" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script>
+      (function() {
+        try {
+          var mode = localStorage.getItem('apple_health_theme_mode');
+          var isDark = mode === 'dark' || ((!mode || mode === 'system') && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.colorScheme = 'dark';
+          } else {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="selection:bg-[#FA114F]/30 selection:text-white transition-colors duration-200">
     <div id="root"></div>

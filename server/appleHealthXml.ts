@@ -333,7 +333,19 @@ export async function importAppleHealthZip(
     const dailyHrPoints = new Map<string, { time: string; hr: number; minuteOfDay: number }[]>();
     const dailySleepStages = new Map<
       string,
-      { deep: number; core: number; rem: number; awake: number; bedTime: string; wakeTime: string }
+      {
+        deep: number;
+        core: number;
+        rem: number;
+        awake: number;
+        bedTime: string;
+        wakeTime: string;
+        timeline: Array<{
+          stage: 'awake' | 'rem' | 'core' | 'deep';
+          startMs: number;
+          durationMinutes: number;
+        }>;
+      }
     >();
 
     function getDailyBucket(dateStr: string) {
@@ -555,14 +567,30 @@ export async function importAppleHealthZip(
                 awake: 0,
                 bedTime: parseHourMinute(attributes.startDate),
                 wakeTime: parseHourMinute(attributes.endDate),
+                timeline: [],
               });
             }
             const sleepObj = dailySleepStages.get(dateStr)!;
             sleepObj.wakeTime = parseHourMinute(attributes.endDate);
-            if (val.includes('Deep')) sleepObj.deep += durationMins;
-            else if (val.includes('REM')) sleepObj.rem += durationMins;
-            else if (val.includes('Awake')) sleepObj.awake += durationMins;
-            else sleepObj.core += durationMins;
+            let stage: 'awake' | 'rem' | 'core' | 'deep' = 'core';
+            if (val.includes('Deep')) {
+              sleepObj.deep += durationMins;
+              stage = 'deep';
+            } else if (val.includes('REM')) {
+              sleepObj.rem += durationMins;
+              stage = 'rem';
+            } else if (val.includes('Awake')) {
+              sleepObj.awake += durationMins;
+              stage = 'awake';
+            } else {
+              sleepObj.core += durationMins;
+              stage = 'core';
+            }
+            sleepObj.timeline.push({
+              stage,
+              startMs: start.getTime(),
+              durationMinutes: durationMins,
+            });
           }
           break;
         }
@@ -961,6 +989,14 @@ export async function importAppleHealthZip(
               )
             : 0;
 
+        const sortedSegments = (sleepRaw?.timeline || []).sort((a, b) => a.startMs - b.startMs);
+        const firstStartMs = sortedSegments[0]?.startMs || 0;
+        const sleepTimeline = sortedSegments.map((seg) => ({
+          stage: seg.stage,
+          startMinutes: Math.max(0, Math.round((seg.startMs - firstStartMs) / 60000)),
+          durationMinutes: seg.durationMinutes,
+        }));
+
         const sleep: DailySummary['sleep'] = {
           score: sleepScore,
           bedTime: sleepRaw?.bedTime || '--:--',
@@ -969,7 +1005,7 @@ export async function importAppleHealthZip(
           inBedMinutes: inBedMins,
           efficiency: sleepEfficiency,
           stages: { awake: awakeMins, rem: remMins, core: coreMins, deep: deepMins },
-          timeline: [],
+          timeline: sleepTimeline,
           respiratoryRate: 0,
           hrvSleepAvg: 0,
           deepSleepPercent: deepPct,

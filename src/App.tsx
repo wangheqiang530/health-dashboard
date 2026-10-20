@@ -232,6 +232,9 @@ function DashboardContent() {
           <HeartRateCard
             timeline={currentDay.heartRateTimeline}
             vitals={currentDay.vitals}
+            days={daysData}
+            selectedDate={selectedDate || currentDay.date}
+            onSelectDate={setSelectedDate}
           />
         );
       case 'workouts':
@@ -258,7 +261,13 @@ function DashboardContent() {
         }`}
       >
         <LiquidBackground />
-        <div className="relative z-10 flex flex-col items-center gap-4 text-center max-w-sm apple-glass-dark p-8 rounded-3xl border border-white/10 shadow-2xl">
+        <div
+          className={`relative z-10 flex flex-col items-center gap-4 text-center max-w-sm p-8 rounded-3xl border shadow-2xl transition-all duration-300 ${
+            isDark
+              ? 'apple-glass-dark border-white/10 text-white'
+              : 'apple-glass-light border-black/5 text-neutral-900'
+          }`}
+        >
           <div className="p-3.5 rounded-2xl bg-gradient-to-tr from-rose-500 via-indigo-500 to-emerald-400 text-white shadow-lg shadow-indigo-500/25">
             <RefreshCw className="w-6 h-6 animate-spin" />
           </div>

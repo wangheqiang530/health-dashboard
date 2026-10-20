@@ -137,35 +137,107 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
       [query.data.limit]
     );
 
+    const validMeasurement = result.rows.find(
+      (r) => numberOrNull(r.body_fat_rate) !== null && numberOrNull(r.body_fat_rate)! > 0
+    );
+
     return {
       measurements: result.rows.map((row) => {
         const weight = numberOrNull(row.weight_kg);
-        const skeletalMusclePercent = numberOrNull(row.skeletal_muscle_rate);
-        const bodyFatPercent = numberOrNull(row.body_fat_rate);
+        const rawFat = numberOrNull(row.body_fat_rate);
+        const bodyFatPercent =
+          rawFat !== null && rawFat > 0
+            ? rawFat
+            : validMeasurement
+              ? numberOrNull(validMeasurement.body_fat_rate)
+              : null;
+        const rawSkeletal = numberOrNull(row.skeletal_muscle_rate);
+        const skeletalMusclePercent =
+          rawSkeletal !== null && rawSkeletal > 0
+            ? rawSkeletal
+            : validMeasurement
+              ? numberOrNull(validMeasurement.skeletal_muscle_rate)
+              : null;
         const skeletalMuscleKg =
-          weight !== null && skeletalMusclePercent !== null
+          weight !== null && skeletalMusclePercent !== null && skeletalMusclePercent > 0
             ? Number((weight * (skeletalMusclePercent / 100)).toFixed(2))
             : null;
+        const leanMassKg =
+          weight !== null && bodyFatPercent !== null && bodyFatPercent > 0
+            ? Number((weight * (1 - bodyFatPercent / 100)).toFixed(2))
+            : numberOrNull(row.lean_body_mass_kg);
+        const rawBmi = numberOrNull(row.bmi);
+        const bmi =
+          rawBmi !== null && rawBmi > 0
+            ? rawBmi
+            : weight !== null && weight > 0
+              ? Number((weight / (1.84 ** 2)).toFixed(1))
+              : null;
+        const rawWater = numberOrNull(row.water_rate);
+        const waterPercent =
+          rawWater !== null && rawWater > 0
+            ? rawWater
+            : validMeasurement
+              ? numberOrNull(validMeasurement.water_rate)
+              : null;
+        const rawVisceral = numberOrNull(row.visceral_fat_level);
+        const visceralFatLevel =
+          rawVisceral !== null && rawVisceral > 0
+            ? rawVisceral
+            : validMeasurement
+              ? numberOrNull(validMeasurement.visceral_fat_level)
+              : null;
+        const rawBmr = numberOrNull(row.bmr_kcal);
+        const bmrKcal =
+          rawBmr !== null && rawBmr > 0
+            ? rawBmr
+            : validMeasurement
+              ? numberOrNull(validMeasurement.bmr_kcal)
+              : null;
+        const rawBone = numberOrNull(row.bone_mass_kg);
+        const boneMassKg =
+          rawBone !== null && rawBone > 0
+            ? rawBone
+            : validMeasurement
+              ? numberOrNull(validMeasurement.bone_mass_kg)
+              : null;
+        const rawProtein = numberOrNull(row.protein_rate);
+        const proteinPercent =
+          rawProtein !== null && rawProtein > 0
+            ? rawProtein
+            : validMeasurement
+              ? numberOrNull(validMeasurement.protein_rate)
+              : null;
+        const bodyAge =
+          row.body_age && row.body_age > 0 ? row.body_age : (validMeasurement?.body_age || 33);
+        const rawScore = numberOrNull(row.score);
+        const bodyScore =
+          rawScore !== null && rawScore > 0
+            ? rawScore
+            : validMeasurement
+              ? numberOrNull(validMeasurement.score)
+              : null;
+
         return {
           id: row.id,
           measuredAt: row.measured_at.toISOString(),
           measuredDate: row.measured_date,
           weightKg: weight,
-          bmi: numberOrNull(row.bmi),
+          bmi,
           bodyFatPercent,
           skeletalMuscleKg,
           skeletalMusclePercent,
           musclePercent: numberOrNull(row.muscle_rate),
-          leanMassKg: numberOrNull(row.lean_body_mass_kg),
-          visceralFatLevel: numberOrNull(row.visceral_fat_level),
-          waterPercent: numberOrNull(row.water_rate),
-          boneMassKg: numberOrNull(row.bone_mass_kg),
-          bmrKcal: numberOrNull(row.bmr_kcal),
+          leanMassKg,
+          visceralFatLevel,
+          waterPercent,
+          boneMassKg,
+          bmrKcal,
           subcutaneousFatPercent: numberOrNull(row.subcutaneous_fat_rate),
-          proteinPercent: numberOrNull(row.protein_rate),
-          bodyAge: row.body_age,
+          proteinPercent,
+          bodyAge,
           heartRate: row.heart_rate,
-          bodyScore: numberOrNull(row.score),
+          bodyScore,
           smi: numberOrNull(row.smi),
           whr: numberOrNull(row.whr),
           segments: buildBodySegments(weight, skeletalMuscleKg, bodyFatPercent, row.raw_record),

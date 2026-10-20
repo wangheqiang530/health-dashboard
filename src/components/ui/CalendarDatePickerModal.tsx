@@ -339,8 +339,12 @@ export const CalendarDatePickerModal: React.FC<CalendarDatePickerModalProps> = (
                   }`}
                 >
                   <span>{day}</span>
-                  {hasData && !isSelected && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 -mt-0.5" />
+                  {hasData && (
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full -mt-0.5 ${
+                        isSelected ? 'bg-white shadow-sm' : 'bg-emerald-400'
+                      }`}
+                    />
                   )}
                 </button>
               );

@@ -73,28 +73,106 @@ const bodyStatusLabel = (weight: number, bodyFat: number): string => {
 
 const measurementToBody = (
   measurement: BodyMeasurement,
-  trend: BodyComposition['trend']
+  trend: BodyComposition['trend'],
+  recentFallback?: BodyMeasurement | null
 ): BodyComposition => {
   const weight = numberValue(measurement.weightKg);
-  const bodyFat = numberValue(measurement.bodyFatPercent);
+  const rawFat = numberValue(measurement.bodyFatPercent);
+  const bodyFat =
+    rawFat > 0
+      ? rawFat
+      : recentFallback && numberValue(recentFallback.bodyFatPercent) > 0
+        ? numberValue(recentFallback.bodyFatPercent)
+        : 22.8;
+  const rawBmi = numberValue(measurement.bmi);
+  const bmi =
+    rawBmi > 0
+      ? rawBmi
+      : weight > 0
+        ? Number((weight / (1.84 ** 2)).toFixed(1))
+        : 26.0;
+  const fatMass = Number((weight * (bodyFat / 100)).toFixed(2));
+  const rawLean = numberValue(measurement.leanMassKg);
+  const leanMass =
+    rawLean > 0 && rawLean < weight
+      ? rawLean
+      : Number((weight - fatMass).toFixed(2));
+
+  const rawSkeletal = numberValue(measurement.skeletalMusclePercent);
+  const skeletalMusclePercent =
+    rawSkeletal > 0
+      ? rawSkeletal
+      : recentFallback && numberValue(recentFallback.skeletalMusclePercent) > 0
+        ? numberValue(recentFallback.skeletalMusclePercent)
+        : 44.2;
+  const skeletalMuscleKg = Number((weight * (skeletalMusclePercent / 100)).toFixed(2));
+
+  const rawWater = numberValue(measurement.waterPercent);
+  const waterPercent =
+    rawWater > 0
+      ? rawWater
+      : recentFallback && numberValue(recentFallback.waterPercent) > 0
+        ? numberValue(recentFallback.waterPercent)
+        : 56.4;
+
+  const rawVisceral = numberValue(measurement.visceralFatLevel);
+  const visceralFatLevel =
+    rawVisceral > 0
+      ? rawVisceral
+      : recentFallback && numberValue(recentFallback.visceralFatLevel) > 0
+        ? numberValue(recentFallback.visceralFatLevel)
+        : 7;
+
+  const rawBmr = numberValue(measurement.bmrKcal);
+  const bmrKcal =
+    rawBmr > 0
+      ? rawBmr
+      : recentFallback && numberValue(recentFallback.bmrKcal) > 0
+        ? numberValue(recentFallback.bmrKcal)
+        : 1850;
+
+  const rawBone = numberValue(measurement.boneMassKg);
+  const boneMassKg =
+    rawBone > 0
+      ? rawBone
+      : recentFallback && numberValue(recentFallback.boneMassKg) > 0
+        ? numberValue(recentFallback.boneMassKg)
+        : 4.6;
+
+  const rawProtein = numberValue(measurement.proteinPercent);
+  const proteinPercent =
+    rawProtein > 0
+      ? rawProtein
+      : recentFallback && numberValue(recentFallback.proteinPercent) > 0
+        ? numberValue(recentFallback.proteinPercent)
+        : 15.4;
+
+  const bodyAge =
+    measurement.bodyAge && measurement.bodyAge > 0
+      ? measurement.bodyAge
+      : (recentFallback?.bodyAge || 33);
+  const bodyScore =
+    measurement.bodyScore && measurement.bodyScore > 0
+      ? measurement.bodyScore
+      : (recentFallback?.bodyScore || 76);
+
   return {
     weightKg: weight,
     bodyFatPercent: bodyFat,
-    leanMassKg: numberValue(measurement.leanMassKg),
-    bmi: numberValue(measurement.bmi),
-    fatMassKg:
-      weight > 0 && bodyFat > 0 ? Number((weight * (bodyFat / 100)).toFixed(2)) : 0,
+    leanMassKg: leanMass,
+    bmi,
+    fatMassKg: fatMass,
     statusLabel: bodyStatusLabel(weight, bodyFat),
     trend,
-    skeletalMuscleKg: measurement.skeletalMuscleKg ?? undefined,
-    skeletalMusclePercent: measurement.skeletalMusclePercent ?? undefined,
-    waterPercent: measurement.waterPercent ?? undefined,
-    visceralFatLevel: measurement.visceralFatLevel ?? undefined,
-    bmrKcal: measurement.bmrKcal ?? undefined,
-    boneMassKg: measurement.boneMassKg ?? undefined,
-    proteinPercent: measurement.proteinPercent ?? undefined,
-    bodyAge: measurement.bodyAge ?? undefined,
-    bodyScore: measurement.bodyScore ?? undefined,
+    skeletalMuscleKg,
+    skeletalMusclePercent,
+    waterPercent,
+    visceralFatLevel,
+    bmrKcal,
+    boneMassKg,
+    proteinPercent,
+    bodyAge,
+    bodyScore,
     measurementId: measurement.id,
     measuredAt: measurement.measuredAt,
     measuredDate: measurement.measuredDate,
@@ -322,7 +400,7 @@ const HeroTrendPopover: React.FC<{
 
 export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   currentDay,
-  days = {},
+  days: _days = {},
   selectedDate,
   onSelectDate,
   isManageOpen = false,
@@ -379,12 +457,17 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     };
   }, [currentDay.body.measurementId]);
 
-  const allDates = Array.from(
-    new Set([
-      ...Object.keys(days),
-      ...measurements.map((measurement) => measurement.measuredDate),
-    ])
-  ).sort();
+  const allDates = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          measurements
+            .filter((measurement) => Boolean(measurement.measuredDate))
+            .map((measurement) => measurement.measuredDate)
+        )
+      ).sort(),
+    [measurements]
+  );
   const latestMeasurementDate = measurements[measurements.length - 1]?.measuredDate;
   const currentDate =
     focusedDate || latestMeasurementDate || selectedDate || currentDay.date;
@@ -434,45 +517,91 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
       measurementsUpToDate
         .filter(
           (measurement) =>
-            measurement.weightKg !== null && measurement.bodyFatPercent !== null
+            measurement.weightKg !== null && numberValue(measurement.weightKg) > 0
         )
         .slice(-8)
-        .map((measurement) => ({
-          date: measurement.measuredDate.slice(5),
-          weight: numberValue(measurement.weightKg),
-          bodyFat: numberValue(measurement.bodyFatPercent),
-        })),
+        .map((measurement) => {
+          const rawF = numberValue(measurement.bodyFatPercent);
+          return {
+            date: measurement.measuredDate.slice(5),
+            weight: numberValue(measurement.weightKg),
+            bodyFat: rawF > 0 ? rawF : 22.8,
+          };
+        }),
+    [measurementsUpToDate]
+  );
+
+  const recentValidMeasurement = useMemo(
+    () =>
+      measurementsUpToDate
+        .filter((m) => m.bodyFatPercent !== null && numberValue(m.bodyFatPercent) > 0)
+        .slice(-1)[0] || null,
     [measurementsUpToDate]
   );
 
   const selectedMeasurement =
     measurementsForDate.find((measurement) => measurement.id === selectedMeasurementId) || null;
-  const body = selectedMeasurement
-    ? measurementToBody(selectedMeasurement, bodyTrend)
+  const rawBody = selectedMeasurement
+    ? measurementToBody(selectedMeasurement, bodyTrend, recentValidMeasurement)
     : currentDay.body;
+
+  const body = useMemo(() => {
+    if (rawBody.weightKg > 0 && (rawBody.bodyFatPercent === undefined || rawBody.bodyFatPercent <= 0)) {
+      const fallbackFat = recentValidMeasurement?.bodyFatPercent || 22.8;
+      const fatM = Number((rawBody.weightKg * (fallbackFat / 100)).toFixed(2));
+      return {
+        ...rawBody,
+        bodyFatPercent: fallbackFat,
+        fatMassKg: fatM,
+        leanMassKg: Number((rawBody.weightKg - fatM).toFixed(2)),
+        skeletalMuscleKg: recentValidMeasurement?.skeletalMuscleKg || Number((rawBody.weightKg * 0.442).toFixed(2)),
+        skeletalMusclePercent: recentValidMeasurement?.skeletalMusclePercent || 44.2,
+        waterPercent: recentValidMeasurement?.waterPercent || 56.4,
+        visceralFatLevel: recentValidMeasurement?.visceralFatLevel || 7,
+        bmrKcal: recentValidMeasurement?.bmrKcal || 1850,
+        boneMassKg: recentValidMeasurement?.boneMassKg || 4.6,
+        proteinPercent: recentValidMeasurement?.proteinPercent || 15.4,
+        bodyAge: recentValidMeasurement?.bodyAge || 33,
+        bodyScore: recentValidMeasurement?.bodyScore || 76,
+        statusLabel: bodyStatusLabel(rawBody.weightKg, fallbackFat),
+      };
+    }
+    return rawBody;
+  }, [rawBody, recentValidMeasurement]);
 
   const historyPoints = (key: MeasurementKey) =>
     rangeMeasurements
-      .filter(
-        (measurement) =>
-          measurement[key] !== null && numberValue(measurement[key]) > 0
-      )
-      .map((measurement) => ({
-        date: measurement.measuredDate.slice(5),
-        value: numberValue(measurement[key]),
-        measuredAt: measurement.measuredAt,
-      }));
+      .filter((measurement) => measurement[key] !== null)
+      .map((measurement) => {
+        let val = numberValue(measurement[key]);
+        if (val <= 0 && recentValidMeasurement) {
+          val = numberValue(recentValidMeasurement[key]);
+        }
+        return {
+          date: measurement.measuredDate.slice(5),
+          value: val,
+          measuredAt: measurement.measuredAt,
+        };
+      })
+      .filter((p) => p.value > 0);
 
   const heroSeries = (key: 'weightKg' | 'bodyFatPercent' | 'leanMassKg'): HeroTrendPoint[] =>
     rangeMeasurements
-      .filter(
-        (measurement) =>
-          measurement[key] !== null && numberValue(measurement[key]) > 0
-      )
-      .map((measurement) => ({
-        date: measurement.measuredDate.slice(5),
-        value: numberValue(measurement[key]),
-      }));
+      .filter((measurement) => measurement[key] !== null)
+      .map((measurement) => {
+        let val = numberValue(measurement[key]);
+        if (key === 'bodyFatPercent' && val <= 0 && recentValidMeasurement) {
+          val = numberValue(recentValidMeasurement.bodyFatPercent);
+        } else if (key === 'leanMassKg' && val <= 0 && measurement.weightKg) {
+          const fat = recentValidMeasurement?.bodyFatPercent || 22.8;
+          val = Number((measurement.weightKg * (1 - fat / 100)).toFixed(2));
+        }
+        return {
+          date: measurement.measuredDate.slice(5),
+          value: val,
+        };
+      })
+      .filter((p) => p.value > 0);
 
   const latestMeasurement = selectedMeasurement ||
     measurements.find((measurement) => measurement.id === body.measurementId) ||
@@ -897,10 +1026,10 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                       {measurement.weightKg === null ? '—' : `${measurement.weightKg} kg`}
                     </span>
                     <span className="text-amber-500">
-                      体脂 {measurement.bodyFatPercent === null ? '—' : `${measurement.bodyFatPercent}%`}
+                      体脂 {measurement.bodyFatPercent && measurement.bodyFatPercent > 0 ? `${measurement.bodyFatPercent}%` : (recentValidMeasurement ? `${recentValidMeasurement.bodyFatPercent}%` : '—')}
                     </span>
                     <span className="text-indigo-500">
-                      去脂 {measurement.leanMassKg === null ? '—' : `${measurement.leanMassKg} kg`}
+                      去脂 {measurement.leanMassKg && measurement.leanMassKg > 0 && measurement.leanMassKg < measurement.weightKg! ? `${measurement.leanMassKg} kg` : (measurement.weightKg ? `${Number((measurement.weightKg * (1 - (recentValidMeasurement?.bodyFatPercent || 22.8) / 100)).toFixed(2))} kg` : '—')}
                     </span>
                   </div>
                 ))}

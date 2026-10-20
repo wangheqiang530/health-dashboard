@@ -89,6 +89,11 @@ const buildSign = (params: Record<string, string>): string => {
 const finiteNumber = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
+const positiveOrNull = (value: unknown): number | null => {
+  const parsed = finiteNumber(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+};
+
 const integerOrNull = (value: unknown): number | null => {
   const parsed = finiteNumber(value);
   return parsed === null ? null : Math.round(parsed);
@@ -159,6 +164,11 @@ export async function fetchFitdaysRecords(
     String(uid)
   );
 
+  const activeUser = (login.data?.users as Array<{ suid: number; height?: number }>)?.find(
+    (u) => u.suid === activeSuid
+  );
+  const userHeight = activeUser?.height || 184;
+
   const records = (sync.data?.weight_list || [])
     .filter((record) => record.suid === activeSuid && record.is_deleted !== 1)
     .sort((left, right) => right.measured_time - left.measured_time)
@@ -173,12 +183,15 @@ export async function fetchFitdaysRecords(
       }
 
       const measuredAt = new Date(record.measured_time * 1000);
-      const weight = finiteNumber(record.weight_kg);
-      const fatRate = finiteNumber(record.bfr);
+      const weight = positiveOrNull(record.weight_kg);
+      const fatRate = positiveOrNull(record.bfr);
       const leanBodyMass =
-        weight !== null && fatRate !== null
+        weight !== null && fatRate !== null && fatRate > 0
           ? Number((weight * (1 - fatRate / 100)).toFixed(3))
           : null;
+      const bmi =
+        positiveOrNull(record.bmi) ??
+        (weight && userHeight ? Number((weight / ((userHeight / 100) ** 2)).toFixed(1)) : null);
 
       return {
         externalId: `${activeSuid}:${record.measured_time}`,
@@ -186,22 +199,22 @@ export async function fetchFitdaysRecords(
         measuredAt: measuredAt.toISOString(),
         measuredDate: dateInTimeZone(measuredAt, config.timezone),
         weightKg: weight,
-        bmi: finiteNumber(record.bmi),
+        bmi,
         bodyFatRate: fatRate,
-        skeletalMuscleRate: finiteNumber(record.rosm),
-        muscleRate: finiteNumber(record.rom),
+        skeletalMuscleRate: positiveOrNull(record.rosm),
+        muscleRate: positiveOrNull(record.rom),
         leanBodyMassKg: leanBodyMass,
-        visceralFatLevel: finiteNumber(record.uvi),
-        waterRate: finiteNumber(record.vwc),
-        boneMassKg: finiteNumber(record.bm),
-        bmrKcal: finiteNumber(record.bmr),
-        subcutaneousFatRate: finiteNumber(record.sfr),
-        proteinRate: finiteNumber(record.pp),
-        bodyAge: integerOrNull(record.bodyage),
-        heartRate: integerOrNull(record.hr),
-        score: finiteNumber(extension?.bodyScore),
-        smi: finiteNumber(extension?.smi),
-        whr: finiteNumber(extension?.whr),
+        visceralFatLevel: positiveOrNull(record.uvi),
+        waterRate: positiveOrNull(record.vwc),
+        boneMassKg: positiveOrNull(record.bm),
+        bmrKcal: positiveOrNull(record.bmr),
+        subcutaneousFatRate: positiveOrNull(record.sfr),
+        proteinRate: positiveOrNull(record.pp),
+        bodyAge: positiveOrNull(record.bodyage) ? integerOrNull(record.bodyage) : null,
+        heartRate: positiveOrNull(record.hr) ? integerOrNull(record.hr) : null,
+        score: positiveOrNull(extension?.bodyScore),
+        smi: positiveOrNull(extension?.smi),
+        whr: positiveOrNull(extension?.whr),
         rawRecord: record,
       };
     });

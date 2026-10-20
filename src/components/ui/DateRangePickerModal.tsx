@@ -262,8 +262,12 @@ export const DateRangePickerModal: React.FC<DateRangePickerModalProps> = ({
                   }`}
                 >
                   {day}
-                  {availableSet.has(date) && !isBoundary && (
-                    <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-emerald-400" />
+                  {availableSet.has(date) && (
+                    <span
+                      className={`absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${
+                        isBoundary ? 'bg-white' : 'bg-emerald-400'
+                      }`}
+                    />
                   )}
                 </button>
               );

@@ -4,6 +4,74 @@ import type { SleepAnalysis, DailySummary, SleepStageSegment } from '../../types
 import { AppleCard } from '../ui/AppleCard';
 import { Moon, Wind, HeartPulse, Clock, Sparkles } from 'lucide-react';
 
+const getSleepScoreEmoji = (score: number): string => {
+  if (score <= 0) return '🛌';
+  if (score >= 90) return '✨';
+  if (score >= 80) return '🌙';
+  if (score >= 70) return '💤';
+  return '🥱';
+};
+
+function buildSleepTimeline(sleep: SleepAnalysis): SleepStageSegment[] {
+  if (sleep.timeline && sleep.timeline.length > 0) {
+    return sleep.timeline;
+  }
+  const { deep, core, rem, awake } = sleep.stages;
+  const total = deep + core + rem + awake;
+  if (total <= 0) return [];
+
+  const segments: SleepStageSegment[] = [];
+  let curMin = 0;
+  const add = (stage: SleepStageSegment['stage'], mins: number) => {
+    if (mins <= 0) return;
+    const dur = Math.max(1, Math.round(mins));
+    segments.push({ stage, startMinutes: curMin, durationMinutes: dur });
+    curMin += dur;
+  };
+
+  // Natural ultradian sleep architecture distribution across 4 cycles
+  const deep1 = deep * 0.48;
+  const deep2 = deep * 0.32;
+  const deep3 = deep * 0.20;
+
+  const rem1 = rem * 0.15;
+  const rem2 = rem * 0.30;
+  const rem3 = rem * 0.55;
+
+  const core1 = core * 0.28;
+  const core2 = core * 0.28;
+  const core3 = core * 0.24;
+  const core4 = core * 0.20;
+
+  const awake1 = awake * 0.35;
+  const awake2 = awake * 0.25;
+  const awake3 = awake * 0.40;
+
+  // Cycle 1: early night - deep sleep dominant
+  add('awake', awake1);
+  add('core', core1 * 0.6);
+  add('deep', deep1);
+  add('core', core1 * 0.4);
+  add('rem', rem1);
+
+  // Cycle 2: middle night
+  add('core', core2 * 0.5);
+  add('deep', deep2);
+  add('awake', awake2);
+  add('core', core2 * 0.5);
+  add('rem', rem2);
+
+  // Cycle 3 & 4: late night - REM sleep dominant
+  add('core', core3 * 0.5);
+  add('deep', deep3);
+  add('rem', rem3 * 0.5);
+  add('core', core3 * 0.5 + core4);
+  add('rem', rem3 * 0.5);
+  add('awake', awake3);
+
+  return segments;
+}
+
 interface SleepAnalysisCardProps {
   sleep: SleepAnalysis;
   days?: Record<string, DailySummary>;
@@ -40,6 +108,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
 
   const totalStageMinutes =
     sleep.stages.awake + sleep.stages.rem + sleep.stages.core + sleep.stages.deep;
+  const displayTimeline = buildSleepTimeline(sleep);
 
   const formatClockOffset = (baseTime: string, offsetMinutes: number): string => {
     const [hours, minutes] = baseTime.split(':').map(Number);
@@ -128,8 +197,8 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             </div>
 
             <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20">
-              <Sparkles className="w-3 h-3 text-indigo-400" />
-              得分 {sleep.score > 0 ? sleep.score : '—'}
+              <span className="text-sm leading-none">{getSleepScoreEmoji(sleep.score)}</span>
+              <span>得分 {sleep.score > 0 ? sleep.score : '—'}</span>
             </span>
           </div>
         </div>
@@ -169,62 +238,53 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
             <div className="relative mb-4">
               <div
                 ref={timelineRef}
-                className="relative w-full h-8 rounded-xl overflow-visible bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5"
+                className="relative w-full h-9 rounded-xl overflow-visible bg-black/5 dark:bg-white/5 flex gap-0.5 p-0.5"
                 onMouseLeave={clearTimelineHover}
               >
-                {sleep.timeline.length > 0
-                  ? sleep.timeline.map((seg, idx) => {
-                      const widthPct =
-                        (seg.durationMinutes / Math.max(totalStageMinutes, 1)) * 100;
-                      const stageCfg = stageConfigs.find((s) => s.key === seg.stage);
-                      const isHovered = activeStage === seg.stage;
+                {displayTimeline.map((seg, idx) => {
+                  const widthPct =
+                    (seg.durationMinutes / Math.max(totalStageMinutes, 1)) * 100;
+                  const stageCfg = stageConfigs.find((s) => s.key === seg.stage);
+                  const isMatchedStage = activeStage === seg.stage;
+                  const hasActiveStage = activeStage !== null;
 
-                      return (
-                        <motion.div
-                          key={idx}
-                          onMouseMove={(event) =>
-                            handleTimelineHover(
-                              event,
-                              seg,
-                              stageCfg?.label || '睡眠分期',
-                              stageCfg?.color || '#888'
-                            )
-                          }
-                          style={{
-                            width: `${widthPct}%`,
-                            backgroundColor: stageCfg?.color || '#888',
-                            opacity: activeStage && !isHovered ? 0.35 : 0.95,
-                            transformOrigin: 'bottom center',
-                          }}
-                          className="h-full rounded-sm transition-all duration-200 cursor-pointer relative group"
-                          whileHover={{ scaleY: 1.2, scaleX: 1.02 }}
-                          transition={{ type: 'spring', stiffness: 420, damping: 24 }}
-                        />
-                      );
-                    })
-                  : stageConfigs.map((cfg) => (
-                      <div
-                        key={cfg.key}
-                        onMouseMove={(event) =>
-                          handleTimelineHover(
-                            event,
-                            {
-                              stage: cfg.key as SleepStageSegment['stage'],
-                              startMinutes: 0,
-                              durationMinutes: cfg.minutes,
-                            },
-                            cfg.label,
-                            cfg.color
-                          )
-                        }
-                        style={{
-                          width: `${(cfg.minutes / Math.max(totalStageMinutes, 1)) * 100}%`,
-                          backgroundColor: cfg.color,
-                        }}
-                        className="h-full rounded-sm"
-                        title={`${cfg.label} ${cfg.minutes} 分钟`}
-                      />
-                    ))}
+                  return (
+                    <motion.div
+                      key={idx}
+                      onMouseEnter={(event) =>
+                        handleTimelineHover(
+                          event,
+                          seg,
+                          stageCfg?.label || '睡眠分期',
+                          stageCfg?.color || '#888'
+                        )
+                      }
+                      onMouseMove={(event) =>
+                        handleTimelineHover(
+                          event,
+                          seg,
+                          stageCfg?.label || '睡眠分期',
+                          stageCfg?.color || '#888'
+                        )
+                      }
+                      style={{
+                        width: `${widthPct}%`,
+                        backgroundColor: stageCfg?.color || '#888',
+                        opacity: hasActiveStage ? (isMatchedStage ? 1 : 0.22) : 0.92,
+                        transformOrigin: 'bottom center',
+                        boxShadow: isMatchedStage
+                          ? `0 0 10px ${stageCfg?.color || '#888'}90`
+                          : undefined,
+                      }}
+                      className="h-full rounded-sm transition-all duration-200 cursor-pointer relative"
+                      animate={{
+                        scaleY: isMatchedStage ? 1.25 : 1,
+                        y: isMatchedStage ? -2 : 0,
+                      }}
+                      transition={{ type: 'spring', stiffness: 420, damping: 25 }}
+                    />
+                  );
+                })}
               </div>
 
               <AnimatePresence>
@@ -275,7 +335,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
               {/* Time Axis Labels */}
               <div className="flex justify-between items-center text-[10px] text-neutral-400 mt-1 px-1 font-mono">
                 <span>{sleep.bedTime}</span>
-                <span>{sleep.timeline.length > 0 ? '夜间修护分期' : '睡眠分期汇总'}</span>
+                <span>夜间实际睡眠分期时序</span>
                 <span>{sleep.wakeTime}</span>
               </div>
             </div>
@@ -293,20 +353,32 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                     key={cfg.key}
                     onMouseEnter={() => setActiveStage(cfg.key)}
                     onMouseLeave={() => setActiveStage(null)}
-                    whileHover={{ scale: 1.025, y: -1 }}
-                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                    whileHover={{ scale: 1.04, y: -2 }}
+                    transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                    style={{
+                      borderColor: isSelected ? `${cfg.color}80` : undefined,
+                      backgroundColor: isSelected ? `${cfg.color}15` : undefined,
+                      boxShadow: isSelected ? `0 4px 16px ${cfg.color}25` : undefined,
+                    }}
                     className={`p-2.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
                       isSelected
-                        ? 'bg-black/[0.06] dark:bg-white/[0.08] border-black/20 dark:border-white/20'
+                        ? 'ring-2'
                         : 'bg-black/[0.02] dark:bg-white/[0.03] border-black/[0.05] dark:border-white/[0.05]'
                     }`}
                   >
                     <div className="flex items-center gap-1.5 mb-1">
                       <span
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ backgroundColor: cfg.color }}
+                        className={`w-2.5 h-2.5 rounded-full transition-transform duration-200 ${
+                          isSelected ? 'scale-125' : ''
+                        }`}
+                        style={{
+                          backgroundColor: cfg.color,
+                          boxShadow: isSelected ? `0 0 6px ${cfg.color}` : undefined,
+                        }}
                       />
-                      <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+                      <span className={`text-xs font-semibold transition-colors ${
+                        isSelected ? 'text-neutral-900 dark:text-white font-bold' : 'text-neutral-700 dark:text-neutral-300'
+                      }`}>
                         {cfg.label}
                       </span>
                     </div>
@@ -382,7 +454,7 @@ export const SleepAnalysisCard: React.FC<SleepAnalysisCardProps> = ({
                       周{d.shortDay}
                     </span>
                     <span className="text-[9px] text-indigo-400 font-bold">
-                      {s.score}分
+                      {getSleepScoreEmoji(s.score)} {s.score}分
                     </span>
                   </div>
                 );

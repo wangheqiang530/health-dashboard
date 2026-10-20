@@ -61,6 +61,7 @@ export interface DailyHrRange {
   maxHr: number;
   restingHr: number;
   sleepingHr: number;
+  walkingHr?: number;
   avgHr: number;
 }
 
@@ -68,8 +69,10 @@ export interface WeeklyHrTrend {
   weekLabel: string;
   avgResting: number;
   avgSleeping: number;
-  minRange: number;
-  maxRange: number;
+  minRange?: number;
+  maxRange?: number;
+  peakHr?: number;
+  range?: string;
 }
 
 export interface VitalsData {

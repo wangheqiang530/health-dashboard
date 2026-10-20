@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DailySummary } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
@@ -76,12 +76,35 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       localStorage.setItem('apple_health_trends_v2', JSON.stringify(trendsConfig));
     } catch {}
   }, [trendsConfig]);
+
   const dates = Object.keys(days).sort();
-  const recentDates = dates.length > 21 ? dates.slice(-21) : dates;
+  const targetDate = selectedDate && dates.includes(selectedDate)
+    ? selectedDate
+    : currentDay.date || dates[dates.length - 1] || '';
+  const targetIdx = dates.indexOf(targetDate);
+  const endIdx = targetIdx >= 0 ? targetIdx + 1 : dates.length;
+  const startIdx = Math.max(0, endIdx - 21);
+  const recentDates = dates.slice(startIdx, endIdx);
+  const datesUpToTarget = targetIdx >= 0 ? dates.slice(0, endIdx) : dates;
+
+  const availableDatesWithData = useMemo(() => {
+    return Object.keys(days).sort().filter((d) => {
+      const item = days[d];
+      if (!item) return false;
+      return (
+        (item.steps && item.steps.count > 0) ||
+        (item.rings && item.rings.move && item.rings.move.current > 0) ||
+        (item.sleep && item.sleep.totalMinutes > 0) ||
+        (item.vitals && (item.vitals.restingHr > 0 || item.vitals.hrvCurrent > 0)) ||
+        (item.body && item.body.weightKg > 0) ||
+        (item.workouts && item.workouts.length > 0)
+      );
+    });
+  }, [days]);
 
   const groupByWeek = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
     const weeks: Record<string, number[]> = {};
-    for (const d of dates) {
+    for (const d of datesUpToTarget) {
       const dateObj = new Date(d + 'T12:00:00+08:00');
       const year = dateObj.getFullYear();
       const month = dateObj.getMonth() + 1;
@@ -101,7 +124,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   const groupByMonth = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
     const months: Record<string, number[]> = {};
-    for (const d of dates) {
+    for (const d of datesUpToTarget) {
       const monthStr = `${d.slice(0, 4)}年${parseInt(d.slice(5, 7), 10)}月`;
       if (!months[monthStr]) months[monthStr] = [];
       const val = getter(days[d]);
@@ -116,7 +139,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
 
   const groupByYear = (getter: (d: DailySummary) => number, mode: 'sum' | 'avg') => {
     const years: Record<string, number[]> = {};
-    for (const date of dates) {
+    for (const date of datesUpToTarget) {
       const value = getter(days[date]);
       if (!Number.isFinite(value) || value <= 0) continue;
       const year = date.slice(0, 4);
@@ -168,10 +191,18 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     label: d.slice(5),
     value: parseFloat((days[d].sleep.totalMinutes / 60).toFixed(1)),
   }));
-  const dailyWeight = currentDay.body.trend.map((t) => ({
-    label: t.date,
-    value: t.weight,
-  }));
+  const weightPointsFromDays = recentDates
+    .filter((d) => days[d]?.body?.weightKg > 0)
+    .map((d) => ({
+      label: d.slice(5),
+      value: days[d].body.weightKg,
+    }));
+  const dailyWeight = weightPointsFromDays.length > 0
+    ? weightPointsFromDays
+    : currentDay.body.trend.map((t) => ({
+        label: t.date,
+        value: t.weight,
+      }));
   const dailyHrv = recentDates.map((d) => ({
     label: d.slice(5),
     value: days[d].vitals.hrvCurrent,
@@ -779,8 +810,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       <CalendarDatePickerModal
         isOpen={isCalendarOpen}
         onClose={() => setIsCalendarOpen(false)}
-        selectedDate={selectedDate || currentDay.date}
-        availableDates={dates}
+        selectedDate={targetDate}
+        availableDates={availableDatesWithData}
         onSelectDate={(d) => {
           if (onSelectDate) onSelectDate(d);
         }}
