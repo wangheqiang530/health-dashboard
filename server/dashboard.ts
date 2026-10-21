@@ -1,6 +1,7 @@
 import type {
   BodyComposition,
   DailySummary,
+  VitalityScore,
   WorkoutRecord,
 } from '../src/types/health.ts';
 import { config } from './config.ts';
@@ -58,6 +59,12 @@ interface CyclingRow {
 interface HaeStatusRow {
   received_at: Date | null;
   payload_size_bytes: string | null;
+}
+
+interface HrvTimelineRow {
+  day: string;
+  time: string;
+  value: number;
 }
 
 const numberOrNull = (value: string | number | null): number | null =>
@@ -242,6 +249,162 @@ const timeToMinutes = (value: string): number => {
   return (hours || 0) * 60 + (minutes || 0);
 };
 
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+const averageValue = (values: number[]): number => {
+  const valid = values.filter((value) => Number.isFinite(value) && value > 0);
+  return valid.length > 0
+    ? valid.reduce((sum, value) => sum + value, 0) / valid.length
+    : 0;
+};
+
+const deriveSleepingHr = (summary: DailySummary): number => {
+  if (summary.vitals.sleepingHr > 0) return summary.vitals.sleepingHr;
+  if (!summary.sleep || summary.sleep.totalMinutes <= 0) return 0;
+
+  const bedMinutes = timeToMinutes(summary.sleep.bedTime);
+  const wakeMinutes = timeToMinutes(summary.sleep.wakeTime);
+  const values = (summary.heartRateTimeline || [])
+    .filter((point) => {
+      const minutes = timeToMinutes(point.time);
+      if (point.hr < 35 || point.hr > 120) return false;
+      return bedMinutes <= wakeMinutes
+        ? minutes >= bedMinutes && minutes <= wakeMinutes
+        : minutes >= bedMinutes || minutes <= wakeMinutes;
+    })
+    .map((point) => point.hr);
+  return Math.round(averageValue(values));
+};
+
+export const buildVitality = (
+  summary: DailySummary,
+  recentResting?: { value: number; date: string }
+): VitalityScore => {
+  const currentResting = summary.vitals.restingHr;
+  const restingHrUsed = currentResting > 0 ? currentResting : recentResting?.value || 0;
+  const restingSourceDate =
+    currentResting > 0 ? summary.date : recentResting?.date;
+  const restingBaseline = Math.round(averageValue(summary.vitals.restingHrTrend || []));
+  const hrvCurrent = summary.vitals.hrvCurrent;
+  const hrvBaseline = summary.vitals.hrvBaseline || hrvCurrent;
+  const sleepScore =
+    summary.sleep?.score > 0 ? summary.sleep.score : summary.sleep?.efficiency || 0;
+
+  const hasResting = restingHrUsed > 0;
+  const hasCurrentResting = currentResting > 0;
+  const hasHrv = hrvCurrent > 0;
+  const hasSleep = sleepScore > 0;
+  const dataCoverage =
+    Number(hasCurrentResting) + Number(hasHrv) + Number(hasSleep);
+  const availableSignalCount = Number(hasResting) + Number(hasHrv) + Number(hasSleep);
+  const missingSignals = [
+    !hasCurrentResting ? '今日静息心率' : null,
+    !hasHrv ? 'HRV' : null,
+    !hasSleep ? '睡眠' : null,
+  ].filter((value): value is string => value !== null);
+
+  if (availableSignalCount < 2) {
+    return {
+      score: 0,
+      label: '数据不足',
+      statusDescription:
+        dataCoverage === 1
+          ? `当前仅收到${missingSignals.length === 2 ? missingSignals.join('与') : '1 项'}以外的单项数据，至少需要 2 项才能生成状态评分。`
+          : '等待静息心率、HRV 与睡眠数据同步后再计算身体状态。',
+      hrvStatus: '数据不足',
+      restingHrDiff: 0,
+      sleepContribution: summary.sleep?.efficiency || 0,
+      stressLevel: '数据不足',
+      dataCoverage,
+      restingHrUsed: restingHrUsed || undefined,
+      restingHrSourceDate: restingSourceDate,
+      missingSignals,
+    };
+  }
+
+  const effectiveRestingBaseline = restingBaseline || restingHrUsed;
+  const restingScore = hasResting
+    ? clamp(100 - Math.abs(restingHrUsed - effectiveRestingBaseline) * 4, 25, 100)
+    : 0;
+  const hrvRatio = hasHrv && hrvBaseline > 0 ? hrvCurrent / hrvBaseline : 1;
+  const hrvScore = hasHrv ? clamp(50 + (hrvRatio - 1) * 50, 20, 100) : 0;
+  const sleepComponent = clamp(sleepScore, 0, 100);
+
+  const weighted = [
+    { value: sleepComponent, weight: 0.4, available: hasSleep },
+    { value: hrvScore, weight: 0.3, available: hasHrv },
+    { value: restingScore, weight: 0.3, available: hasResting },
+  ].filter((item) => item.available);
+  const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+  const score = Math.round(
+    weighted.reduce((sum, item) => sum + item.value * item.weight, 0) / totalWeight
+  );
+  const hrvDiffPct =
+    hasHrv && hrvBaseline > 0
+      ? Math.round(((hrvCurrent - hrvBaseline) / hrvBaseline) * 100)
+      : 0;
+  const restingHrDiff =
+    hasResting && effectiveRestingBaseline > 0
+      ? Math.round(restingHrUsed - effectiveRestingBaseline)
+      : 0;
+  const label: VitalityScore['label'] =
+    score >= 90
+      ? '优异'
+      : score >= 80
+        ? '充沛'
+        : score >= 70
+          ? '良好'
+          : score >= 60
+            ? '轻度疲倦'
+            : '需休整';
+  const hrvStatus: VitalityScore['hrvStatus'] = !hasHrv
+    ? '数据不足'
+    : hrvDiffPct > 5
+      ? '高于基线'
+      : hrvDiffPct < -5
+        ? '低于基线'
+        : '正常基线';
+  const stressLevel: VitalityScore['stressLevel'] = !hasHrv
+    ? '数据不足'
+    : hrvRatio >= 1.05
+      ? '低压力'
+      : hrvRatio >= 0.9
+        ? '适中'
+        : '偏高';
+
+  const usedSignals = [
+    hasSleep ? `睡眠评分 ${Math.round(sleepComponent)}` : null,
+    hasHrv ? `HRV ${hrvCurrent} ms` : null,
+    hasResting ? `静息心率 ${restingHrUsed} bpm` : null,
+  ].filter((value): value is string => value !== null);
+  const fallbackNote =
+    currentResting <= 0 && recentResting
+      ? ` 静息心率采用 ${recentResting.date.slice(5)} 最近实测值。`
+      : '';
+  const descriptionMissingSignals = missingSignals.filter(
+    (signal) => !(signal === '今日静息心率' && recentResting)
+  );
+  const missingNote =
+    descriptionMissingSignals.length > 0
+      ? ` ${descriptionMissingSignals.join('、')}尚未同步。`
+      : '';
+
+  return {
+    score,
+    label,
+    statusDescription: `基于${usedSignals.join('、')} 计算参考评分。${fallbackNote}${missingNote}`.trim(),
+    hrvStatus,
+    restingHrDiff,
+    sleepContribution: summary.sleep?.efficiency || 0,
+    stressLevel,
+    dataCoverage,
+    restingHrUsed: restingHrUsed || undefined,
+    restingHrSourceDate: restingSourceDate,
+    missingSignals,
+  };
+};
+
 const cyclingToWorkout = (row: CyclingRow): WorkoutRecord => {
   const isFitImport = row.external_id.startsWith('fit-');
   const activeCalories = Math.round(numberOrNull(row.calories) || 0);
@@ -354,8 +517,35 @@ export async function getDashboardData(options: {
      ORDER BY started_at ASC`,
     [firstDay, lastDay, config.timezone]
   );
+  const hrvTimelineRows = await pool.query<HrvTimelineRow>(
+    `SELECT
+       to_char(local_date, 'YYYY-MM-DD') AS day,
+       to_char(COALESCE(start_at, end_at) AT TIME ZONE $3, 'HH24:MI') AS time,
+       value_num::float8 AS value
+     FROM health_samples
+     WHERE source_id = 'hae'
+       AND metric_name IN (
+         'heart_rate_variability',
+         'heartRateVariability',
+         'heart_rate_variability_sdnn',
+         'hrv'
+       )
+       AND local_date BETWEEN $1::date AND $2::date
+       AND value_num IS NOT NULL
+       AND value_num > 0
+       AND COALESCE(start_at, end_at) IS NOT NULL
+     ORDER BY local_date ASC, COALESCE(start_at, end_at) ASC`,
+    [firstDay, lastDay, config.timezone]
+  );
+  const hrvTimelineByDay = new Map<string, Array<{ time: string; hrv: number }>>();
+  for (const point of hrvTimelineRows.rows) {
+    const values = hrvTimelineByDay.get(point.day) || [];
+    values.push({ time: point.time, hrv: Math.round(Number(point.value)) });
+    hrvTimelineByDay.set(point.day, values);
+  }
 
   const days: Record<string, DailySummary> = {};
+  let latestResting: { value: number; date: string } | undefined;
   for (const row of dailyRows.rows) {
     const summary = row.summary;
     const bodyBefore = bodyRows.rows.filter((body) => body.measured_date <= row.day);
@@ -400,6 +590,27 @@ export async function getDashboardData(options: {
     );
     if (cyclingDistance > 0) {
       summary.cyclingDistanceKm = Number(cyclingDistance.toFixed(2));
+    }
+
+    summary.vitals.sleepingHr = deriveSleepingHr(summary);
+    const hrvTimeline = hrvTimelineByDay.get(row.day);
+    if (hrvTimeline && hrvTimeline.length > 0) {
+      summary.vitals.hrvTimeline = hrvTimeline;
+    }
+    const recentResting =
+      latestResting &&
+      (new Date(`${row.day}T12:00:00`).getTime() -
+        new Date(`${latestResting.date}T12:00:00`).getTime()) /
+        (24 * 60 * 60 * 1000) <=
+        7
+        ? latestResting
+        : undefined;
+    summary.vitality = buildVitality(summary, recentResting);
+    if (summary.vitals.restingHr > 0) {
+      latestResting = {
+        value: summary.vitals.restingHr,
+        date: row.day,
+      };
     }
     days[row.day] = summary;
   }

@@ -20,6 +20,10 @@ export interface VitalityScore {
   restingHrDiff: number;
   sleepContribution: number;
   stressLevel: '低压力' | '适中' | '偏高' | '数据不足';
+  dataCoverage?: number;
+  restingHrUsed?: number;
+  restingHrSourceDate?: string;
+  missingSignals?: string[];
 }
 
 export interface SleepStageSegment {
@@ -54,6 +58,11 @@ export interface HeartRatePoint {
   isWorkout?: boolean;
 }
 
+export interface HrvPoint {
+  time: string;
+  hrv: number;
+}
+
 export interface DailyHrRange {
   date: string;
   dayName: string;
@@ -84,6 +93,7 @@ export interface VitalsData {
   hrvCurrent: number;       // ms (SDNN)
   hrvBaseline: number;
   hrvTrend: { date: string; hrv: number }[];
+  hrvTimeline?: HrvPoint[];
   dailyHrRanges?: DailyHrRange[];
   weeklyHrTrends?: WeeklyHrTrend[];
   spo2: number;

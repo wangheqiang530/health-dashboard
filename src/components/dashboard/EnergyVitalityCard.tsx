@@ -15,6 +15,10 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
   currentHrv,
   restingHr,
 }) => {
+  const effectiveRestingHr = vitality.restingHrUsed || restingHr;
+  const hasRestingHr = effectiveRestingHr > 0;
+  const hasHrv = currentHrv > 0;
+  const coverage = vitality.dataCoverage ?? 0;
   const getBadgeStyle = (label: VitalityScore['label']) => {
     switch (label) {
       case '优异':
@@ -116,6 +120,17 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
             <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300 font-normal">
               {vitality.statusDescription}
             </p>
+            {vitality.score > 0 && (
+              <div className="flex items-center gap-2 text-[10px] text-neutral-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>
+                  {coverage > 0 ? `${coverage}/3 项今日实测` : '参考评分'}
+                  {vitality.missingSignals && vitality.missingSignals.length > 0
+                    ? ` · 待同步 ${vitality.missingSignals.join('、')}`
+                    : ''}
+                </span>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2.5 pt-1">
               <div className="p-2.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/[0.05] dark:border-white/[0.05]">
@@ -124,7 +139,9 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span>HRV 变异性</span>
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-base font-bold text-neutral-900 dark:text-white">{currentHrv}</span>
+                  <span className="text-base font-bold text-neutral-900 dark:text-white">
+                    {hasHrv ? currentHrv : '—'}
+                  </span>
                   <span className="text-[10px] text-neutral-400">ms</span>
                 </div>
                 <div
@@ -151,18 +168,26 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span>静息心率</span>
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-base font-bold text-neutral-900 dark:text-white">{restingHr}</span>
+                  <span className="text-base font-bold text-neutral-900 dark:text-white">
+                    {hasRestingHr ? effectiveRestingHr : '—'}
+                  </span>
                   <span className="text-[10px] text-neutral-400">bpm</span>
                 </div>
                 <div className="flex items-center text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">
-                  {vitality.restingHrDiff <= 0 ? (
-                    <ArrowDownRight className="w-3 h-3" />
+                  {hasRestingHr ? (
+                    <>
+                      {vitality.restingHrDiff <= 0 ? (
+                        <ArrowDownRight className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpRight className="w-3 h-3 text-amber-500" />
+                      )}
+                      <span>
+                        {vitality.restingHrDiff > 0 ? `+${vitality.restingHrDiff}` : vitality.restingHrDiff} vs 基线
+                      </span>
+                    </>
                   ) : (
-                    <ArrowUpRight className="w-3 h-3 text-amber-500" />
+                    <span>等待静息心率</span>
                   )}
-                  <span>
-                    {vitality.restingHrDiff > 0 ? `+${vitality.restingHrDiff}` : vitality.restingHrDiff} vs 基线
-                  </span>
                 </div>
               </div>
 
@@ -172,7 +197,9 @@ export const EnergyVitalityCard: React.FC<EnergyVitalityCardProps> = ({
                   <span>睡眠蓄能</span>
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-base font-bold text-neutral-900 dark:text-white">{vitality.sleepContribution}</span>
+                  <span className="text-base font-bold text-neutral-900 dark:text-white">
+                    {vitality.sleepContribution > 0 ? vitality.sleepContribution : '—'}
+                  </span>
                   <span className="text-[10px] text-neutral-400">%</span>
                 </div>
                 <div className="text-[10px] text-neutral-400 mt-0.5">

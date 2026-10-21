@@ -108,6 +108,10 @@ export function mergeDailySummary(
           next.vitals.hrvTrend.length > 0
             ? next.vitals.hrvTrend
             : previous.vitals.hrvTrend,
+        hrvTimeline:
+          next.vitals.hrvTimeline && next.vitals.hrvTimeline.length > 0
+            ? next.vitals.hrvTimeline
+            : previous.vitals.hrvTimeline,
         dailyHrRanges: next.vitals.dailyHrRanges ?? previous.vitals.dailyHrRanges,
         weeklyHrTrends: next.vitals.weeklyHrTrends ?? previous.vitals.weeklyHrTrends,
         bloodPressure: next.vitals.bloodPressure ?? previous.vitals.bloodPressure,
