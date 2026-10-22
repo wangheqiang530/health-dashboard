@@ -25,6 +25,96 @@ const formatElapsed = (milliseconds: number): string => {
   return `${minutes} 分 ${remainder} 秒`;
 };
 
+const DETAIL_LABELS: Record<string, string> = {
+  activeSuid: '当前档案 SUID',
+  profileCount: '账号档案数',
+  deviceCount: '绑定设备数',
+  recentRecordCount: '最近记录数',
+  archivePath: '原始归档路径',
+  isFullSync: '同步方式',
+  totalAccountRides: '账号活动总数',
+  outputDirectory: 'FIT 文件目录',
+  archiveWritable: '归档目录可写',
+  lastReceivedAt: '最近接收时间',
+  dateFrom: '数据起始日期',
+  dateTo: '数据结束日期',
+  metricCount: '健康指标数',
+  workoutCount: '运动记录数',
+  passwordConfigured: '密码已配置',
+  filename: '文件名',
+  startedAt: '开始时间',
+  fileSizeBytes: '文件大小',
+  days: '健康数据天数',
+  importId: '导入任务 ID',
+  dailySummaryCount: '日汇总天数',
+  receivedCount: '云端读取数',
+  savedCount: '成功入库数',
+  autoIgnoredCount: '自动忽略数',
+  ignoredCount: '已在忽略列表',
+  retentionDays: '归档保留天数',
+  deletedFiles: '清理文件数',
+  freedBytes: '释放空间',
+  totalFiles: '归档文件总数',
+  connected: '数据库连接',
+  source: '数据来源',
+  configured: '代理已启用',
+  proxyUrl: '地图代理地址',
+};
+
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const formatDetailValue = (key: string, value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  if (key === 'isFullSync') {
+    return value === true ? '全量同步（全部历史）' : '增量同步（按回看范围）';
+  }
+  if (key === 'archiveWritable' || key === 'passwordConfigured' || key === 'connected') {
+    return value === true ? '是' : '否';
+  }
+  if (
+    typeof value === 'number' &&
+    (key.endsWith('Bytes') || key === 'freedBytes' || key === 'archiveSizeBytes')
+  ) {
+    return formatBytes(value);
+  }
+  if (
+    typeof value === 'number' &&
+    (key.endsWith('Count') ||
+      key === 'days' ||
+      key === 'recordsCount' ||
+      key === 'deletedFiles' ||
+      key === 'totalFiles' ||
+      key === 'retentionDays')
+  ) {
+    return value.toLocaleString('zh-CN');
+  }
+  if (
+    typeof value === 'string' &&
+    (key === 'startedAt' ||
+      key === 'lastReceivedAt' ||
+      key.endsWith('At')) &&
+    !Number.isNaN(new Date(value).getTime())
+  ) {
+    return new Intl.DateTimeFormat('zh-CN', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+    }).format(new Date(value));
+  }
+  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const detailLabel = (key: string): string =>
+  DETAIL_LABELS[key] || `业务参数（${key}）`;
+
 export const OperationProgressModal: React.FC<OperationProgressModalProps> = ({
   state,
   onClose,
@@ -129,11 +219,14 @@ export const OperationProgressModal: React.FC<OperationProgressModalProps> = ({
 
           {state.details && Object.keys(state.details).length > 0 && (
             <div className="mt-3 max-h-40 overflow-y-auto rounded-2xl border border-white/10 bg-black/25 p-3">
+              <p className="mb-1.5 text-[9px] text-neutral-500">
+                参数已转换为中文业务含义，SUID 与任务 ID 保留原标识。
+              </p>
               {Object.entries(state.details).map(([key, value]) => (
                 <div key={key} className="flex items-start justify-between gap-4 py-1 text-[11px]">
-                  <span className="font-mono text-neutral-400">{key}</span>
+                  <span className="shrink-0 text-neutral-400">{detailLabel(key)}</span>
                   <span className="break-all text-right text-neutral-100">
-                    {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '—')}
+                    {formatDetailValue(key, value)}
                   </span>
                 </div>
               ))}

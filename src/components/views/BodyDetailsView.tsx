@@ -15,11 +15,20 @@ import {
   Heart,
   Calendar,
   RefreshCw,
+  Gauge,
+  SlidersHorizontal,
+  Activity,
 } from 'lucide-react';
 import { Metric30DayModal, type Metric30DayModalData } from './Metric30DayModal';
 import { BodySilhouette } from './BodySilhouette';
 import { ManageBodyModal, type BodySectionConfig } from './ManageBodyModal';
 import { CalendarDatePickerModal } from '../ui/CalendarDatePickerModal';
+import { BodyMetricCard } from './BodyMetricCard';
+import {
+  BODY_METRIC_DEFINITIONS,
+  bodyMetricValue,
+  type BodyMetricKey,
+} from '../../utils/bodyMetrics';
 
 interface BodyDetailsViewProps {
   currentDay: DailySummary;
@@ -30,36 +39,55 @@ interface BodyDetailsViewProps {
   onCloseManage?: () => void;
 }
 
-type MeasurementKey =
-  | 'skeletalMuscleKg'
-  | 'waterPercent'
-  | 'visceralFatLevel'
-  | 'bmrKcal'
-  | 'boneMassKg'
-  | 'proteinPercent'
-  | 'bodyAge'
-  | 'leanMassKg';
-
 const DEFAULT_BODY_SECTIONS: BodySectionConfig[] = [
   {
     id: 'hero',
     name: '身体成分概览与平衡条',
     desc: '体重、体脂率、去脂净重与肌肉脂肪比例',
     visible: true,
+    group: 'section',
   },
   {
     id: 'metrics',
-    name: '体脂秤核心指标',
-    desc: '骨骼肌、水分率、内脏脂肪、基础代谢、骨量等实际记录',
+    name: '体测指标卡片',
+    desc: '逐项展示 Fitdays 返回的所有可读体测指标',
     visible: true,
+    group: 'section',
   },
   {
     id: 'silhouette',
     name: '五部位肌脂与双频阻抗',
     desc: '躯干、左右上肢、左右下肢的肌肉量、脂肪量、20k/100k 阻抗与趋势',
     visible: true,
+    group: 'section',
   },
+  ...BODY_METRIC_DEFINITIONS.map((metric) => ({
+    id: `metric:${metric.key}`,
+    name: metric.title,
+    desc: metric.description,
+    visible: true,
+    group: 'metric' as const,
+  })),
 ];
+
+const mergeBodySections = (saved: BodySectionConfig[]): BodySectionConfig[] => {
+  const savedById = new Map(saved.map((section) => [section.id, section]));
+  const known: BodySectionConfig[] = [];
+  for (const section of saved) {
+    const fallback = DEFAULT_BODY_SECTIONS.find((item) => item.id === section.id);
+    if (fallback) {
+      known.push({
+        ...fallback,
+        ...section,
+        name: fallback.name,
+        desc: fallback.desc,
+        group: fallback.group,
+      });
+    }
+  }
+  const missing = DEFAULT_BODY_SECTIONS.filter((section) => !savedById.has(section.id));
+  return [...known, ...missing];
+};
 
 const numberValue = (value: number | null | undefined): number =>
   Number.isFinite(value) ? Number(value) : 0;
@@ -83,14 +111,12 @@ const measurementToBody = (
       ? rawFat
       : recentFallback && numberValue(recentFallback.bodyFatPercent) > 0
         ? numberValue(recentFallback.bodyFatPercent)
-        : 22.8;
+        : 0;
   const rawBmi = numberValue(measurement.bmi);
   const bmi =
     rawBmi > 0
       ? rawBmi
-      : weight > 0
-        ? Number((weight / (1.84 ** 2)).toFixed(1))
-        : 26.0;
+      : 0;
   const fatMass = Number((weight * (bodyFat / 100)).toFixed(2));
   const rawLean = numberValue(measurement.leanMassKg);
   const leanMass =
@@ -104,8 +130,11 @@ const measurementToBody = (
       ? rawSkeletal
       : recentFallback && numberValue(recentFallback.skeletalMusclePercent) > 0
         ? numberValue(recentFallback.skeletalMusclePercent)
-        : 44.2;
-  const skeletalMuscleKg = Number((weight * (skeletalMusclePercent / 100)).toFixed(2));
+        : 0;
+  const skeletalMuscleKg =
+    skeletalMusclePercent > 0
+      ? Number((weight * (skeletalMusclePercent / 100)).toFixed(2))
+      : 0;
 
   const rawWater = numberValue(measurement.waterPercent);
   const waterPercent =
@@ -113,7 +142,7 @@ const measurementToBody = (
       ? rawWater
       : recentFallback && numberValue(recentFallback.waterPercent) > 0
         ? numberValue(recentFallback.waterPercent)
-        : 56.4;
+        : 0;
 
   const rawVisceral = numberValue(measurement.visceralFatLevel);
   const visceralFatLevel =
@@ -121,7 +150,7 @@ const measurementToBody = (
       ? rawVisceral
       : recentFallback && numberValue(recentFallback.visceralFatLevel) > 0
         ? numberValue(recentFallback.visceralFatLevel)
-        : 7;
+        : 0;
 
   const rawBmr = numberValue(measurement.bmrKcal);
   const bmrKcal =
@@ -129,7 +158,7 @@ const measurementToBody = (
       ? rawBmr
       : recentFallback && numberValue(recentFallback.bmrKcal) > 0
         ? numberValue(recentFallback.bmrKcal)
-        : 1850;
+        : 0;
 
   const rawBone = numberValue(measurement.boneMassKg);
   const boneMassKg =
@@ -137,7 +166,7 @@ const measurementToBody = (
       ? rawBone
       : recentFallback && numberValue(recentFallback.boneMassKg) > 0
         ? numberValue(recentFallback.boneMassKg)
-        : 4.6;
+        : 0;
 
   const rawProtein = numberValue(measurement.proteinPercent);
   const proteinPercent =
@@ -145,16 +174,16 @@ const measurementToBody = (
       ? rawProtein
       : recentFallback && numberValue(recentFallback.proteinPercent) > 0
         ? numberValue(recentFallback.proteinPercent)
-        : 15.4;
+        : 0;
 
   const bodyAge =
     measurement.bodyAge && measurement.bodyAge > 0
       ? measurement.bodyAge
-      : (recentFallback?.bodyAge || 33);
+      : (recentFallback?.bodyAge || 0);
   const bodyScore =
     measurement.bodyScore && measurement.bodyScore > 0
       ? measurement.bodyScore
-      : (recentFallback?.bodyScore || 76);
+      : (recentFallback?.bodyScore || 0);
 
   return {
     weightKg: weight,
@@ -202,10 +231,9 @@ interface HeroTrendPoint {
   value: number;
 }
 
-type BodyDateRange = 'today' | '7d' | '30d' | '90d' | '180d';
+type BodyDateRange = '7d' | '30d' | '90d' | '180d';
 
 const BODY_RANGE_LABELS: Record<BodyDateRange, string> = {
-  today: '当日',
   '7d': '近 7 天',
   '30d': '近 30 天',
   '90d': '近一季',
@@ -213,12 +241,19 @@ const BODY_RANGE_LABELS: Record<BodyDateRange, string> = {
 };
 
 const BODY_RANGE_DAYS: Record<BodyDateRange, number> = {
-  today: 1,
   '7d': 7,
   '30d': 30,
   '90d': 90,
   '180d': 180,
 };
+
+const todayInShanghai = (): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 
 const formatTrendValue = (value: number, unit: string): string =>
   `${Number.isInteger(value) ? value : value.toFixed(unit === '%' ? 1 : 2)} ${unit}`;
@@ -401,15 +436,21 @@ const HeroTrendPopover: React.FC<{
 export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   currentDay,
   days: _days = {},
-  selectedDate,
+  selectedDate: _selectedDate,
   onSelectDate,
   isManageOpen = false,
   onCloseManage,
 }) => {
   const [sectionsConfig, setSectionsConfig] = useState<BodySectionConfig[]>(() => {
     try {
-      const saved = localStorage.getItem('apple_health_body_sections_v3');
-      if (saved) return JSON.parse(saved) as BodySectionConfig[];
+      const saved = localStorage.getItem('apple_health_body_sections_v4');
+      if (saved) {
+        return mergeBodySections(JSON.parse(saved) as BodySectionConfig[]);
+      }
+      const legacy = localStorage.getItem('apple_health_body_sections_v3');
+      if (legacy) {
+        return mergeBodySections(JSON.parse(legacy) as BodySectionConfig[]);
+      }
     } catch {
       // Use defaults when local preferences are unavailable.
     }
@@ -418,18 +459,18 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
   const [measurementsLoading, setMeasurementsLoading] = useState(true);
   const [selectedMeasurementId, setSelectedMeasurementId] = useState<string | null>(null);
-  const [hoveredCardIndex, setHoveredCardIndex] = useState<number | null>(null);
   const [modalData, setModalData] = useState<Metric30DayModalData | null>(null);
-  const [activeDateRange, setActiveDateRange] = useState<BodyDateRange>('today');
+  const [activeDateRange, setActiveDateRange] = useState<BodyDateRange>('7d');
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [focusedDate, setFocusedDate] = useState<string | null>(null);
+  const [focusedDate, setFocusedDate] = useState<string | null>(() => todayInShanghai());
   const [hoveredHeroMetric, setHoveredHeroMetric] = useState<
     'weight' | 'bodyFat' | 'lean' | null
   >(null);
+  const [isBodyEditorOpen, setIsBodyEditorOpen] = useState(false);
 
   useEffect(() => {
     try {
-      localStorage.setItem('apple_health_body_sections_v3', JSON.stringify(sectionsConfig));
+      localStorage.setItem('apple_health_body_sections_v4', JSON.stringify(sectionsConfig));
     } catch {
       // Local preferences are optional.
     }
@@ -468,9 +509,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
       ).sort(),
     [measurements]
   );
-  const latestMeasurementDate = measurements[measurements.length - 1]?.measuredDate;
-  const currentDate =
-    focusedDate || latestMeasurementDate || selectedDate || currentDay.date;
+  const currentDate = focusedDate || todayInShanghai();
   const measurementsForDate = useMemo(
     () =>
       measurements
@@ -525,7 +564,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
           return {
             date: measurement.measuredDate.slice(5),
             weight: numberValue(measurement.weightKg),
-            bodyFat: rawF > 0 ? rawF : 22.8,
+            bodyFat: rawF > 0 ? rawF : 0,
           };
         }),
     [measurementsUpToDate]
@@ -545,56 +584,33 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     ? measurementToBody(selectedMeasurement, bodyTrend, recentValidMeasurement)
     : currentDay.body;
 
-  const body = useMemo(() => {
-    if (rawBody.weightKg > 0 && (rawBody.bodyFatPercent === undefined || rawBody.bodyFatPercent <= 0)) {
-      const fallbackFat = recentValidMeasurement?.bodyFatPercent || 22.8;
-      const fatM = Number((rawBody.weightKg * (fallbackFat / 100)).toFixed(2));
-      return {
-        ...rawBody,
-        bodyFatPercent: fallbackFat,
-        fatMassKg: fatM,
-        leanMassKg: Number((rawBody.weightKg - fatM).toFixed(2)),
-        skeletalMuscleKg: recentValidMeasurement?.skeletalMuscleKg || Number((rawBody.weightKg * 0.442).toFixed(2)),
-        skeletalMusclePercent: recentValidMeasurement?.skeletalMusclePercent || 44.2,
-        waterPercent: recentValidMeasurement?.waterPercent || 56.4,
-        visceralFatLevel: recentValidMeasurement?.visceralFatLevel || 7,
-        bmrKcal: recentValidMeasurement?.bmrKcal || 1850,
-        boneMassKg: recentValidMeasurement?.boneMassKg || 4.6,
-        proteinPercent: recentValidMeasurement?.proteinPercent || 15.4,
-        bodyAge: recentValidMeasurement?.bodyAge || 33,
-        bodyScore: recentValidMeasurement?.bodyScore || 76,
-        statusLabel: bodyStatusLabel(rawBody.weightKg, fallbackFat),
-      };
-    }
-    return rawBody;
-  }, [rawBody, recentValidMeasurement]);
+  const body = rawBody;
 
-  const historyPoints = (key: MeasurementKey) =>
+  const historyPoints = (key: BodyMetricKey) =>
     rangeMeasurements
-      .filter((measurement) => measurement[key] !== null)
       .map((measurement) => {
-        let val = numberValue(measurement[key]);
-        if (val <= 0 && recentValidMeasurement) {
-          val = numberValue(recentValidMeasurement[key]);
-        }
         return {
           date: measurement.measuredDate.slice(5),
-          value: val,
+          value: bodyMetricValue(measurement, key),
           measuredAt: measurement.measuredAt,
         };
       })
-      .filter((p) => p.value > 0);
+      .filter(
+        (point): point is { date: string; value: number; measuredAt: string } =>
+          point.value !== null && point.value > 0
+      );
 
   const heroSeries = (key: 'weightKg' | 'bodyFatPercent' | 'leanMassKg'): HeroTrendPoint[] =>
     rangeMeasurements
       .filter((measurement) => measurement[key] !== null)
       .map((measurement) => {
         let val = numberValue(measurement[key]);
-        if (key === 'bodyFatPercent' && val <= 0 && recentValidMeasurement) {
-          val = numberValue(recentValidMeasurement.bodyFatPercent);
-        } else if (key === 'leanMassKg' && val <= 0 && measurement.weightKg) {
-          const fat = recentValidMeasurement?.bodyFatPercent || 22.8;
-          val = Number((measurement.weightKg * (1 - fat / 100)).toFixed(2));
+        if (key === 'leanMassKg' && val <= 0 && measurement.weightKg) {
+          const fat = numberValue(measurement.bodyFatPercent);
+          val =
+            fat > 0
+              ? Number((measurement.weightKg * (1 - fat / 100)).toFixed(2))
+              : 0;
         }
         return {
           date: measurement.measuredDate.slice(5),
@@ -610,23 +626,6 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
 
   const handleQuickRange = (rangeKey: typeof activeDateRange) => {
     setActiveDateRange(rangeKey);
-    if (!onSelectDate || allDates.length === 0) return;
-    if (rangeKey === 'today') {
-      const latestDate = allDates[allDates.length - 1];
-      setFocusedDate(latestDate);
-      onSelectDate(latestDate);
-      return;
-    }
-    const daysBack =
-      rangeKey === '7d' ? 7 : rangeKey === '30d' ? 30 : rangeKey === '90d' ? 90 : 180;
-    const anchor = new Date(`${allDates[allDates.length - 1]}T12:00:00+08:00`);
-    anchor.setDate(anchor.getDate() - daysBack);
-    const target = anchor.toISOString().slice(0, 10);
-    const closest = allDates.filter((date) => date <= target).slice(-1)[0] || allDates[0];
-    if (closest) {
-      setFocusedDate(closest);
-      onSelectDate(closest);
-    }
   };
 
   const isVisible = (id: string) =>
@@ -636,79 +635,46 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
     body.weightKg > 0 ? Math.round((body.leanMassKg / body.weightKg) * 100) : 0;
   const fatPercent = Math.round(body.bodyFatPercent);
 
-  const metrics: Array<{
-    title: string;
-    key: MeasurementKey;
-    unit: string;
-    icon: React.ComponentType<{ className?: string }>;
-    color: string;
-    reference: string;
-  }> = [
+  const metricVisuals: Record<
+    BodyMetricKey,
     {
-      title: '骨骼肌量',
-      key: 'skeletalMuscleKg',
-      unit: 'kg',
-      icon: Dumbbell,
-      color: '#6366F1',
-      reference: '由体脂秤骨骼肌率与体重计算',
-    },
-    {
-      title: '身体水分率',
-      key: 'waterPercent',
-      unit: '%',
-      icon: Droplets,
-      color: '#0EA5E9',
-      reference: 'Fitdays 实测水分率',
-    },
-    {
-      title: '内脏脂肪等级',
-      key: 'visceralFatLevel',
-      unit: '级',
-      icon: ShieldCheck,
-      color: '#10B981',
-      reference: 'Fitdays 实测等级',
-    },
-    {
-      title: '基础代谢率',
-      key: 'bmrKcal',
-      unit: 'kcal',
-      icon: Flame,
-      color: '#FA114F',
-      reference: 'Fitdays 实测基础代谢',
-    },
-    {
-      title: '骨量',
-      key: 'boneMassKg',
-      unit: 'kg',
-      icon: Layers,
-      color: '#F59E0B',
-      reference: 'Fitdays 实测骨量',
-    },
-    {
-      title: '蛋白质率',
-      key: 'proteinPercent',
-      unit: '%',
-      icon: Sparkles,
-      color: '#14B8A6',
-      reference: 'Fitdays 实测蛋白质率',
-    },
-    {
-      title: '身体年龄',
-      key: 'bodyAge',
-      unit: '岁',
-      icon: Heart,
-      color: '#A855F7',
-      reference: 'Fitdays 体脂秤估算值',
-    },
-    {
-      title: '去脂体重',
-      key: 'leanMassKg',
-      unit: 'kg',
-      icon: Zap,
-      color: '#3B82F6',
-      reference: 'Fitdays 实测去脂体重',
-    },
-  ];
+      icon: React.ComponentType<{ className?: string }>;
+      color: string;
+    }
+  > = {
+    weightKg: { icon: Scale, color: '#64748B' },
+    bmi: { icon: Gauge, color: '#0EA5E9' },
+    bodyFatPercent: { icon: Activity, color: '#F59E0B' },
+    fatMassKg: { icon: Layers, color: '#F97316' },
+    leanMassKg: { icon: Zap, color: '#3B82F6' },
+    skeletalMuscleKg: { icon: Dumbbell, color: '#6366F1' },
+    skeletalMusclePercent: { icon: Dumbbell, color: '#818CF8' },
+    musclePercent: { icon: Dumbbell, color: '#8B5CF6' },
+    waterPercent: { icon: Droplets, color: '#0EA5E9' },
+    visceralFatLevel: { icon: ShieldCheck, color: '#10B981' },
+    bmrKcal: { icon: Flame, color: '#FA114F' },
+    boneMassKg: { icon: Layers, color: '#F59E0B' },
+    proteinPercent: { icon: Sparkles, color: '#14B8A6' },
+    subcutaneousFatPercent: { icon: Layers, color: '#FB7185' },
+    bodyAge: { icon: Heart, color: '#A855F7' },
+    heartRate: { icon: Heart, color: '#F43F5E' },
+    bodyScore: { icon: Sparkles, color: '#22C55E' },
+    smi: { icon: Activity, color: '#06B6D4' },
+    whr: { icon: Gauge, color: '#F97316' },
+  };
+  const metricOrder = new Map(
+    sectionsConfig
+      .filter((section) => section.id.startsWith('metric:'))
+      .map((section, index) => [section.id.slice('metric:'.length), index])
+  );
+  const visibleMetricDefinitions = BODY_METRIC_DEFINITIONS.filter(
+    (metric) => isVisible(`metric:${metric.key}`)
+  ).sort(
+    (left, right) =>
+      (metricOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
+      (metricOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER)
+  );
+  const activeMeasurement = selectedMeasurement;
 
   return (
     <div className="space-y-5">
@@ -732,7 +698,6 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
           <div className="flex items-center gap-2">
             <div className="flex bg-black/5 dark:bg-white/5 p-0.5 rounded-xl border border-black/5 dark:border-white/5">
               {[
-                { key: 'today', label: '今日' },
                 { key: '7d', label: '近7天' },
                 { key: '30d', label: '近30天' },
                 { key: '90d', label: '近一季' },
@@ -760,6 +725,14 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
             >
               <Calendar className="w-3.5 h-3.5 text-amber-500" />
               <span>{currentDate}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBodyEditorOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-500/15 dark:text-indigo-300"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span>编辑卡片</span>
             </button>
           </div>
         </div>
@@ -890,93 +863,39 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
       )}
 
       {isVisible('metrics') && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {metrics.map((metric, index) => {
-            const Icon = metric.icon;
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {visibleMetricDefinitions.map((metric) => {
+            const visual = metricVisuals[metric.key];
             const points = historyPoints(metric.key);
-            const currentValue = body[metric.key];
-            const isHovered = hoveredCardIndex === index;
+            const currentValue = bodyMetricValue(activeMeasurement, metric.key);
             return (
-              <div
+              <BodyMetricCard
                 key={metric.key}
-                className={`relative transition-[z-index] ${isHovered ? 'z-40' : 'z-0'}`}
-                onMouseEnter={() => setHoveredCardIndex(index)}
-                onMouseLeave={() => setHoveredCardIndex(null)}
-              >
-                <AppleCard
-                  onClick={() => {
-                    if (points.length === 0) return;
-                    setModalData({
-                      title: metric.title,
-                      unit: metric.unit,
-                      current:
-                        currentValue === undefined || currentValue === null
-                          ? '—'
-                          : String(currentValue),
-                      eval: `${points.length} 次实测记录`,
-                      standard: metric.reference,
-                      points: points.map((point) => ({
-                        date: point.date,
-                        value: point.value,
-                      })),
-                      periodLabel: BODY_RANGE_LABELS[activeDateRange],
-                    });
-                  }}
-                  className="p-4 flex flex-col justify-between h-full cursor-pointer hover:border-amber-500/40 transition-all"
-                >
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div
-                        className="p-1.5 rounded-xl border flex-shrink-0"
-                        style={{
-                          backgroundColor: `${metric.color}15`,
-                          borderColor: `${metric.color}30`,
-                          color: metric.color,
-                        }}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span className="text-[10px] text-neutral-400">
-                        {points.length > 0
-                          ? `${BODY_RANGE_LABELS[activeDateRange]} · ${points.length} 次`
-                          : '暂无数据'}
-                      </span>
-                    </div>
-                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 block mb-1">
-                      {metric.title}
-                    </span>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <span className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight font-mono">
-                        {currentValue === undefined || currentValue === null ? '—' : currentValue}
-                      </span>
-                      <span className="text-xs text-neutral-400 font-semibold">{metric.unit}</span>
-                    </div>
-                  </div>
-                  <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 text-[10px]">
-                    <span className="text-neutral-500 dark:text-neutral-400 block truncate">
-                      {metric.reference}
-                    </span>
-                    <div className="flex items-center justify-between mt-1 text-neutral-400">
-                      <span>{points.length > 0 ? '点击查看实测趋势' : '等待体脂秤同步'}</span>
-                      {points.length > 0 && <span className="text-amber-500 font-medium">查看</span>}
-                    </div>
-                  </div>
-                </AppleCard>
-
-                {isHovered && points.length > 0 && (
-                  <HeroTrendPopover
-                    title={metric.title}
-                    unit={metric.unit}
-                    color={metric.color}
-                    points={points.map((point) => ({
+                definition={metric}
+                measurement={activeMeasurement}
+                measurements={measurementsUpToDate}
+                color={visual.color}
+                icon={visual.icon}
+                dateLabel={currentDate}
+                onClick={() => {
+                  if (points.length === 0) return;
+                  setModalData({
+                    title: metric.title,
+                    unit: metric.unit,
+                    current:
+                      currentValue === null
+                        ? '—'
+                        : currentValue.toFixed(metric.decimals),
+                    eval: `${points.length} 次实测记录`,
+                    standard: metric.description,
+                    points: points.map((point) => ({
                       date: point.date,
                       value: point.value,
-                    }))}
-                    periodLabel={BODY_RANGE_LABELS[activeDateRange]}
-                    className="absolute left-1/2 bottom-full mb-2 z-[100] w-[330px] max-w-[calc(100vw-2rem)] -translate-x-1/2 p-3.5 rounded-2xl bg-white/95 dark:bg-neutral-950/95 text-neutral-900 dark:text-white border border-black/15 dark:border-white/25 shadow-2xl backdrop-blur-2xl"
-                  />
-                )}
-              </div>
+                    })),
+                    periodLabel: BODY_RANGE_LABELS[activeDateRange],
+                  });
+                }}
+              />
             );
           })}
         </div>
@@ -984,7 +903,7 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
 
       {isVisible('silhouette') && (
         <BodySilhouette
-          measurement={selectedMeasurement || latestMeasurement}
+          measurement={selectedMeasurement}
           measurements={measurementsUpToDate}
         />
       )}
@@ -1026,10 +945,10 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
                       {measurement.weightKg === null ? '—' : `${measurement.weightKg} kg`}
                     </span>
                     <span className="text-amber-500">
-                      体脂 {measurement.bodyFatPercent && measurement.bodyFatPercent > 0 ? `${measurement.bodyFatPercent}%` : (recentValidMeasurement ? `${recentValidMeasurement.bodyFatPercent}%` : '—')}
+                      体脂 {measurement.bodyFatPercent && measurement.bodyFatPercent > 0 ? `${measurement.bodyFatPercent}%` : '—'}
                     </span>
                     <span className="text-indigo-500">
-                      去脂 {measurement.leanMassKg && measurement.leanMassKg > 0 && measurement.leanMassKg < measurement.weightKg! ? `${measurement.leanMassKg} kg` : (measurement.weightKg ? `${Number((measurement.weightKg * (1 - (recentValidMeasurement?.bodyFatPercent || 22.8) / 100)).toFixed(2))} kg` : '—')}
+                      去脂 {measurement.leanMassKg && measurement.leanMassKg > 0 && measurement.leanMassKg < measurement.weightKg! ? `${measurement.leanMassKg} kg` : '—'}
                     </span>
                   </div>
                 ))}
@@ -1043,10 +962,13 @@ export const BodyDetailsView: React.FC<BodyDetailsViewProps> = ({
         }
       />
 
-      {isManageOpen && (
+      {(isManageOpen || isBodyEditorOpen) && (
         <ManageBodyModal
-          isOpen={isManageOpen}
-          onClose={onCloseManage || (() => undefined)}
+          isOpen
+          onClose={() => {
+            setIsBodyEditorOpen(false);
+            onCloseManage?.();
+          }}
           sections={sectionsConfig}
           onChange={setSectionsConfig}
           onReset={() => setSectionsConfig(DEFAULT_BODY_SECTIONS)}

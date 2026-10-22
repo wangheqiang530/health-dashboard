@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BodyMeasurement,
   BodySegmentKey,
@@ -14,7 +14,7 @@ interface BodySilhouetteProps {
 }
 
 type BodyMode = 'muscle' | 'fat' | 'impedance';
-type HistoryWindow = 7 | 30 | 0;
+type HistoryWindow = '7d' | '1m' | '3m' | '1y' | 'all';
 
 interface SegmentDefinition {
   key: BodySegmentKey;
@@ -74,6 +74,25 @@ const linePath = (points: Array<{ x: number; y: number }>): string =>
     )
     .join(' ');
 
+const shiftDate = (date: string, days: number): string => {
+  const value = new Date(`${date}T12:00:00+08:00`);
+  value.setDate(value.getDate() + days);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
+};
+
+const HISTORY_WINDOW_DAYS: Record<HistoryWindow, number | null> = {
+  '7d': 7,
+  '1m': 30,
+  '3m': 90,
+  '1y': 365,
+  all: null,
+};
+
 export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   measurement,
   measurements = [],
@@ -81,8 +100,22 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   const [selectedPart, setSelectedPart] = useState<BodySegmentKey>('trunk');
   const [hoveredPart, setHoveredPart] = useState<BodySegmentKey | null>(null);
   const [mode, setMode] = useState<BodyMode>('muscle');
-  const [historyWindow, setHistoryWindow] = useState<HistoryWindow>(30);
+  const [historyWindow, setHistoryWindow] = useState<HistoryWindow>('1m');
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartWidth, setChartWidth] = useState(560);
+
+  useEffect(() => {
+    const element = chartContainerRef.current;
+    if (!element) return;
+    const updateWidth = () => {
+      setChartWidth(Math.max(280, Math.round(element.clientWidth)));
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const activeMeasurement =
     measurement ||
@@ -105,14 +138,18 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   }, [activeMeasurement, measurements, displayedPart]);
 
   const displayedHistory = useMemo(
-    () => (historyWindow === 0 ? history : history.slice(-historyWindow)),
-    [history, historyWindow]
+    () => {
+      const days = HISTORY_WINDOW_DAYS[historyWindow];
+      if (days === null || !activeMeasurement) return history;
+      const startDate = shiftDate(activeMeasurement.measuredDate, -(days - 1));
+      return history.filter((item) => item.measuredDate >= startDate);
+    },
+    [activeMeasurement, history, historyWindow]
   );
 
   const activeSegment = segmentOf(activeMeasurement, displayedPart);
   const activeDefinition = SEGMENTS.find((segment) => segment.key === displayedPart)!;
 
-  const chartWidth = 560;
   const chartHeight = 210;
   const chartPaddingTop = 24;
   const chartPaddingBottom = 26;
@@ -372,14 +409,16 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
                   {showImpedance ? '双频阻抗趋势' : '分段肌脂趋势'}
                 </h4>
                 <span className="text-[10px] text-neutral-400">
-                  {displayedHistory.length} 次有效测量 · 当前窗口
+                  {displayedHistory.length} 次有效测量 · 当前时间范围
                 </span>
               </div>
               <div className="flex bg-black/5 dark:bg-white/5 p-0.5 rounded-lg">
                 {[
-                  { value: 7 as HistoryWindow, label: '7 次' },
-                  { value: 30 as HistoryWindow, label: '30 次' },
-                  { value: 0 as HistoryWindow, label: '全部' },
+                  { value: '7d' as HistoryWindow, label: '7 日' },
+                  { value: '1m' as HistoryWindow, label: '月' },
+                  { value: '3m' as HistoryWindow, label: '季' },
+                  { value: '1y' as HistoryWindow, label: '年' },
+                  { value: 'all' as HistoryWindow, label: '全部' },
                 ].map((item) => (
                   <button
                     key={item.value}
@@ -399,20 +438,34 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
 
             {allChartValues.length > 0 ? (
               <>
-                <div className="relative">
+                <div ref={chartContainerRef} className="relative">
                   <svg
                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                    preserveAspectRatio="none"
-                    className="w-full h-[210px] overflow-visible touch-none"
+                    className="w-full h-auto overflow-visible touch-none"
+                    role="img"
+                    aria-label={`${activeDefinition.label}${showImpedance ? '双频阻抗' : '肌脂'}趋势`}
                     onMouseMove={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect();
-                      const ratio = Math.min(
-                        1,
-                        Math.max(0, (event.clientX - rect.left) / rect.width)
+                      const pointerX = Math.min(
+                        chartWidth,
+                        Math.max(0, ((event.clientX - rect.left) / rect.width) * chartWidth)
                       );
-                      setHoveredTrendIndex(
-                        Math.round(ratio * Math.max(displayedHistory.length - 1, 0))
-                      );
+                      let nearestIndex = 0;
+                      let nearestDistance = Number.POSITIVE_INFINITY;
+                      displayedHistory.forEach((_, index) => {
+                        const pointX =
+                          chartPaddingLeft +
+                          (displayedHistory.length <= 1
+                            ? (chartWidth - chartPaddingLeft - chartPaddingRight) / 2
+                            : (index / (displayedHistory.length - 1)) *
+                              (chartWidth - chartPaddingLeft - chartPaddingRight));
+                        const distance = Math.abs(pointX - pointerX);
+                        if (distance < nearestDistance) {
+                          nearestDistance = distance;
+                          nearestIndex = index;
+                        }
+                      });
+                      setHoveredTrendIndex(nearestIndex);
                     }}
                     onMouseLeave={() => setHoveredTrendIndex(null)}
                   >
@@ -468,28 +521,6 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
                         strokeLinejoin="round"
                       />
                     )}
-                    {primaryPoints.map((point, index) => (
-                      <circle
-                        key={`primary-${index}`}
-                        cx={point.x}
-                        cy={point.y}
-                        r="2.8"
-                        fill="white"
-                        stroke={chartColors.primary}
-                        strokeWidth="1.5"
-                      />
-                    ))}
-                    {secondaryPoints.map((point, index) => (
-                      <circle
-                        key={`secondary-${index}`}
-                        cx={point.x}
-                        cy={point.y}
-                        r="2.4"
-                        fill="white"
-                        stroke={chartColors.secondary}
-                        strokeWidth="1.3"
-                      />
-                    ))}
                     {hoveredX !== null && (
                       <line
                         x1={hoveredX}
@@ -499,26 +530,6 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
                         stroke="currentColor"
                         strokeOpacity="0.4"
                         strokeDasharray="3 3"
-                      />
-                    )}
-                    {hoveredPrimary && (
-                      <circle
-                        cx={hoveredPrimary.x}
-                        cy={hoveredPrimary.y}
-                        r="4.2"
-                        fill={chartColors.primary}
-                        stroke="white"
-                        strokeWidth="2"
-                      />
-                    )}
-                    {hoveredSecondary && (
-                      <circle
-                        cx={hoveredSecondary.x}
-                        cy={hoveredSecondary.y}
-                        r="4.2"
-                        fill={chartColors.secondary}
-                        stroke="white"
-                        strokeWidth="2"
                       />
                     )}
                     <text

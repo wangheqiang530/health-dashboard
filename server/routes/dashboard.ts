@@ -67,6 +67,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
               name: string;
               local_date: string;
               local_start_time: string | null;
+              snapshot: Record<string, unknown>;
             }
           | undefined;
         let recordKind: 'health_workout' | 'cycling_activity' = 'health_workout';
@@ -84,6 +85,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             name: string;
             local_date: string;
             local_start_time: string | null;
+            snapshot: Record<string, unknown>;
           }>(
             `DELETE FROM health_workouts
              WHERE id = $1::bigint
@@ -95,7 +97,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
                CASE
                  WHEN started_at IS NULL THEN NULL
                  ELSE to_char(started_at AT TIME ZONE $2, 'HH24:MI')
-               END AS local_start_time`,
+               END AS local_start_time,
+               to_jsonb(health_workouts) AS snapshot`,
             [databaseId, config.timezone]
           );
           deleted = result.rows[0];
@@ -110,6 +113,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
             name: string;
             local_date: string;
             local_start_time: string | null;
+            snapshot: Record<string, unknown>;
           }>(
             `DELETE FROM cycling_activities
              WHERE external_id = $1
@@ -118,7 +122,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
                external_id AS tombstone_key,
                title AS name,
                to_char((started_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS local_date,
-               to_char(started_at AT TIME ZONE $2, 'HH24:MI') AS local_start_time`,
+               to_char(started_at AT TIME ZONE $2, 'HH24:MI') AS local_start_time,
+               to_jsonb(cycling_activities) AS snapshot`,
             [externalId, config.timezone]
           );
           deleted = result.rows[0];
@@ -144,6 +149,12 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
               name: deleted.name,
               date: deleted.local_date,
               startTime: deleted.local_start_time,
+              reasonCode: 'manual_delete',
+              reason:
+                recordKind === 'cycling_activity'
+                  ? '手动删除的骑行记录'
+                  : '手动删除的运动记录',
+              snapshot: deleted.snapshot,
             }),
           ]
         );

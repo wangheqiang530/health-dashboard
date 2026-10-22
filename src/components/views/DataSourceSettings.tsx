@@ -14,6 +14,7 @@ import {
   EyeOff,
   FolderArchive,
   KeyRound,
+  MapPinned,
   Play,
   RefreshCw,
   Save,
@@ -28,17 +29,21 @@ import {
   deleteArchiveFile,
   downloadArchiveFile,
   fetchBackendConfig,
+  fetchFitdaysProfiles,
   fetchSourceRuns,
   testDataSource,
   triggerSourceSync,
   updateArchiveRetention,
   updateDataSource,
+  updateMapProxy,
   type ArchiveItem,
   type BackendConfig,
   type DataSourceConfig,
+  type FitdaysProfile,
 } from '../../api/healthApi';
 import { AppleCard } from '../ui/AppleCard';
 import { HaeApiKeyManager } from './HaeApiKeyManager';
+import { FitdaysProfilePickerModal } from './FitdaysProfilePickerModal';
 import {
   OperationProgressModal,
   type OperationProgressState,
@@ -123,12 +128,18 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   const [savingStorage, setSavingStorage] = useState(false);
   const [testingId, setTestingId] = useState<'hae' | SourceId | null>(null);
   const [operation, setOperation] = useState<OperationProgressState | null>(null);
+  const [fitdaysProfiles, setFitdaysProfiles] = useState<FitdaysProfile[]>([]);
+  const [isProfilePickerOpen, setIsProfilePickerOpen] = useState(false);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [mapProxyUrl, setMapProxyUrl] = useState('');
+  const [savingMapProxy, setSavingMapProxy] = useState(false);
 
   const loadConfig = async (updateDrafts: boolean) => {
     try {
       const nextConfig = await fetchBackendConfig();
       setConfig(nextConfig);
       setRetentionDays(String(nextConfig.storage.retentionDays));
+      setMapProxyUrl(nextConfig.map?.proxyUrl || '');
       if (updateDrafts) {
         const fitdays = nextConfig.sources.find((source) => source.id === 'fitdays');
         const igpsport = nextConfig.sources.find((source) => source.id === 'igpsport');
@@ -264,7 +275,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
                 run.status === 'running'
                   ? '正在拉取与写入数据…'
                   : '任务已结束，正在刷新数据库状态…',
-              detail: `已处理 ${run.recordsCount.toLocaleString()} 条 · 任务 ${run.id.slice(0, 8)}`,
+              detail: `已处理 ${run.recordsCount.toLocaleString()} 条 · 任务编号 ${run.id.slice(0, 8)}`,
               startedAt,
             });
           }
@@ -285,18 +296,31 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
       }
 
       const recordLabel = sourceId === 'fitdays' ? '条体测记录' : '条骑行记录';
+      const savedCount = Number(completedRun.details.savedCount);
+      const autoIgnoredCount = Number(completedRun.details.autoIgnoredCount);
+      const hasQualityDetails =
+        sourceId === 'fitdays' &&
+        Number.isFinite(savedCount) &&
+        Number.isFinite(autoIgnoredCount);
+      const resultMessage = hasQualityDetails
+        ? `${full ? '全量' : '增量'}同步完成：读取 ${completedRun.recordsCount.toLocaleString()} ${recordLabel}，成功入库 ${savedCount.toLocaleString()} 条${
+            autoIgnoredCount > 0
+              ? `，自动忽略 ${autoIgnoredCount.toLocaleString()} 条不完整记录`
+              : ''
+          }。`
+        : `${full ? '全量' : '增量'}同步完成，共处理 ${
+            completedRun.recordsCount
+          } ${recordLabel}。数据库覆盖范围已刷新。`;
       setMessage({
         type: 'success',
-        text: `${full ? '全量' : '增量'}同步完成，共处理 ${
-          completedRun.recordsCount
-        } ${recordLabel}。数据库覆盖范围已刷新。`,
+        text: resultMessage,
       });
       await loadConfig(false);
       await onDataChanged();
       setOperation({
         title: `${full ? '全量' : '增量'}同步 ${sourceLabel(sourceId)}`,
         status: 'success',
-        message: `同步完成，共处理 ${completedRun.recordsCount.toLocaleString()} ${recordLabel}。`,
+        message: resultMessage,
         startedAt,
         details: completedRun.details,
       });
@@ -314,6 +338,77 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     } finally {
       setSyncingId(null);
       setConfirmFullSyncSource(null);
+    }
+  };
+
+  const openFitdaysProfiles = async () => {
+    if (!drafts) return;
+    const draft = drafts.fitdays;
+    const source = sources.fitdays;
+    if (!draft.account.trim() && !source?.account) {
+      setMessage({ type: 'error', text: '请先填写 Fitdays 账号。' });
+      return;
+    }
+    if (!draft.password && !source?.passwordConfigured) {
+      setMessage({ type: 'error', text: '请先填写并保存 Fitdays 密码。' });
+      return;
+    }
+
+    setLoadingProfiles(true);
+    setMessage(null);
+    try {
+      const result = await fetchFitdaysProfiles(
+        draft.account.trim() || source?.account,
+        draft.password || undefined
+      );
+      setFitdaysProfiles(result.profiles);
+      setIsProfilePickerOpen(true);
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '获取 Fitdays 档案失败。',
+      });
+    } finally {
+      setLoadingProfiles(false);
+    }
+  };
+
+  const saveMapProxy = async () => {
+    setSavingMapProxy(true);
+    setMessage(null);
+    const startedAt = Date.now();
+    setOperation({
+      title: '保存地图专用代理',
+      status: 'running',
+      message: '正在加密保存代理地址，仅用于地图瓦片请求…',
+      startedAt,
+    });
+    try {
+      const result = await updateMapProxy(mapProxyUrl);
+      setMapProxyUrl(result.proxyUrl);
+      setMessage({ type: 'success', text: result.message });
+      await loadConfig(false);
+      setOperation({
+        title: '保存地图专用代理',
+        status: 'success',
+        message: result.message,
+        startedAt,
+        details: {
+          configured: result.configured,
+          proxyUrl: result.proxyUrl || '未配置',
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '保存地图代理失败。';
+      setMessage({ type: 'error', text: message });
+      setOperation({
+        title: '保存地图专用代理',
+        status: 'error',
+        message,
+        startedAt,
+      });
+    } finally {
+      setSavingMapProxy(false);
     }
   };
 
@@ -589,36 +684,60 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
 
           {sourceId === 'fitdays' ? (
             <div className="grid grid-cols-2 gap-3">
-              <label className="text-xs text-neutral-600 dark:text-neutral-300">
-                <span className="block mb-1.5 font-medium">档案 SUID</span>
-                <input
-                  inputMode="numeric"
-                  value={draft.targetSuid}
-                  onChange={(event) => updateDraft(sourceId, 'targetSuid', event.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 font-mono text-neutral-900 dark:text-white outline-none focus:border-sky-500/60"
-                  placeholder="自动识别"
-                />
-              </label>
-              <label className="text-xs text-neutral-600 dark:text-neutral-300">
-                <span className="block mb-1.5 font-medium">回看天数</span>
+              <div className="text-xs text-neutral-600 dark:text-neutral-300">
+                <span className="mb-1.5 block font-medium">档案 SUID</span>
+                <div className="flex gap-2">
+                  <input
+                    inputMode="numeric"
+                    value={draft.targetSuid}
+                    onChange={(event) => updateDraft(sourceId, 'targetSuid', event.target.value)}
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-black/10 bg-white/70 px-3 font-mono text-neutral-900 outline-none focus:border-sky-500/60 dark:border-white/10 dark:bg-black/30 dark:text-white"
+                    placeholder="自动识别"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void openFitdaysProfiles()}
+                    disabled={loadingProfiles}
+                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 text-xs font-semibold text-amber-600 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
+                  >
+                    {loadingProfiles ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CloudDownload className="h-3.5 w-3.5" />
+                    )}
+                    <span>{loadingProfiles ? '获取中' : '获取'}</span>
+                  </button>
+                </div>
+                <span className="mt-1 block text-[10px] leading-relaxed text-neutral-400">
+                  SUID 是 Fitdays 家庭档案唯一编号；点击“获取”可直接选择。
+                </span>
+              </div>
+              <div className="text-xs text-neutral-600 dark:text-neutral-300">
+                <span className="mb-1.5 block font-medium">回看天数</span>
                 <input
                   inputMode="numeric"
                   value={draft.syncDays}
                   onChange={(event) => updateDraft(sourceId, 'syncDays', event.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 font-mono text-neutral-900 dark:text-white outline-none focus:border-sky-500/60"
+                  className="h-10 w-full rounded-xl border border-black/10 bg-white/70 px-3 font-mono text-neutral-900 outline-none focus:border-sky-500/60 dark:border-white/10 dark:bg-black/30 dark:text-white"
                 />
-              </label>
+                <span className="mt-1 block text-[10px] leading-relaxed text-neutral-400">
+                  仅控制自动同步与“立即同步”；“全量同步”始终拉取全部历史。
+                </span>
+              </div>
             </div>
           ) : (
-            <label className="text-xs text-neutral-600 dark:text-neutral-300">
-              <span className="block mb-1.5 font-medium">每次拉取活动数</span>
+            <div className="text-xs text-neutral-600 dark:text-neutral-300">
+              <span className="mb-1.5 block font-medium">每次拉取活动数</span>
               <input
                 inputMode="numeric"
                 value={draft.syncLimit}
                 onChange={(event) => updateDraft(sourceId, 'syncLimit', event.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-white/70 dark:bg-black/30 border border-black/10 dark:border-white/10 font-mono text-neutral-900 dark:text-white outline-none focus:border-sky-500/60"
+                className="h-10 w-full rounded-xl border border-black/10 bg-white/70 px-3 font-mono text-neutral-900 outline-none focus:border-sky-500/60 dark:border-white/10 dark:bg-black/30 dark:text-white"
               />
-            </label>
+              <span className="mt-1 block text-[10px] leading-relaxed text-neutral-400">
+                仅控制自动同步与“立即同步”；“全量同步”始终拉取全部活动。
+              </span>
+            </div>
           )}
         </div>
 
@@ -947,7 +1066,67 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         {renderSource('igpsport')}
       </div>
     </AppleCard>
+
+      <AppleCard>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-500">
+              <MapPinned className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-neutral-900 dark:text-white">
+                地图专用网络代理
+              </h3>
+              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+                仅 OpenStreetMap 与 OpenTopoMap 瓦片请求使用此代理。Fitdays、iGPSPORT、Apple Health 和其他后端请求不会经过这里。
+              </p>
+            </div>
+          </div>
+          <span
+            className={`self-start rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+              mapProxyUrl
+                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                : 'border-neutral-500/20 bg-neutral-500/10 text-neutral-500 dark:text-neutral-400'
+            }`}
+          >
+            {mapProxyUrl ? '代理已启用' : '当前直连'}
+          </span>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={mapProxyUrl}
+            onChange={(event) => setMapProxyUrl(event.target.value)}
+            placeholder="socks5h://127.0.0.1:1080 或 http://127.0.0.1:7890"
+            className="h-10 min-w-0 flex-1 rounded-xl border border-black/10 bg-white/70 px-3 font-mono text-xs text-neutral-900 outline-none focus:border-sky-500/60 dark:border-white/10 dark:bg-black/30 dark:text-white"
+          />
+          <button
+            type="button"
+            onClick={() => void saveMapProxy()}
+            disabled={savingMapProxy}
+            className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-sky-500 px-4 text-xs font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingMapProxy ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            {savingMapProxy ? '保存中' : '保存地图代理'}
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-neutral-400">
+          <span>支持 `http://`、`https://`、`socks5://`、`socks5h://`。</span>
+          <span>留空保存即可关闭代理。</span>
+        </div>
+      </AppleCard>
       <OperationProgressModal state={operation} onClose={() => setOperation(null)} />
+      <FitdaysProfilePickerModal
+        isOpen={isProfilePickerOpen}
+        profiles={fitdaysProfiles}
+        selectedSuid={drafts.fitdays.targetSuid}
+        onSelect={(suid) => updateDraft('fitdays', 'targetSuid', String(suid))}
+        onClose={() => setIsProfilePickerOpen(false)}
+      />
 
       {/* Secondary Confirmation Modal for Full Sync */}
       {confirmFullSyncSource && (
@@ -983,7 +1162,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
               <ul className="list-disc list-inside space-y-1.5 text-[11px] text-neutral-600 dark:text-neutral-300">
                 <li>
                   {confirmFullSyncSource === 'fitdays'
-                    ? '全量同步将向 Fitdays 官方云端请求长达 10 年的所有历史体测数据。'
+                    ? '全量同步会忽略“回看天数”，直接向 Fitdays 官方云端请求该档案的全部历史体测数据。'
                     : '全量同步将向 iGPSPORT 迹驰网关分页请求历史全部骑行记录，并批量逐一下载原生 FIT 运动轨迹文件。'}
                 </li>
                 <li>

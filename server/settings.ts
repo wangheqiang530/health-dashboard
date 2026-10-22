@@ -15,6 +15,7 @@ const HAE_KEY_SETTING = 'hae_api_key';
 const DASHBOARD_PASSWORD_HASH_SETTING = 'dashboard_password_hash';
 const DASHBOARD_SESSION_DURATION_SETTING = 'dashboard_session_duration';
 const ARCHIVE_RETENTION_SETTING = 'archive_retention_days';
+const MAP_PROXY_SETTING = 'map_proxy_url';
 const INITIAL_PASSWORD_FILENAME = 'dashboard-initial-password.txt';
 const PASSWORD_RECOVERY_FILENAME = 'dashboard-password.txt';
 let haeApiKeysInitialized = false;
@@ -432,6 +433,20 @@ export async function getArchiveRetentionDays(): Promise<number> {
 export async function setArchiveRetentionDays(days: number): Promise<number> {
   const normalized = Math.min(Math.max(Math.floor(days), 0), 3650);
   await writeEncryptedSetting(ARCHIVE_RETENTION_SETTING, String(normalized));
+  return normalized;
+}
+
+export async function getMapProxyUrl(): Promise<string> {
+  return (await readEncryptedSetting(MAP_PROXY_SETTING)) || '';
+}
+
+export async function setMapProxyUrl(proxyUrl: string): Promise<string> {
+  const normalized = proxyUrl.trim();
+  if (!normalized) {
+    await pool.query('DELETE FROM app_settings WHERE key = $1', [MAP_PROXY_SETTING]);
+    return '';
+  }
+  await writeEncryptedSetting(MAP_PROXY_SETTING, normalized);
   return normalized;
 }
 

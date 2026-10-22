@@ -53,6 +53,9 @@ export interface BackendConfig {
     apiKey: string;
     apiKeys: HaeApiKey[];
   };
+  map: {
+    proxyUrl: string;
+  };
   database: {
     connected: boolean;
     dailySummaries: number;
@@ -91,6 +94,29 @@ export interface HaeApiKey {
   updatedAt: string;
   lastUsedAt: string | null;
   lastSourceIp: string | null;
+}
+
+export interface FitdaysProfile {
+  suid: number;
+  nickname: string;
+  height: number | null;
+  birthday: string | null;
+  sex: number | null;
+  isActive: boolean;
+}
+
+export interface IgnoredRecord {
+  id: string;
+  recordKind: 'body_measurement' | 'health_workout' | 'cycling_activity';
+  sourceId: string;
+  externalId: string;
+  deletedAt: string;
+  reasonCode: string | null;
+  reason: string;
+  autoIgnored: boolean;
+  displayName: string;
+  recordDate: string | null;
+  snapshotAvailable: boolean;
 }
 
 export interface DataCoverage {
@@ -422,6 +448,24 @@ export async function updateDataSource(
   return parseResponse<{ source: DataSourceConfig }>(response);
 }
 
+export async function fetchFitdaysProfiles(
+  account?: string,
+  password?: string
+): Promise<{ profiles: FitdaysProfile[]; activeSuid: number }> {
+  const response = await apiFetch('/api/v1/config/sources/fitdays/profiles', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      account: account || undefined,
+      password: password || undefined,
+    }),
+  });
+  return parseResponse(response);
+}
+
 export async function triggerSourceSync(
   sourceId: 'fitdays' | 'igpsport',
   full = false
@@ -454,6 +498,42 @@ export async function fetchImportHistory(
     headers: { Accept: 'application/json' },
   });
   return parseResponse<{ imports: ImportBatchItem[] }>(response);
+}
+
+export async function fetchIgnoredRecords(
+  limit = 200
+): Promise<{ records: IgnoredRecord[] }> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  const response = await apiFetch(`/api/v1/config/ignored?${query.toString()}`, {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}
+
+export async function restoreIgnoredRecord(id: string): Promise<{
+  restored: boolean;
+  requiresSync: boolean;
+  message: string;
+}> {
+  const response = await apiFetch(
+    `/api/v1/config/ignored/${encodeURIComponent(id)}/restore`,
+    {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+    }
+  );
+  return parseResponse(response);
+}
+
+export async function deleteIgnoredRule(id: string): Promise<{
+  ok: true;
+  deletedId: string;
+}> {
+  const response = await apiFetch(`/api/v1/config/ignored/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
 }
 
 export async function triggerSyncAllDevices(): Promise<{
@@ -514,6 +594,22 @@ export async function updateArchiveRetention(retentionDays: number): Promise<{
       Accept: 'application/json',
     },
     body: JSON.stringify({ retentionDays }),
+  });
+  return parseResponse(response);
+}
+
+export async function updateMapProxy(proxyUrl: string): Promise<{
+  proxyUrl: string;
+  configured: boolean;
+  message: string;
+}> {
+  const response = await apiFetch('/api/v1/config/map-proxy', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ proxyUrl }),
   });
   return parseResponse(response);
 }

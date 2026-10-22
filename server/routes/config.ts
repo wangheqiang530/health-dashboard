@@ -20,11 +20,16 @@ import {
   createHaeApiKey,
   deleteHaeApiKey,
   getArchiveRetentionDays,
+  getMapProxyUrl,
   listHaeApiKeys,
   setArchiveRetentionDays,
+  setMapProxyUrl,
   updateHaeApiKey,
 } from '../settings.ts';
-import { testFitdaysConnection } from '../sources/fitdays.ts';
+import {
+  fetchFitdaysProfiles,
+  testFitdaysConnection,
+} from '../sources/fitdays.ts';
 import { testIgpsportConnection } from '../sources/igpsport.ts';
 import {
   getNextScheduledRun,
@@ -123,6 +128,39 @@ const haeApiKeyIdSchema = z.object({
   id: z.string().uuid(),
 });
 
+const fitdaysProfilesSchema = z.object({
+  account: z.string().trim().max(200).optional(),
+  password: z.string().max(300).optional(),
+});
+
+const mapProxySchema = z.object({
+  proxyUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .transform((value) => {
+      if (!value) return '';
+      return value.includes('://') ? value : `http://${value}`;
+    })
+    .refine((value) => {
+      if (!value) return true;
+      try {
+        const protocol = new URL(value).protocol;
+        return [
+          'http:',
+          'https:',
+          'socks:',
+          'socks4:',
+          'socks4a:',
+          'socks5:',
+          'socks5h:',
+        ].includes(protocol);
+      } catch {
+        return false;
+      }
+    }, '地图代理地址格式无效。'),
+});
+
 const publicEndpoint = (request: FastifyRequest): string => {
   if (config.publicBaseUrl) return config.publicBaseUrl;
   const forwardedProto = request.headers['x-forwarded-proto'];
@@ -204,6 +242,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     ]);
     const haeApiKeys = await listHaeApiKeys();
     const haeApiKey = haeApiKeys.find((apiKey) => apiKey.enabled)?.key || '';
+    const mapProxyUrl = await getMapProxyUrl();
     const endpoint = `${publicEndpoint(request)}/api/v1/health-auto-export`;
     const count = counts.rows[0];
 
@@ -213,6 +252,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         endpoint,
         apiKey: haeApiKey,
         apiKeys: haeApiKeys,
+      },
+      map: {
+        proxyUrl: mapProxyUrl,
       },
       database: {
         connected: true,
@@ -351,6 +393,60 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       return { ok: true, deleted };
     }
   );
+
+  app.post('/api/v1/config/sources/fitdays/profiles', async (request, reply) => {
+    const body = fitdaysProfilesSchema.safeParse(request.body || {});
+    if (!body.success) {
+      return reply.code(400).send({ error: 'Fitdays 账号参数无效。' });
+    }
+
+    const source = await pool.query<SourceRow>(
+      `SELECT * FROM data_sources WHERE id = 'fitdays'`
+    );
+    const row = source.rows[0];
+    if (!row) {
+      return reply.code(404).send({ error: 'Fitdays 数据源不存在。' });
+    }
+
+    const account = body.data.account?.trim() || row.account || '';
+    const password =
+      body.data.password ||
+      (row.encrypted_password ? decryptSecret(row.encrypted_password) : '');
+    if (!account || !password) {
+      return reply.code(400).send({
+        error: '请先填写 Fitdays 账号和密码，或保存一次配置后再获取档案。',
+      });
+    }
+
+    try {
+      return await fetchFitdaysProfiles({ account, password });
+    } catch (error) {
+      return reply.code(400).send({
+        error: error instanceof Error ? error.message : '获取 Fitdays 档案失败。',
+      });
+    }
+  });
+
+  app.get('/api/v1/config/map-proxy', async () => ({
+    proxyUrl: await getMapProxyUrl(),
+  }));
+
+  app.put('/api/v1/config/map-proxy', async (request, reply) => {
+    const body = mapProxySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({
+        error: body.error.issues[0]?.message || '地图代理地址格式无效。',
+      });
+    }
+    const proxyUrl = await setMapProxyUrl(body.data.proxyUrl);
+    return {
+      proxyUrl,
+      configured: Boolean(proxyUrl),
+      message: proxyUrl
+        ? '地图专用代理已保存，仅用于 OpenStreetMap / OpenTopoMap 瓦片请求。'
+        : '地图专用代理已关闭，瓦片请求将使用服务器直连。',
+    };
+  });
 
   app.put<{ Params: { sourceId: string } }>(
     '/api/v1/config/sources/:sourceId',

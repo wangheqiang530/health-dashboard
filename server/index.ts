@@ -22,6 +22,7 @@ import { repairHistoricalHaeSummaries } from './hae.ts';
 import { appLogStream, closeLogger } from './logger.ts';
 import { versionRoutes } from './routes/version.ts';
 import { bodyRoutes } from './routes/body.ts';
+import { ignoredRoutes } from './routes/ignored.ts';
 import {
   ensureDashboardPassword,
   getDashboardPasswordRecoveryPath,
@@ -107,6 +108,7 @@ await app.register(mapRoutes);
 await app.register(configRoutes);
 await app.register(versionRoutes);
 await app.register(bodyRoutes);
+await app.register(ignoredRoutes);
 
 if (config.nodeEnv === 'production') {
   const distDirectory = path.resolve(fileURLToPath(new URL('../dist', import.meta.url)));

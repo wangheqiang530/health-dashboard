@@ -3,7 +3,10 @@ import { archiveJson, registerArchive, type ArchiveFile } from './archive.ts';
 import { config } from './config.ts';
 import { decryptSecret } from './crypto.ts';
 import { pool } from './db.ts';
-import { fetchFitdaysRecords } from './sources/fitdays.ts';
+import {
+  fetchFitdaysRecords,
+  getFitdaysRecordQualityIssues,
+} from './sources/fitdays.ts';
 import { syncRecentRides } from './sources/igpsport.ts';
 import {
   completeImportBatch,
@@ -50,9 +53,16 @@ async function persistFitdays(
   records: Awaited<ReturnType<typeof fetchFitdaysRecords>>['records'],
   archive: ArchiveFile,
   archiveMetadata: Record<string, unknown>
-): Promise<void> {
+): Promise<{
+  savedCount: number;
+  autoIgnoredCount: number;
+  ignoredCount: number;
+}> {
   const client = await pool.connect();
   let batchId: string | null = null;
+  let savedCount = 0;
+  let autoIgnoredCount = 0;
+  let ignoredCount = 0;
   try {
     await client.query('BEGIN');
     const archiveId = await registerArchive(
@@ -106,15 +116,58 @@ async function persistFitdays(
         }))
     );
     for (const record of records) {
-      const ignored = await client.query(
-        `SELECT 1
+      const qualityIssues = getFitdaysRecordQualityIssues(record);
+      if (qualityIssues.length > 0) {
+        await client.query(
+          `DELETE FROM body_measurements
+           WHERE source_id = 'fitdays' AND external_id = $1`,
+          [record.externalId]
+        );
+        await client.query(
+          `INSERT INTO data_tombstones
+            (record_kind, source_id, external_id, metadata)
+           VALUES ('body_measurement', 'fitdays', $1, $2::jsonb)
+           ON CONFLICT (record_kind, source_id, external_id) DO NOTHING`,
+          [
+            record.externalId,
+            JSON.stringify({
+              reasonCode: 'auto_incomplete_body',
+              reason: `自动忽略：${qualityIssues.join('；')}`,
+              autoIgnored: true,
+              measuredAt: record.measuredAt,
+              measuredDate: record.measuredDate,
+              rawRecord: record.rawRecord,
+            }),
+          ]
+        );
+        autoIgnoredCount += 1;
+        continue;
+      }
+
+      const ignored = await client.query<{
+        metadata: Record<string, unknown>;
+      }>(
+        `SELECT metadata
          FROM data_tombstones
          WHERE record_kind = 'body_measurement'
            AND source_id = 'fitdays'
            AND external_id = $1`,
         [record.externalId]
       );
-      if ((ignored.rowCount || 0) > 0) continue;
+      if ((ignored.rowCount || 0) > 0) {
+        if (ignored.rows[0]?.metadata?.reasonCode === 'auto_incomplete_body') {
+          await client.query(
+            `DELETE FROM data_tombstones
+             WHERE record_kind = 'body_measurement'
+               AND source_id = 'fitdays'
+               AND external_id = $1`,
+            [record.externalId]
+          );
+        } else {
+          ignoredCount += 1;
+          continue;
+        }
+      }
 
       await client.query(
         `INSERT INTO body_measurements
@@ -175,6 +228,7 @@ async function persistFitdays(
           batchId,
         ]
       );
+      savedCount += 1;
     }
     await client.query(
       `UPDATE source_archive_files SET record_count = $2 WHERE id = $1`,
@@ -182,10 +236,17 @@ async function persistFitdays(
     );
     await completeImportBatch(client, batchId, {
       rawCount: records.length,
-      normalizedCount: records.length,
-      metadata: archiveMetadata,
+      normalizedCount: savedCount,
+      skippedCount: autoIgnoredCount + ignoredCount,
+      metadata: {
+        ...archiveMetadata,
+        savedCount,
+        autoIgnoredCount,
+        ignoredCount,
+      },
     });
     await client.query('COMMIT');
+    return { savedCount, autoIgnoredCount, ignoredCount };
   } catch (error) {
     await client.query('ROLLBACK');
     if (batchId) await failImportBatch(client, batchId, error).catch(() => undefined);
@@ -363,7 +424,9 @@ async function executeSourceSync(
   const isFull = Boolean(options?.full);
 
   if (sourceId === 'fitdays') {
-    const syncDays = isFull ? 3650 : clampInteger(source.config.syncDays, 30, 1, 3650);
+    const syncDays = isFull
+      ? null
+      : clampInteger(source.config.syncDays, 30, 1, 3650);
     const result = await fetchFitdaysRecords({
       account: source.account,
       password,
@@ -377,7 +440,7 @@ async function executeSourceSync(
       records: result.records,
       isFullSync: isFull,
     });
-    await persistFitdays(result.records, archive, {
+    const persisted = await persistFitdays(result.records, archive, {
       activeSuid: result.activeSuid,
       profileCount: result.users.length,
       deviceCount: result.devices.length,
@@ -390,6 +453,10 @@ async function executeSourceSync(
       deviceCount: result.devices.length,
       archivePath: archive.relativePath,
       isFullSync: isFull,
+      receivedCount: result.records.length,
+      savedCount: persisted.savedCount,
+      autoIgnoredCount: persisted.autoIgnoredCount,
+      ignoredCount: persisted.ignoredCount,
     };
   } else {
     const syncLimit = isFull ? null : clampInteger(source.config.syncLimit, 20, 1, 100);

@@ -26,7 +26,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:0.0.16
+    image: wangheqiang/health-dashboard:1.0.0
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -42,7 +42,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 0
-      APP_VERSION: 0.0.16
+      APP_VERSION: 1.0.0
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:

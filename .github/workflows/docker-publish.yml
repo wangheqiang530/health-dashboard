@@ -38,6 +38,10 @@ jobs:
       - name: Build application
         run: pnpm build
 
+      - name: Read application version
+        id: app_version
+        run: echo "value=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -67,4 +71,4 @@ jobs:
           tags: ${{ steps.meta.outputs.tags || 'health-dashboard:ci' }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            APP_VERSION=${{ github.ref_name }}
+            APP_VERSION=${{ steps.app_version.outputs.value }}

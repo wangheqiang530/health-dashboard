@@ -5,6 +5,7 @@ import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Zap, Info } from 'l
 import { WorkoutRoutePlayback } from './WorkoutRoutePlayback';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { PowerDurationCurveCard } from './PowerDurationCurveCard';
+import { WorkoutHeartRateChart } from './WorkoutHeartRateChart';
 
 interface WorkoutDetailModalProps {
   workout: WorkoutRecord | null;
@@ -30,10 +31,17 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
   const isIgpsport = workout.source === 'igpsport' || workout.id.startsWith('igpsport');
   const foodEquiv = getCalorieFoodEquivalents(workout.activeCalories);
   const hasRoute = Boolean(workout.routeGpxPoints?.length);
+  const hasHeartRateSeries =
+    (workout.telemetry || []).filter(
+      (point) =>
+        Number.isFinite(point.elapsedSec) && Number.isFinite(point.heartRate)
+    ).length >= 2;
   const hasHrZones = Object.values(workout.hrZones).some((value) => value > 0);
   const hrZoneUnavailableMessage =
     workout.source === 'hae'
-      ? '数据源限制：Apple Health 导出的训练记录只包含平均与最高心率，不包含五个心率区间的停留时长。'
+      ? hasHeartRateSeries
+        ? 'Apple Health 可导出逐点心率，但不会单独导出 Fitness 中按五个区间汇总的停留时间；上方已展示原始心率曲线。'
+        : '当前这条 Apple Health 训练记录没有附带逐点心率采样，也没有五个心率区间的停留时长。'
       : '该 FIT 文件未写入 time_in_hr_zone 字段，因此无法还原逐区间停留时长。';
   const isStrengthLike = workout.category === 'strength' || workout.category === 'hiit';
   const showDistanceMetric =
@@ -258,6 +266,10 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               </div>
             )}
           </div>
+
+          {!hasRoute && hasHeartRateSeries && (
+            <WorkoutHeartRateChart workout={workout} />
+          )}
 
           {(workout.category === 'cycling' || isIgpsport) && (
             <div className="mb-6 p-4 rounded-2xl bg-gradient-to-br from-amber-500/[0.06] to-cyan-500/[0.05] border border-amber-500/15">

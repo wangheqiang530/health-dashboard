@@ -581,7 +581,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
                     数据审计与异常记录清理
                   </h4>
                   <p className="text-[11px] text-neutral-400 mt-0.5">
-                    按日期查阅体脂秤测量与运动记录，确认详情后删除单条异常数据
+                    按日期查阅体脂秤与运动记录；删除项和不完整数据会进入忽略列表，可恢复误删记录
                   </p>
                 </div>
               </div>

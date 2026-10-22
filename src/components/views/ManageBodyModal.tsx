@@ -1,16 +1,16 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  X,
-  ArrowUp,
   ArrowDown,
-  ArrowUpToLine,
   ArrowDownToLine,
+  ArrowUp,
+  ArrowUpToLine,
+  Check,
   Eye,
   EyeOff,
   RotateCcw,
-  Check,
   Scale,
+  X,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -19,6 +19,7 @@ export interface BodySectionConfig {
   name: string;
   desc: string;
   visible: boolean;
+  group?: 'section' | 'metric';
 }
 
 interface ManageBodyModalProps {
@@ -40,193 +41,231 @@ export const ManageBodyModal: React.FC<ManageBodyModalProps> = ({
   const isDark = resolvedTheme === 'dark';
   if (!isOpen) return null;
 
-  const moveItem = (index: number, direction: 'up' | 'down' | 'top' | 'bottom') => {
-    let newIdx = index;
-    if (direction === 'top') newIdx = 0;
-    else if (direction === 'bottom') newIdx = sections.length - 1;
-    else if (direction === 'up') newIdx = index - 1;
-    else if (direction === 'down') newIdx = index + 1;
+  const moveItem = (
+    index: number,
+    direction: 'up' | 'down' | 'top' | 'bottom'
+  ) => {
+    const item = sections[index];
+    if (!item) return;
+    const group = item.group || 'section';
+    const groupIndices = sections
+      .map((section, sectionIndex) => ({ section, sectionIndex }))
+      .filter(({ section }) => (section.group || 'section') === group)
+      .map(({ sectionIndex }) => sectionIndex);
+    const currentPosition = groupIndices.indexOf(index);
+    let targetPosition = currentPosition;
+    if (direction === 'top') targetPosition = 0;
+    else if (direction === 'bottom') targetPosition = groupIndices.length - 1;
+    else if (direction === 'up') targetPosition = currentPosition - 1;
+    else if (direction === 'down') targetPosition = currentPosition + 1;
 
-    if (newIdx < 0 || newIdx >= sections.length || newIdx === index) return;
+    if (
+      currentPosition < 0 ||
+      targetPosition < 0 ||
+      targetPosition >= groupIndices.length ||
+      targetPosition === currentPosition
+    ) {
+      return;
+    }
+
+    const targetItem = sections[groupIndices[targetPosition]];
     const updated = [...sections];
     const [moved] = updated.splice(index, 1);
-    updated.splice(newIdx, 0, moved);
+    const targetIndexAfterRemoval = updated.findIndex(
+      (section) => section.id === targetItem.id
+    );
+    const insertAt =
+      direction === 'down' || direction === 'bottom'
+        ? targetIndexAfterRemoval + 1
+        : targetIndexAfterRemoval;
+    updated.splice(Math.max(0, insertAt), 0, moved);
     onChange(updated);
   };
 
   const toggleVisibility = (id: string) => {
-    onChange(sections.map((item) => (item.id === id ? { ...item, visible: !item.visible } : item)));
+    onChange(
+      sections.map((item) =>
+        item.id === id ? { ...item, visible: !item.visible } : item
+      )
+    );
+  };
+
+  const renderGroup = (group: 'section' | 'metric') => {
+    const items = sections
+      .map((section, index) => ({ section, index }))
+      .filter(({ section }) => (section.group || 'section') === group);
+    if (items.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+            {group === 'section'
+              ? '页面区块'
+              : `指标卡片 · ${items.filter(({ section }) => section.visible).length}/${items.length} 显示`}
+          </span>
+        </div>
+        {items.map(({ section: item, index }) => {
+          const positionInGroup = items.findIndex(
+            ({ section }) => section.id === item.id
+          );
+          return (
+            <div
+              key={item.id}
+              className={`flex items-center justify-between gap-3 rounded-2xl border p-3 transition-all ${
+                item.visible
+                  ? isDark
+                    ? 'border-white/10 bg-white/[0.04]'
+                    : 'border-black/5 bg-black/[0.02]'
+                  : 'border-black/5 bg-black/[0.03] opacity-55 dark:border-white/5 dark:bg-black/20'
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] font-bold text-neutral-400">
+                    {(index + 1).toString().padStart(2, '0')}
+                  </span>
+                  <span className="truncate text-xs font-bold text-neutral-900 dark:text-white">
+                    {item.name}
+                  </span>
+                  {!item.visible && (
+                    <span className="rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[9px] text-amber-600 dark:text-amber-300">
+                      已隐藏
+                    </span>
+                  )}
+                </div>
+                <span className="mt-0.5 block truncate text-[10px] text-neutral-400">
+                  {item.desc}
+                </span>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => moveItem(index, 'top')}
+                  disabled={positionInGroup === 0}
+                  className="rounded-lg border border-black/5 bg-black/[0.03] p-1.5 text-neutral-500 hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-30 dark:border-white/10 dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/10"
+                  title="置于本组顶部"
+                >
+                  <ArrowUpToLine className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveItem(index, 'up')}
+                  disabled={positionInGroup === 0}
+                  className="rounded-lg border border-black/5 bg-black/[0.03] p-1.5 text-neutral-500 hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-30 dark:border-white/10 dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/10"
+                  title="上移"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveItem(index, 'down')}
+                  disabled={positionInGroup === items.length - 1}
+                  className="rounded-lg border border-black/5 bg-black/[0.03] p-1.5 text-neutral-500 hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-30 dark:border-white/10 dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/10"
+                  title="下移"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveItem(index, 'bottom')}
+                  disabled={positionInGroup === items.length - 1}
+                  className="rounded-lg border border-black/5 bg-black/[0.03] p-1.5 text-neutral-500 hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-30 dark:border-white/10 dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/10"
+                  title="置于本组底部"
+                >
+                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleVisibility(item.id)}
+                  className="ml-1 rounded-lg border border-black/5 bg-black/[0.03] p-1.5 text-neutral-500 hover:bg-black/[0.06] dark:border-white/10 dark:bg-white/[0.05] dark:text-neutral-300 dark:hover:bg-white/10"
+                  title={item.visible ? '隐藏' : '显示'}
+                >
+                  {item.visible ? (
+                    <Eye className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <EyeOff className="h-3.5 w-3.5 text-amber-500" />
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
-        <motion.div
+      <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+        <motion.button
+          type="button"
+          aria-label="关闭身体详情编辑"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 bg-black/75 backdrop-blur-md"
+          className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-md"
         />
 
-        {/* Modal Dialog */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.94, y: 16 }}
+          initial={{ opacity: 0, scale: 0.96, y: 14 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94, y: 16 }}
+          exit={{ opacity: 0, scale: 0.96, y: 14 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className={`relative w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-3xl p-6 md:p-8 z-10 border shadow-2xl backdrop-blur-2xl ${
+          role="dialog"
+          aria-modal="true"
+          aria-label="编辑身体详情卡片"
+          className={`relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border shadow-2xl backdrop-blur-2xl ${
             isDark
-              ? 'bg-[#11141b]/95 border-white/10 text-white'
-              : 'bg-white/95 border-black/10 text-neutral-900'
+              ? 'border-white/10 bg-[#11141b]/95 text-white'
+              : 'border-black/10 bg-white/95 text-neutral-900'
           }`}
         >
-          {/* Close button */}
-          <button
-            type="button"
-            onClick={onClose}
-            className={`absolute top-5 right-5 p-2 rounded-full transition-all cursor-pointer ${
-              isDark
-                ? 'bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white'
-                : 'bg-black/5 hover:bg-black/10 text-neutral-500 hover:text-neutral-900'
-            }`}
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {/* Modal Header */}
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-1.5 rounded-xl bg-amber-500/20 text-amber-500 border border-amber-500/30">
-              <Scale className="w-4 h-4" />
-            </div>
-            <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">
-              身体详情 · 板块自定义与排序
-            </span>
-          </div>
-
-          <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-1">
-            身体详情板块排序与显示
-          </h2>
-          <p className="text-xs text-neutral-400 mb-5">
-            可调整身体成分概览、8 维 BIA 核心指标、人体解剖节段分布图的排列先后，并支持自由显隐。
-          </p>
-
-          {/* Strip List */}
-          <div className="space-y-2 mb-6">
-            {sections.map((item, idx) => (
-              <div
-                key={item.id}
-                className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                  item.visible
-                    ? 'bg-white/[0.04] border-white/10 hover:border-white/20'
-                    : 'bg-black/20 border-white/5 opacity-50'
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-neutral-500">
-                      {(idx + 1).toString().padStart(2, '0')}
-                    </span>
-                    <span className="text-sm font-bold text-neutral-900 dark:text-white truncate">
-                      {item.name}
-                    </span>
-                    {!item.visible && (
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                        已隐藏
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-neutral-400 block mt-0.5 truncate">
-                    {item.desc}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => moveItem(idx, 'top')}
-                    disabled={idx === 0}
-                    className={`p-1.5 rounded-lg border text-[11px] font-semibold transition-all ${
-                      idx > 0
-                        ? 'bg-white/10 hover:bg-white/20 text-white border-white/10 cursor-pointer'
-                        : 'opacity-30 cursor-not-allowed border-transparent text-neutral-500'
-                    }`}
-                    title="置顶"
-                  >
-                    <ArrowUpToLine className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveItem(idx, 'up')}
-                    disabled={idx === 0}
-                    className={`p-1.5 rounded-lg border transition-all ${
-                      idx > 0
-                        ? 'bg-white/10 hover:bg-white/20 text-white border-white/10 cursor-pointer'
-                        : 'opacity-30 cursor-not-allowed border-transparent text-neutral-500'
-                    }`}
-                    title="上移"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveItem(idx, 'down')}
-                    disabled={idx === sections.length - 1}
-                    className={`p-1.5 rounded-lg border transition-all ${
-                      idx < sections.length - 1
-                        ? 'bg-white/10 hover:bg-white/20 text-white border-white/10 cursor-pointer'
-                        : 'opacity-30 cursor-not-allowed border-transparent text-neutral-500'
-                    }`}
-                    title="下移"
-                  >
-                    <ArrowDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveItem(idx, 'bottom')}
-                    disabled={idx === sections.length - 1}
-                    className={`p-1.5 rounded-lg border text-[11px] font-semibold transition-all ${
-                      idx < sections.length - 1
-                        ? 'bg-white/10 hover:bg-white/20 text-white border-white/10 cursor-pointer'
-                        : 'opacity-30 cursor-not-allowed border-transparent text-neutral-500'
-                    }`}
-                    title="置底"
-                  >
-                    <ArrowDownToLine className="w-3.5 h-3.5" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => toggleVisibility(item.id)}
-                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all cursor-pointer ml-1"
-                    title={item.visible ? '隐藏此板块' : '显示此板块'}
-                  >
-                    {item.visible ? <Eye className="w-3.5 h-3.5 text-emerald-400" /> : <EyeOff className="w-3.5 h-3.5 text-amber-400" />}
-                  </button>
-                </div>
+          <div className="flex items-start justify-between gap-3 border-b border-black/5 px-5 py-4 dark:border-white/10 sm:px-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-500">
+                <Scale className="h-5 w-5" />
               </div>
-            ))}
-          </div>
-
-          {/* Footer Action Buttons */}
-          <div className="flex items-center justify-between pt-3 border-t border-white/10">
-            <button
-              type="button"
-              onClick={onReset}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-neutral-300 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>恢复默认设置</span>
-            </button>
-
+              <div>
+                <h2 className="text-base font-bold">编辑身体详情卡片</h2>
+                <p className="mt-0.5 text-[11px] text-neutral-400">
+                  可调整页面区块和每个指标的先后顺序，并单独显示或隐藏。
+                </p>
+              </div>
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-black shadow-lg shadow-amber-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="rounded-full bg-black/5 p-2 text-neutral-500 hover:bg-black/10 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/20"
+              aria-label="关闭"
             >
-              <Check className="w-4 h-4" />
-              <span>完成并保存</span>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="space-y-5 overflow-y-auto p-5 sm:p-6">
+            {renderGroup('section')}
+            {renderGroup('metric')}
+          </div>
+
+          <div className="flex items-center justify-between gap-3 border-t border-black/5 px-5 py-4 dark:border-white/10 sm:px-6">
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex items-center gap-1.5 rounded-xl bg-black/5 px-3 py-2 text-xs font-semibold text-neutral-600 hover:bg-black/10 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/15"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              恢复默认
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-neutral-950 shadow-lg shadow-amber-500/20 hover:bg-amber-400"
+            >
+              <Check className="h-4 w-4" />
+              完成并保存
             </button>
           </div>
         </motion.div>

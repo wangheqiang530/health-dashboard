@@ -137,27 +137,15 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
       [query.data.limit]
     );
 
-    const validMeasurement = result.rows.find(
-      (r) => numberOrNull(r.body_fat_rate) !== null && numberOrNull(r.body_fat_rate)! > 0
-    );
-
     return {
       measurements: result.rows.map((row) => {
         const weight = numberOrNull(row.weight_kg);
         const rawFat = numberOrNull(row.body_fat_rate);
         const bodyFatPercent =
-          rawFat !== null && rawFat > 0
-            ? rawFat
-            : validMeasurement
-              ? numberOrNull(validMeasurement.body_fat_rate)
-              : null;
+          rawFat !== null && rawFat > 0 ? rawFat : null;
         const rawSkeletal = numberOrNull(row.skeletal_muscle_rate);
         const skeletalMusclePercent =
-          rawSkeletal !== null && rawSkeletal > 0
-            ? rawSkeletal
-            : validMeasurement
-              ? numberOrNull(validMeasurement.skeletal_muscle_rate)
-              : null;
+          rawSkeletal !== null && rawSkeletal > 0 ? rawSkeletal : null;
         const skeletalMuscleKg =
           weight !== null && skeletalMusclePercent !== null && skeletalMusclePercent > 0
             ? Number((weight * (skeletalMusclePercent / 100)).toFixed(2))
@@ -170,53 +158,27 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
         const bmi =
           rawBmi !== null && rawBmi > 0
             ? rawBmi
-            : weight !== null && weight > 0
-              ? Number((weight / (1.84 ** 2)).toFixed(1))
-              : null;
+            : null;
         const rawWater = numberOrNull(row.water_rate);
         const waterPercent =
-          rawWater !== null && rawWater > 0
-            ? rawWater
-            : validMeasurement
-              ? numberOrNull(validMeasurement.water_rate)
-              : null;
+          rawWater !== null && rawWater > 0 ? rawWater : null;
         const rawVisceral = numberOrNull(row.visceral_fat_level);
         const visceralFatLevel =
-          rawVisceral !== null && rawVisceral > 0
-            ? rawVisceral
-            : validMeasurement
-              ? numberOrNull(validMeasurement.visceral_fat_level)
-              : null;
+          rawVisceral !== null && rawVisceral > 0 ? rawVisceral : null;
         const rawBmr = numberOrNull(row.bmr_kcal);
         const bmrKcal =
-          rawBmr !== null && rawBmr > 0
-            ? rawBmr
-            : validMeasurement
-              ? numberOrNull(validMeasurement.bmr_kcal)
-              : null;
+          rawBmr !== null && rawBmr > 0 ? rawBmr : null;
         const rawBone = numberOrNull(row.bone_mass_kg);
         const boneMassKg =
-          rawBone !== null && rawBone > 0
-            ? rawBone
-            : validMeasurement
-              ? numberOrNull(validMeasurement.bone_mass_kg)
-              : null;
+          rawBone !== null && rawBone > 0 ? rawBone : null;
         const rawProtein = numberOrNull(row.protein_rate);
         const proteinPercent =
-          rawProtein !== null && rawProtein > 0
-            ? rawProtein
-            : validMeasurement
-              ? numberOrNull(validMeasurement.protein_rate)
-              : null;
+          rawProtein !== null && rawProtein > 0 ? rawProtein : null;
         const bodyAge =
-          row.body_age && row.body_age > 0 ? row.body_age : (validMeasurement?.body_age || 33);
+          row.body_age && row.body_age > 0 ? row.body_age : null;
         const rawScore = numberOrNull(row.score);
         const bodyScore =
-          rawScore !== null && rawScore > 0
-            ? rawScore
-            : validMeasurement
-              ? numberOrNull(validMeasurement.score)
-              : null;
+          rawScore !== null && rawScore > 0 ? rawScore : null;
 
         return {
           id: row.id,
@@ -266,6 +228,7 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
           measured_at: Date;
           measured_date: string;
           raw_record: Record<string, unknown> | null;
+          snapshot: Record<string, unknown>;
         }>(
           `DELETE FROM body_measurements
            WHERE id = $1::bigint
@@ -275,7 +238,8 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
              external_id,
              measured_at,
              to_char(measured_date, 'YYYY-MM-DD') AS measured_date,
-             raw_record`,
+             raw_record,
+             to_jsonb(body_measurements) AS snapshot`,
           [params.data.id]
         );
 
@@ -299,6 +263,9 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
               measuredAt: deleted.measured_at.toISOString(),
               measuredDate: deleted.measured_date,
               rawRecord: deleted.raw_record,
+              reasonCode: 'manual_delete',
+              reason: '手动删除的体测记录',
+              snapshot: deleted.snapshot,
             }),
           ]
         );

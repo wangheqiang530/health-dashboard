@@ -279,10 +279,10 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       let tileErrors = 0;
       const tileLayer = L.tileLayer(
         mapTileType === 'topo'
-          ? 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
-          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          ? '/api/v1/map/tiles/topo/{z}/{x}/{y}'
+          : '/api/v1/map/tiles/osm/{z}/{x}/{y}',
         mapTileType === 'topo'
-          ? { maxZoom: 17, keepBuffer: 3, subdomains: 'abc' }
+          ? { maxZoom: 17, keepBuffer: 3 }
           : { maxZoom: 19, keepBuffer: 3 }
       );
       tileLayer.on('tileload', () => setTileStatus('ready'));
@@ -441,7 +441,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
           />
           <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
             <span>
-              地图由浏览器直连免费公共瓦片，无需 API Key · © OpenStreetMap contributors
+              © OpenStreetMap contributors
               {mapTileType === 'topo' ? ' / OpenTopoMap' : ''}
             </span>
             <span

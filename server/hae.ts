@@ -454,8 +454,29 @@ async function insertWorkouts(
     const effectiveBatch = batch.filter((row) => !ignoredKeys.has(row.naturalKey));
     if (effectiveBatch.length === 0) continue;
 
+    const uniqueBatch = Array.from(
+      new Map(effectiveBatch.map((row) => [row.fingerprint, row])).values()
+    );
+    const existingFingerprints = await client.query<{
+      fingerprint: string;
+      natural_key: string | null;
+    }>(
+      `SELECT fingerprint, natural_key
+       FROM health_workouts
+       WHERE fingerprint = ANY($1::text[])`,
+      [uniqueBatch.map((row) => row.fingerprint)]
+    );
+    const existingFingerprintKeys = new Map(
+      existingFingerprints.rows.map((row) => [row.fingerprint, row.natural_key])
+    );
+    const insertBatch = uniqueBatch.filter((row) => {
+      const existingNaturalKey = existingFingerprintKeys.get(row.fingerprint);
+      return existingNaturalKey === undefined || existingNaturalKey === row.naturalKey;
+    });
+    if (insertBatch.length === 0) continue;
+
     const values: unknown[] = [];
-    const placeholders = effectiveBatch.map((row, index) => {
+    const placeholders = insertBatch.map((row, index) => {
       const base = index * 15;
       values.push(
         importId,

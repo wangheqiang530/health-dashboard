@@ -9,7 +9,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(process.cwd(), 'index.html'),
-        bodyDemo: resolve(process.cwd(), 'body-demo.html'),
       },
     },
   },

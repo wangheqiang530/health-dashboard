@@ -10,6 +10,7 @@ import type {
   MobilityAndGait,
   EnvironmentAndHearing,
   GpxCoordinate,
+  WorkoutTelemetryPoint,
 } from '../types/health';
 
 interface HAEDataPoint {
@@ -155,6 +156,32 @@ const pointValue = (point: HAEDataPoint): number | null =>
   finiteNumber(point.Avg) ??
   finiteNumber(point.Min) ??
   finiteNumber(point.Max);
+
+const heartRateTelemetry = (
+  workout: HAEWorkout,
+  startedAt: Date | null,
+  durationMinutes: number
+): WorkoutTelemetryPoint[] | undefined => {
+  const rawPoints = workout.heartRateData || [];
+  if (!startedAt || rawPoints.length === 0) return undefined;
+  const points = rawPoints
+    .map((point, index): WorkoutTelemetryPoint | null => {
+      const heartRate = pointValue(point);
+      if (heartRate === null || heartRate < 30 || heartRate > 230) return null;
+      const timestamp = parseDateTime(point.date || point.startDate)?.getTime();
+      const elapsedSec = Number.isFinite(timestamp)
+        ? Math.max(0, Math.round((timestamp! - startedAt.getTime()) / 1000))
+        : rawPoints.length <= 1
+          ? 0
+          : Math.round((index / (rawPoints.length - 1)) * Math.max(durationMinutes * 60, 1));
+      return {
+        elapsedSec,
+        heartRate: Math.round(heartRate),
+      };
+    })
+    .filter((point): point is WorkoutTelemetryPoint => point !== null);
+  return points.length > 0 ? points : undefined;
+};
 
 const toKcal = (value: number, units?: string): number =>
   units?.toLowerCase().includes('kj') ? value / 4.184 : value;
@@ -814,6 +841,7 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
         elevationGainM: elevation === null ? undefined : Math.round(elevation),
         hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
         routeGpxPoints: parseRoutePoints(workout.route),
+        telemetry: heartRateTelemetry(workout, startDate, durationMinutes),
       });
     });
 

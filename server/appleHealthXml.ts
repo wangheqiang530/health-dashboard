@@ -380,6 +380,7 @@ export async function importAppleHealthZip(
     let normalizedObjectCount = 0;
     let skippedObjectCount = 0;
     const rawOccurrenceByHash = new Map<string, number>();
+    const heartRateSamples: Array<{ timestamp: number; heartRate: number }> = [];
     const normalizedWorkouts: Array<{
       name: string;
       startedAt: string | null;
@@ -396,6 +397,7 @@ export async function importAppleHealthZip(
       naturalKey: string;
       rawContentHash: string;
       rawWorkout: Record<string, unknown>;
+      dailyRecord?: DailySummary['workouts'][0];
     }> = [];
 
     const flushPending = async () => {
@@ -541,6 +543,10 @@ export async function importAppleHealthZip(
         }
         case 'HKQuantityTypeIdentifierHeartRate': {
           if (!isNaN(numVal) && numVal >= 30 && numVal <= 230) {
+            heartRateSamples.push({
+              timestamp: start.getTime(),
+              heartRate: Math.round(numVal),
+            });
             if (!dailyHrPoints.has(dateStr)) dailyHrPoints.set(dateStr, []);
             const timeMatch = attributes.startDate.match(/\s(\d{2}):(\d{2})/);
             if (timeMatch) {
@@ -668,6 +674,37 @@ export async function importAppleHealthZip(
     }
     await flushPending();
 
+    heartRateSamples.sort((left, right) => left.timestamp - right.timestamp);
+    for (const workout of normalizedWorkouts) {
+      if (!workout.startedAt) continue;
+      const startedAt = new Date(workout.startedAt).getTime();
+      const endedAt = workout.endedAt
+        ? new Date(workout.endedAt).getTime()
+        : startedAt + Math.max(workout.durationSec || 0, 1) * 1000;
+      const telemetry = heartRateSamples
+        .filter(
+          (sample) =>
+            sample.timestamp >= startedAt - 60_000 &&
+            sample.timestamp <= endedAt + 5 * 60_000
+        )
+        .map((sample) => ({
+          elapsedSec: Math.max(0, Math.round((sample.timestamp - startedAt) / 1000)),
+          heartRate: sample.heartRate,
+        }))
+        .filter(
+          (sample, index, samples) =>
+            index === 0 || sample.elapsedSec !== samples[index - 1].elapsedSec
+        );
+      if (telemetry.length === 0) continue;
+      workout.rawWorkout = {
+        ...workout.rawWorkout,
+        heartRateData: telemetry,
+      };
+      if (workout.dailyRecord) {
+        workout.dailyRecord.telemetry = telemetry;
+      }
+    }
+
     function processWorkout(
       xml: string,
       metadata: Record<string, string>,
@@ -715,7 +752,7 @@ export async function importAppleHealthZip(
 
       if (!dailyWorkouts.has(dateStr)) dailyWorkouts.set(dateStr, []);
       const list = dailyWorkouts.get(dateStr)!;
-      list.push({
+      const dailyRecord: DailySummary['workouts'][0] = {
         id: `w-${dateStr}-${list.length}`,
         name,
         category,
@@ -734,7 +771,8 @@ export async function importAppleHealthZip(
           : undefined,
         hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
         routeGpxPoints,
-      });
+      };
+      list.push(dailyRecord);
 
       const startedAt = parseAppleTimestamp(attributes.startDate);
       const endedAt = parseAppleTimestamp(attributes.endDate);
@@ -761,6 +799,7 @@ export async function importAppleHealthZip(
         naturalKey: `workout|${name.toLowerCase()}|${startedAt?.toISOString() || dateStr}|${attributes.sourceName || ''}`,
         rawContentHash: rawHash,
         rawWorkout: { attributes, metadata },
+        dailyRecord,
       });
       normalizedObjectCount += 1;
     }
@@ -822,7 +861,33 @@ export async function importAppleHealthZip(
         rawWorkoutRows.rows.map((row) => [row.content_hash, Number(row.id)])
       );
 
-      for (const workout of normalizedWorkouts) {
+      const uniqueWorkouts = Array.from(
+        new Map(
+          normalizedWorkouts.map((workout) => [workout.rawContentHash, workout])
+        ).values()
+      );
+      const existingWorkoutFingerprints = await client.query<{
+        fingerprint: string;
+        natural_key: string | null;
+      }>(
+        `SELECT fingerprint, natural_key
+         FROM health_workouts
+         WHERE source_id = 'hae'
+           AND fingerprint = ANY($1::text[])`,
+        [uniqueWorkouts.map((workout) => workout.rawContentHash)]
+      );
+      const existingWorkoutKeys = new Map(
+        existingWorkoutFingerprints.rows.map((row) => [
+          row.fingerprint,
+          row.natural_key,
+        ])
+      );
+
+      for (const workout of uniqueWorkouts) {
+        const existingNaturalKey = existingWorkoutKeys.get(workout.rawContentHash);
+        if (existingNaturalKey && existingNaturalKey !== workout.naturalKey) {
+          continue;
+        }
         await client.query(
           `INSERT INTO health_workouts
             (import_id, fingerprint, natural_key, source_id, name, started_at, ended_at,

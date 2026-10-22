@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v0.0.16)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v1.0.0)
 
 ## 1. 核心模块与实现状态
 
@@ -19,7 +19,7 @@
 
 ## 2. 数据库表架构设计 (PostgreSQL)
 
-数据库由 `server/migrations/001_init.sql` 至 `005_daily_summary_cleanup.sql`
+数据库由 `server/migrations/001_init.sql` 至 `009_body_quality_ignore.sql`
 自动初始化，当前核心表为：
 
 1. `data_sources`：数据源开关、账号、加密密码、Cron 与同步状态
@@ -36,6 +36,8 @@
 12. `import_batches`：各来源导入批次、原始/标准化计数、耗时与失败原因
 13. `health_raw_records`：逐条原始健康对象与完整 JSON/XML 载荷
 14. `health_samples`：跨来源统一时序样本，按自然键保存最新修正值
+15. `data_tombstones`：手动删除与自动异常记录的同步忽略规则及恢复快照
+16. `hae_api_keys`：多设备 HAE Webhook API Key、备注、启停与最近使用信息
 
 ---
 
@@ -51,7 +53,8 @@
 - **遥测回归**：10 月 18 日骑行解析出 `907` 个轨迹点与 `907` 帧遥测；IF `1.05`、NP `210 W`、TSS `55.9`、左右平衡 `49/51`。
 - **界面回归**：本地浏览器验证睡眠分期悬停读数、身体详情周期趋势、最高/最低点标注、悬浮层层级、心率十字导航与训练心率区间数据源说明。
 - **v0.0.16 本地副本回归**：使用最新 PostgreSQL 冷备恢复独立测试库，验证真实解剖身体详情、数据审计删除、HAE 多设备 API 管理及训练 emoji 展示。
+- **v1.0.0 正式版回归**：验证 Fitdays 全量/增量同步、SUID 档案选择、不完整体测自动忽略与误删恢复、身体指标对比卡片、趋势小窗十字导航、Apple 健康运动心率恢复采样，以及地图 HTTP 代理和服务端瓦片缓存。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:0.0.16`（多平台构建，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:1.0.0`（多平台构建，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

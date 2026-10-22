@@ -19,6 +19,7 @@ import {
   fetchBodyMeasurements,
   fetchWorkouts,
 } from '../../api/healthApi';
+import { IgnoredRecordsPanel } from './IgnoredRecordsPanel';
 
 interface DataAuditModalProps {
   defaultDate: string;
@@ -112,6 +113,7 @@ export const DataAuditModal: React.FC<DataAuditModalProps> = ({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [view, setView] = useState<'audit' | 'ignored'>('audit');
 
   const loadRecords = useCallback(async (targetDate: string, clearSuccess = true) => {
     setLoading(true);
@@ -353,21 +355,51 @@ export const DataAuditModal: React.FC<DataAuditModalProps> = ({
               <div>
                 <h2 className="text-base font-bold">数据审计与异常记录清理</h2>
                 <p className="text-[11px] text-neutral-400">
-                  按日期查阅单条体测或运动记录，确认后永久删除
+                  按日期查阅单条体测或运动记录，并可从忽略列表恢复误删数据
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <label className="flex h-9 items-center gap-2 rounded-xl border border-black/10 bg-white/70 px-3 text-xs text-neutral-700 dark:border-white/10 dark:bg-black/30 dark:text-neutral-200">
-                <CalendarDays className="h-3.5 w-3.5 text-sky-500" />
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  className="bg-transparent outline-none"
-                  aria-label="选择审计日期"
-                />
-              </label>
+              <div className="flex rounded-xl border border-black/5 bg-black/5 p-0.5 dark:border-white/10 dark:bg-white/5">
+                <button
+                  type="button"
+                  onClick={() => setView('audit')}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
+                    view === 'audit'
+                      ? 'bg-white text-neutral-900 shadow-sm dark:bg-white dark:text-neutral-900'
+                      : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+                >
+                  数据审计
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView('ignored');
+                    setError(null);
+                    setSuccess(null);
+                  }}
+                  className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold ${
+                    view === 'ignored'
+                      ? 'bg-white text-neutral-900 shadow-sm dark:bg-white dark:text-neutral-900'
+                      : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+                >
+                  忽略列表
+                </button>
+              </div>
+              {view === 'audit' && (
+                <label className="flex h-9 items-center gap-2 rounded-xl border border-black/10 bg-white/70 px-3 text-xs text-neutral-700 dark:border-white/10 dark:bg-black/30 dark:text-neutral-200">
+                  <CalendarDays className="h-3.5 w-3.5 text-sky-500" />
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                    className="bg-transparent outline-none"
+                    aria-label="选择审计日期"
+                  />
+                </label>
+              )}
               <button
                 type="button"
                 onClick={onClose}
@@ -379,6 +411,10 @@ export const DataAuditModal: React.FC<DataAuditModalProps> = ({
             </div>
           </header>
 
+          {view === 'ignored' ? (
+            <IgnoredRecordsPanel onDataChanged={onDataChanged} />
+          ) : (
+            <>
           {error && (
             <div className="mx-4 mt-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 sm:mx-6">
               {error}
@@ -568,6 +604,8 @@ export const DataAuditModal: React.FC<DataAuditModalProps> = ({
               )}
             </section>
           </div>
+            </>
+          )}
         </motion.div>
       </div>
     </AnimatePresence>
