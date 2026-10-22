@@ -346,7 +346,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2">
           <div
             className="group/food relative p-3 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/5 cursor-help"
-            title={totalKcal > 0 ? `约 ${periodFood.description}` : undefined}
+            aria-label={totalKcal > 0 ? `等效食物 ${periodFood.emojis}` : undefined}
           >
             <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
               <Flame className="w-3.5 h-3.5 text-[#FA114F]" />
@@ -364,10 +364,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
             {totalKcal > 0 && (
               <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-64 rounded-2xl border border-amber-500/25 bg-neutral-950/95 p-3 text-white opacity-0 shadow-2xl backdrop-blur-xl transition-all duration-200 group-hover/food:translate-y-0 group-hover/food:opacity-100 translate-y-1">
                 <div className="mb-1 text-[10px] font-bold text-amber-300">等效食物</div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl leading-none">{periodFood.emojis}</span>
-                  <span className="text-[11px] text-neutral-200">{periodFood.description}</span>
-                </div>
+                <span className="text-xl leading-none">{periodFood.emojis}</span>
               </div>
             )}
           </div>
@@ -611,7 +608,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                       <div className="flex items-center gap-1 justify-end text-sm font-bold text-[#FA114F]">
                         <Flame className="w-3.5 h-3.5" />
                         <span>{w.activeCalories} kcal</span>
-                        <span className="text-xs ml-0.5" title={`≈ ${food.description}`}>{food.emojis}</span>
+                        <span className="text-xs ml-0.5">{food.emojis}</span>
                       </div>
                       <div className="flex items-center gap-1 justify-end text-xs text-neutral-400 mt-0.5">
                         <Heart className="w-3 h-3 text-rose-500" />

@@ -14,7 +14,7 @@ export const FOOD_DATABASE: FoodItem[] = [
   { emoji: '🍌', name: '香蕉', kcal: 90 },
   { emoji: '🥚', name: '水煮蛋', kcal: 70 },
   { emoji: '🍎', name: '苹果', kcal: 50 },
-  { emoji: '☕', name: '美式咖啡', kcal: 10 },
+  { emoji: '☕️', name: '美式咖啡', kcal: 10 },
 ];
 
 export interface FoodEquivalentResult {

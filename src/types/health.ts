@@ -211,6 +211,7 @@ export interface BodyMeasurement {
   whr: number | null;
   segments: Record<BodySegmentKey, BodySegmentMeasurement>;
   segmentMuscleEstimated: boolean;
+  rawRecord?: Record<string, unknown> | null;
 }
 
 export interface MobilityAndGait {

@@ -247,6 +247,13 @@ export const ImportHistoryPanel: React.FC = () => {
                           <span className={`rounded-md border px-1.5 py-0.5 text-[9px] font-semibold ${source.background} ${source.color}`}>
                             {source.label}
                           </span>
+                          {item.sourceId === 'hae' &&
+                            typeof item.metadata.deviceName === 'string' &&
+                            item.metadata.deviceName && (
+                              <span className="rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-rose-500 dark:text-rose-300">
+                                {item.metadata.deviceName}
+                              </span>
+                            )}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-neutral-400">
                           <span className="flex items-center gap-1">

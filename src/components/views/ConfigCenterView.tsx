@@ -5,6 +5,7 @@ import { useCustomization, PRESET_COLORS, type LiquidColorPreset } from '../../c
 import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
 import { SecuritySettings } from './SecuritySettings';
+import { DataAuditModal } from './DataAuditModal';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
 import { SystemLogsModal } from '../dashboard/SystemLogsModal';
 import {
@@ -25,6 +26,7 @@ import {
   Sparkles,
   Terminal,
   Bike,
+  Database,
 } from 'lucide-react';
 
 interface ConfigCenterViewProps {
@@ -37,6 +39,8 @@ interface ConfigCenterViewProps {
   onOpenWizard?: () => void;
 }
 
+const TODAY_DATE = new Date().toISOString().slice(0, 10);
+
 export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
   syncInfo,
   days,
@@ -48,6 +52,7 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
 }) => {
   const [isZipImportOpen, setIsZipImportOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [isDataAuditOpen, setIsDataAuditOpen] = useState(false);
   const [uploadingFit, setUploadingFit] = useState(false);
   const [operation, setOperation] = useState<OperationProgressState | null>(null);
   const fitInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -99,6 +104,8 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
     resetLiquidDefaults,
     resetGlassDefaults,
   } = useCustomization();
+  const auditDefaultDate =
+    Object.keys(days).sort().at(-1) || TODAY_DATE;
 
   const handleExportBackup = () => {
     const startedAt = Date.now();
@@ -560,6 +567,27 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
           </div>
 
           <div className="space-y-3">
+            {/* Data Audit Tile */}
+            <div
+              onClick={() => setIsDataAuditOpen(true)}
+              className="p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/5 dark:border-white/5 transition-all cursor-pointer flex items-center justify-between gap-3 group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-500 group-hover:scale-105 transition-transform">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-neutral-900 dark:text-white">
+                    数据审计与异常记录清理
+                  </h4>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    按日期查阅体脂秤测量与运动记录，确认详情后删除单条异常数据
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-indigo-500">打开审计 ➔</span>
+            </div>
+
             {/* Import Apple Health ZIP Tile */}
             <div
               onClick={() => setIsZipImportOpen(true)}
@@ -690,6 +718,14 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
         isOpen={isLogsOpen}
         onClose={() => setIsLogsOpen(false)}
       />
+
+      {isDataAuditOpen && (
+        <DataAuditModal
+          defaultDate={auditDefaultDate}
+          onClose={() => setIsDataAuditOpen(false)}
+          onDataChanged={onRefreshData}
+        />
+      )}
 
       <OperationProgressModal state={operation} onClose={() => setOperation(null)} />
     </div>

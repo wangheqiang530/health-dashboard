@@ -51,6 +51,7 @@ export interface BackendConfig {
   hae: {
     endpoint: string;
     apiKey: string;
+    apiKeys: HaeApiKey[];
   };
   database: {
     connected: boolean;
@@ -79,6 +80,17 @@ export interface BackendConfig {
   };
   recentRuns: SyncRun[];
   timezone: string;
+}
+
+export interface HaeApiKey {
+  id: string;
+  deviceName: string;
+  key: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+  lastSourceIp: string | null;
 }
 
 export interface DataCoverage {
@@ -289,6 +301,21 @@ export async function fetchBodyMeasurements(): Promise<{ measurements: BodyMeasu
   return parseResponse<{ measurements: BodyMeasurement[] }>(response);
 }
 
+export async function deleteBodyMeasurement(id: string): Promise<{
+  ok: true;
+  kind: 'body';
+  deletedId: string;
+  measuredAt: string;
+  measuredDate: string;
+  ignoredFromFutureSync: boolean;
+}> {
+  const response = await apiFetch(`/api/v1/body/measurements/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}
+
 export async function fetchWorkouts(options: {
   from?: string;
   to?: string;
@@ -305,11 +332,79 @@ export async function fetchWorkouts(options: {
   return parseResponse(response);
 }
 
+export async function deleteWorkoutRecord(id: string): Promise<{
+  ok: true;
+  kind: 'workout';
+  deletedId: string;
+  name: string;
+  date: string;
+  startTime: string | null;
+  ignoredFromFutureSync: boolean;
+}> {
+  const response = await apiFetch(`/api/v1/workouts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}
+
 export async function fetchBackendConfig(): Promise<BackendConfig> {
   const response = await apiFetch('/api/v1/config', {
     headers: { Accept: 'application/json' },
   });
   return parseResponse<BackendConfig>(response);
+}
+
+export async function fetchHaeApiKeys(): Promise<{ apiKeys: HaeApiKey[] }> {
+  const response = await apiFetch('/api/v1/config/hae-api-keys', {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse<{ apiKeys: HaeApiKey[] }>(response);
+}
+
+export async function createHaeApiKey(deviceName: string): Promise<{ apiKey: HaeApiKey }> {
+  const response = await apiFetch('/api/v1/config/hae-api-keys', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ deviceName }),
+  });
+  return parseResponse<{ apiKey: HaeApiKey }>(response);
+}
+
+export async function updateHaeApiKey(
+  id: string,
+  updates: { deviceName?: string; enabled?: boolean }
+): Promise<{ apiKey: HaeApiKey }> {
+  const response = await apiFetch(
+    `/api/v1/config/hae-api-keys/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(updates),
+    }
+  );
+  return parseResponse<{ apiKey: HaeApiKey }>(response);
+}
+
+export async function deleteHaeApiKey(
+  id: string
+): Promise<{ ok: true; deleted: { id: string; deviceName: string } }> {
+  const response = await apiFetch(
+    `/api/v1/config/hae-api-keys/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' },
+    }
+  );
+  return parseResponse<{ ok: true; deleted: { id: string; deviceName: string } }>(
+    response
+  );
 }
 
 export async function updateDataSource(

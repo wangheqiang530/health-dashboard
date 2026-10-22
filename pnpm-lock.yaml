@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@emmorts/body-muscles':
+        specifier: 2.1.1
+        version: 2.1.1
       '@fastify/multipart':
         specifier: ^10.1.4
         version: 10.1.4
@@ -110,6 +113,10 @@ importers:
         version: 8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
 packages:
+
+  '@emmorts/body-muscles@2.1.1':
+    resolution: {integrity: sha512-qFz79o6Q8iphVv7M5uRNUN9gOI9jqnCKAUcbFSUxjO2hH5g/I1k/Y/N5rJ2JZAxkPTDq7wqA69H28wcsfpGilw==}
+    engines: {node: '>=16'}
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -1321,6 +1328,8 @@ packages:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
+
+  '@emmorts/body-muscles@2.1.1': {}
 
   '@esbuild/aix-ppc64@0.28.2':
     optional: true

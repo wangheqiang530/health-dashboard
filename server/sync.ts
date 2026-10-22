@@ -106,6 +106,16 @@ async function persistFitdays(
         }))
     );
     for (const record of records) {
+      const ignored = await client.query(
+        `SELECT 1
+         FROM data_tombstones
+         WHERE record_kind = 'body_measurement'
+           AND source_id = 'fitdays'
+           AND external_id = $1`,
+        [record.externalId]
+      );
+      if ((ignored.rowCount || 0) > 0) continue;
+
       await client.query(
         `INSERT INTO body_measurements
           (source_id, external_id, profile_id, measured_at, measured_date, weight_kg, bmi,
@@ -247,6 +257,16 @@ async function persistRides(
         }))
     );
     for (const ride of rides) {
+      const ignored = await client.query(
+        `SELECT 1
+         FROM data_tombstones
+         WHERE record_kind = 'cycling_activity'
+           AND source_id = 'igpsport'
+           AND external_id = $1`,
+        [ride.externalId]
+      );
+      if ((ignored.rowCount || 0) > 0) continue;
+
       await client.query(
         `INSERT INTO cycling_activities
           (source_id, external_id, title, device, started_at, ended_at, moving_time_sec,

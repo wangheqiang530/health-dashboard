@@ -242,8 +242,82 @@ export async function bodyRoutes(app: FastifyInstance): Promise<void> {
           whr: numberOrNull(row.whr),
           segments: buildBodySegments(weight, skeletalMuscleKg, bodyFatPercent, row.raw_record),
           segmentMuscleEstimated: true,
+          rawRecord: row.raw_record,
         };
       }),
     };
   });
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/v1/body/measurements/:id',
+    async (request, reply) => {
+      const params = z.object({ id: z.string().regex(/^\d+$/) }).safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '体测记录 ID 无效。' });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await client.query<{
+          id: string;
+          source_id: string;
+          external_id: string;
+          measured_at: Date;
+          measured_date: string;
+          raw_record: Record<string, unknown> | null;
+        }>(
+          `DELETE FROM body_measurements
+           WHERE id = $1::bigint
+           RETURNING
+             id::text,
+             source_id,
+             external_id,
+             measured_at,
+             to_char(measured_date, 'YYYY-MM-DD') AS measured_date,
+             raw_record`,
+          [params.data.id]
+        );
+
+        const deleted = result.rows[0];
+        if (!deleted) {
+          await client.query('ROLLBACK');
+          return reply.code(404).send({ error: '未找到这条体测记录。' });
+        }
+
+        await client.query(
+          `INSERT INTO data_tombstones
+            (record_kind, source_id, external_id, metadata)
+           VALUES ('body_measurement', $1, $2, $3::jsonb)
+           ON CONFLICT (record_kind, source_id, external_id) DO UPDATE SET
+             deleted_at = NOW(),
+             metadata = EXCLUDED.metadata`,
+          [
+            deleted.source_id,
+            deleted.external_id,
+            JSON.stringify({
+              measuredAt: deleted.measured_at.toISOString(),
+              measuredDate: deleted.measured_date,
+              rawRecord: deleted.raw_record,
+            }),
+          ]
+        );
+
+        await client.query('COMMIT');
+        return {
+          ok: true,
+          kind: 'body',
+          deletedId: deleted.id,
+          measuredAt: deleted.measured_at.toISOString(),
+          measuredDate: deleted.measured_date,
+          ignoredFromFutureSync: true,
+        };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+  );
 }

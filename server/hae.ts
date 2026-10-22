@@ -442,8 +442,20 @@ async function insertWorkouts(
   const batchSize = 200;
   for (let offset = 0; offset < rows.length; offset += batchSize) {
     const batch = rows.slice(offset, offset + batchSize);
+    const ignoredResult = await client.query<{ external_id: string }>(
+      `SELECT external_id
+       FROM data_tombstones
+       WHERE record_kind = 'health_workout'
+         AND source_id = 'hae'
+         AND external_id = ANY($1::text[])`,
+      [batch.map((row) => row.naturalKey)]
+    );
+    const ignoredKeys = new Set(ignoredResult.rows.map((row) => row.external_id));
+    const effectiveBatch = batch.filter((row) => !ignoredKeys.has(row.naturalKey));
+    if (effectiveBatch.length === 0) continue;
+
     const values: unknown[] = [];
-    const placeholders = batch.map((row, index) => {
+    const placeholders = effectiveBatch.map((row, index) => {
       const base = index * 15;
       values.push(
         importId,
@@ -491,9 +503,58 @@ async function insertWorkouts(
   }
 }
 
+async function removeTombstonedWorkoutsFromSummaries(
+  client: PoolClient,
+  days: string[]
+): Promise<void> {
+  if (days.length === 0) return;
+
+  await client.query(
+    `UPDATE daily_summaries ds
+     SET
+       summary = jsonb_set(
+         ds.summary,
+         '{workouts}',
+         COALESCE(
+           (
+             SELECT jsonb_agg(item.workout)
+             FROM jsonb_array_elements(
+               COALESCE(ds.summary->'workouts', '[]'::jsonb)
+             ) AS item(workout)
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM data_tombstones tombstone
+               WHERE tombstone.record_kind = 'health_workout'
+                 AND tombstone.source_id = 'hae'
+                 AND tombstone.metadata->>'date' = to_char(ds.day, 'YYYY-MM-DD')
+                 AND item.workout->>'startTime' IS NOT NULL
+                 AND tombstone.metadata->>'startTime' IS NOT NULL
+                 AND abs(
+                   extract(epoch from (
+                     (item.workout->>'startTime')::time
+                     - (tombstone.metadata->>'startTime')::time
+                   ))
+                 ) <= 120
+             )
+           ),
+           '[]'::jsonb
+         ),
+         true
+       ),
+       updated_at = NOW()
+     WHERE ds.day = ANY($1::date[])`,
+    [days]
+  );
+}
+
 export async function importHaePayload(
   payload: unknown,
-  metadata: { payloadSizeBytes: number; sourceIp: string | null }
+  metadata: {
+    payloadSizeBytes: number;
+    sourceIp: string | null;
+    apiKeyId?: string | null;
+    deviceName?: string | null;
+  }
 ): Promise<HaeImportResult> {
   const parsed = parseHealthAutoExportJSON(payload);
   const { metrics, workouts } = unpackPayload(payload);
@@ -520,6 +581,8 @@ export async function importHaePayload(
         dateTo: dates[dates.length - 1],
         metricCount: normalizedMetrics.length,
         workoutCount: normalizedWorkouts.length,
+        apiKeyId: metadata.apiKeyId || null,
+        deviceName: metadata.deviceName || null,
       }
     );
     batchId = await createImportBatch(client, {
@@ -534,6 +597,8 @@ export async function importHaePayload(
         metricCount: normalizedMetrics.length,
         workoutCount: normalizedWorkouts.length,
         sourceIp: metadata.sourceIp,
+        apiKeyId: metadata.apiKeyId || null,
+        deviceName: metadata.deviceName || null,
       },
     });
     const importRow = await client.query<{ id: string }>(
@@ -652,6 +717,7 @@ export async function importHaePayload(
         [day, JSON.stringify(finalSummary), importId, batchId]
       );
     }
+    await removeTombstonedWorkoutsFromSummaries(client, Object.keys(parsed.days));
 
     await client.query(
       `UPDATE source_archive_files

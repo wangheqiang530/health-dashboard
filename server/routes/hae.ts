@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { importHaePayload } from '../hae.ts';
-import { getHaeApiKey, secureCompare } from '../settings.ts';
+import { authenticateHaeApiKey } from '../settings.ts';
 
 const extractApiKey = (headers: Record<string, string | string[] | undefined>): string => {
   const direct = headers['x-api-key'];
@@ -15,9 +15,11 @@ const extractApiKey = (headers: Record<string, string | string[] | undefined>): 
 
 export async function haeRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/v1/health-auto-export', async (request, reply) => {
-    const expectedKey = await getHaeApiKey();
     const providedKey = extractApiKey(request.headers);
-    if (!providedKey || !secureCompare(providedKey, expectedKey)) {
+    const apiKey = providedKey
+      ? await authenticateHaeApiKey(providedKey, request.ip)
+      : null;
+    if (!apiKey) {
       return reply.code(401).send({ error: 'X-Api-Key 无效' });
     }
 
@@ -29,10 +31,14 @@ export async function haeRoutes(app: FastifyInstance): Promise<void> {
       const result = await importHaePayload(request.body, {
         payloadSizeBytes,
         sourceIp: request.ip,
+        apiKeyId: apiKey.id,
+        deviceName: apiKey.deviceName,
       });
       request.log.info(
         {
           importId: result.importId,
+          apiKeyId: apiKey.id,
+          deviceName: apiKey.deviceName,
           dateFrom: result.dateFrom,
           dateTo: result.dateTo,
           metricCount: result.metricCount,

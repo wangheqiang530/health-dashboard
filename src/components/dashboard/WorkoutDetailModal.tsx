@@ -130,7 +130,6 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               {/* Food Calorie Equivalent */}
               <div className="mt-1 text-[11px] text-amber-500 dark:text-amber-300 flex items-center gap-1 font-medium">
                 <span className="text-sm">{foodEquiv.emojis}</span>
-                <span className="truncate">≈ {foodEquiv.description}</span>
               </div>
             </div>
 

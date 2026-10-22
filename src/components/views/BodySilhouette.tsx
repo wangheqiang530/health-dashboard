@@ -5,6 +5,7 @@ import type {
   BodySegmentMeasurement,
 } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
+import { AnatomyBodyFigure } from './AnatomyBodyFigure';
 import { Activity, Dumbbell, Info, Scale, TrendingUp, Zap } from 'lucide-react';
 
 interface BodySilhouetteProps {
@@ -19,9 +20,6 @@ interface SegmentDefinition {
   key: BodySegmentKey;
   label: string;
   subtitle: string;
-  path: string;
-  labelX: number;
-  labelY: number;
 }
 
 const SEGMENTS: SegmentDefinition[] = [
@@ -29,46 +27,26 @@ const SEGMENTS: SegmentDefinition[] = [
     key: 'trunk',
     label: '躯干',
     subtitle: '胸背 · 核心',
-    path:
-      'M78 62 C89 56 131 56 142 62 C150 78 153 108 148 145 C146 161 132 169 110 169 C88 169 74 161 72 145 C67 108 70 78 78 62 Z',
-    labelX: 110,
-    labelY: 112,
   },
   {
     key: 'leftArm',
-    label: '左上肢',
-    subtitle: '肩 · 臂 · 前臂',
-    path:
-      'M75 65 C63 69 56 82 52 99 L39 145 C36 157 41 166 48 167 C55 168 59 163 61 155 L73 111 L83 82 Z',
-    labelX: 45,
-    labelY: 126,
+    label: '左臂',
+    subtitle: '肩 · 上臂 · 前臂',
   },
   {
     key: 'rightArm',
-    label: '右上肢',
-    subtitle: '肩 · 臂 · 前臂',
-    path:
-      'M145 65 C157 69 164 82 168 99 L181 145 C184 157 179 166 172 167 C165 168 161 163 159 155 L147 111 L137 82 Z',
-    labelX: 179,
-    labelY: 126,
+    label: '右臂',
+    subtitle: '肩 · 上臂 · 前臂',
   },
   {
     key: 'leftLeg',
-    label: '左下肢',
+    label: '左腿',
     subtitle: '股四头 · 腓肠',
-    path:
-      'M75 165 C72 191 68 222 64 260 L60 316 C59 329 65 338 74 339 C83 340 88 333 89 321 L92 260 L99 168 Z',
-    labelX: 71,
-    labelY: 263,
   },
   {
     key: 'rightLeg',
-    label: '右下肢',
+    label: '右腿',
     subtitle: '股四头 · 腓肠',
-    path:
-      'M145 165 C148 191 152 222 156 260 L160 316 C161 329 155 338 146 339 C137 340 132 333 131 321 L128 260 L121 168 Z',
-    labelX: 149,
-    labelY: 263,
   },
 ];
 
@@ -101,6 +79,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
   measurements = [],
 }) => {
   const [selectedPart, setSelectedPart] = useState<BodySegmentKey>('trunk');
+  const [hoveredPart, setHoveredPart] = useState<BodySegmentKey | null>(null);
   const [mode, setMode] = useState<BodyMode>('muscle');
   const [historyWindow, setHistoryWindow] = useState<HistoryWindow>(30);
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
@@ -109,6 +88,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
     measurement ||
     measurements[measurements.length - 1] ||
     null;
+  const displayedPart = hoveredPart ?? selectedPart;
   const weight = numberValue(activeMeasurement?.weightKg);
   const measuredDate =
     activeMeasurement?.measuredDate || activeMeasurement?.measuredAt?.slice(0, 10) || '尚无体测';
@@ -119,18 +99,18 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
       .filter(
         (item) =>
           item.measuredAt <= activeMeasurement.measuredAt &&
-          item.segments?.[selectedPart]
+          item.segments?.[displayedPart]
       )
       .sort((left, right) => left.measuredAt.localeCompare(right.measuredAt));
-  }, [activeMeasurement, measurements, selectedPart]);
+  }, [activeMeasurement, measurements, displayedPart]);
 
   const displayedHistory = useMemo(
     () => (historyWindow === 0 ? history : history.slice(-historyWindow)),
     [history, historyWindow]
   );
 
-  const activeSegment = segmentOf(activeMeasurement, selectedPart);
-  const activeDefinition = SEGMENTS.find((segment) => segment.key === selectedPart)!;
+  const activeSegment = segmentOf(activeMeasurement, displayedPart);
+  const activeDefinition = SEGMENTS.find((segment) => segment.key === displayedPart)!;
 
   const chartWidth = 560;
   const chartHeight = 210;
@@ -144,8 +124,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
     date: item.measuredDate.slice(5),
     value: numberValue(
       showImpedance
-        ? segmentOf(item, selectedPart)?.impedance20kHz
-        : segmentOf(item, selectedPart)?.muscleKg
+        ? segmentOf(item, displayedPart)?.impedance20kHz
+        : segmentOf(item, displayedPart)?.muscleKg
     ),
   }));
   const secondaryRaw = displayedHistory.map((item, index) => ({
@@ -153,8 +133,8 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
     date: item.measuredDate.slice(5),
     value: numberValue(
       showImpedance
-        ? segmentOf(item, selectedPart)?.impedance100kHz
-        : segmentOf(item, selectedPart)?.fatKg
+        ? segmentOf(item, displayedPart)?.impedance100kHz
+        : segmentOf(item, displayedPart)?.fatKg
     ),
   }));
   const primaryValues = primaryRaw.filter(
@@ -225,14 +205,10 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
     };
   });
 
-  const modeGradient =
-    mode === 'muscle'
-      ? 'url(#segmentMuscleGradient)'
-      : mode === 'fat'
-        ? 'url(#segmentFatGradient)'
-        : 'url(#segmentImpedanceGradient)';
   const modeColor =
     mode === 'muscle' ? '#6366F1' : mode === 'fat' ? '#F59E0B' : '#06B6D4';
+  const modeLabel =
+    mode === 'impedance' ? 'BIA 双频' : mode === 'muscle' ? '肌肉视图' : '脂肪视图';
 
   if (!activeMeasurement || weight === null) {
     return (
@@ -260,7 +236,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
               五部位身体成分与阻抗
             </h3>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              点击人体任一部位查看肌肉量、脂肪量、20 kHz / 100 kHz 阻抗与历史趋势
+              悬停高亮部位，点击查看肌肉量、脂肪量、20 kHz / 100 kHz 阻抗与历史趋势
             </p>
           </div>
         </div>
@@ -298,7 +274,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
             type="button"
             onClick={() => setSelectedPart(segment.key)}
             className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              selectedPart === segment.key
+              displayedPart === segment.key
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white'
             }`}
@@ -310,103 +286,19 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         <div className="lg:col-span-4 flex justify-center">
-          <div className="relative w-full max-w-[280px] min-h-[390px] flex items-center justify-center rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 p-3">
-            <svg
-              viewBox="0 0 220 390"
-              className="w-full h-[350px] select-none overflow-visible"
-              aria-label="可交互的人体五部位 SVG"
-            >
-              <defs>
-                <linearGradient id="segmentMuscleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#818CF8" />
-                  <stop offset="100%" stopColor="#4F46E5" />
-                </linearGradient>
-                <linearGradient id="segmentFatGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FBBF24" />
-                  <stop offset="100%" stopColor="#D97706" />
-                </linearGradient>
-                <linearGradient id="segmentImpedanceGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#38BDF8" />
-                  <stop offset="100%" stopColor="#0891B2" />
-                </linearGradient>
-                <filter id="segmentGlow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
-
-              <ellipse
-                cx="110"
-                cy="31"
-                rx="17"
-                ry="21"
-                fill="currentColor"
-                fillOpacity="0.12"
-                stroke="currentColor"
-                strokeOpacity="0.3"
-                strokeWidth="1.2"
-                className="text-neutral-500"
-              />
-              <path
-                d="M101 49 L101 61 C104 65 116 65 119 61 L119 49 Z"
-                fill="currentColor"
-                fillOpacity="0.12"
-                stroke="currentColor"
-                strokeOpacity="0.25"
-                className="text-neutral-500"
-              />
-
-              {SEGMENTS.map((segment) => {
-                const active = selectedPart === segment.key;
-                return (
-                  <g
-                    key={segment.key}
-                    onMouseEnter={() => setSelectedPart(segment.key)}
-                    onClick={() => setSelectedPart(segment.key)}
-                    className="cursor-pointer transition-all duration-200"
-                  >
-                    <path
-                      d={segment.path}
-                      fill={active ? modeGradient : 'currentColor'}
-                      fillOpacity={active ? 0.9 : 0.18}
-                      stroke={active ? modeColor : 'currentColor'}
-                      strokeOpacity={active ? 0.9 : 0.22}
-                      strokeWidth={active ? 2 : 1}
-                      filter={active ? 'url(#segmentGlow)' : undefined}
-                      className="text-neutral-500 transition-all duration-200"
-                    />
-                    <title>
-                      {segment.label} · 肌肉{' '}
-                      {formatValue(segmentOf(activeMeasurement, segment.key)?.muscleKg, 'kg', 2)} ·
-                      脂肪 {formatValue(segmentOf(activeMeasurement, segment.key)?.fatKg, 'kg', 2)}
-                    </title>
-                  </g>
-                );
-              })}
-
-              <path
-                d="M110 74 L110 154 M92 95 C100 91 120 91 128 95 M86 121 C98 117 122 117 134 121"
-                fill="none"
-                stroke="currentColor"
-                strokeOpacity="0.18"
-                strokeWidth="1"
-                strokeLinecap="round"
-                pointerEvents="none"
-                className="text-neutral-500"
-              />
-              <circle
-                cx={activeDefinition.labelX}
-                cy={activeDefinition.labelY}
-                r="3.2"
-                fill={modeColor}
-                opacity="0.95"
-              />
-            </svg>
+          <div className="relative w-full max-w-[300px] min-h-[500px] flex items-center justify-center rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 p-3">
+            <AnatomyBodyFigure
+              activePart={displayedPart}
+              hoveredPart={hoveredPart}
+              accentColor={modeColor}
+              onHoverPart={setHoveredPart}
+              onSelectPart={setSelectedPart}
+            />
             <div className="absolute left-3 top-3 px-2 py-1 rounded-lg bg-neutral-950/85 text-white text-[10px] font-mono border border-white/15">
-              {mode === 'impedance' ? 'BIA 双频' : mode === 'muscle' ? '肌肉视图' : '脂肪视图'}
+              {hoveredPart ? `${activeDefinition.label} · ${modeLabel}` : modeLabel}
             </div>
             <div className="absolute right-3 bottom-3 px-2 py-1 rounded-lg bg-white/85 dark:bg-neutral-950/85 text-neutral-700 dark:text-neutral-200 text-[10px] font-mono border border-black/10 dark:border-white/15">
-              SVG · 5 部位
+              悬停高亮 · 5 部位
             </div>
           </div>
         </div>
@@ -510,6 +402,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
                 <div className="relative">
                   <svg
                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                    preserveAspectRatio="none"
                     className="w-full h-[210px] overflow-visible touch-none"
                     onMouseMove={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect();
@@ -754,7 +647,7 @@ export const BodySilhouette: React.FC<BodySilhouetteProps> = ({
             type="button"
             onClick={() => setSelectedPart(segment.key)}
             className={`text-left p-3 rounded-2xl border transition-all cursor-pointer ${
-              selectedPart === segment.key
+              displayedPart === segment.key
                 ? 'bg-indigo-500/10 border-indigo-500/35 shadow-sm'
                 : 'bg-black/[0.02] dark:bg-white/[0.025] border-black/5 dark:border-white/5 hover:border-indigo-500/25'
             }`}

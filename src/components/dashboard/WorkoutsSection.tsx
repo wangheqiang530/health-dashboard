@@ -100,7 +100,7 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
                         <div className="flex items-center gap-1 justify-end text-sm font-bold text-[#FA114F]">
                           <Flame className="w-3.5 h-3.5" />
                           <span>{w.activeCalories} kcal</span>
-                          <span className="text-xs ml-0.5" title={`≈ ${food.description}`}>{food.emojis}</span>
+                          <span className="text-xs ml-0.5">{food.emojis}</span>
                         </div>
                         <div className="flex items-center gap-1 justify-end text-xs text-neutral-400 mt-0.5">
                           <Heart className="w-3 h-3 text-rose-500" />

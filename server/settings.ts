@@ -1,5 +1,6 @@
 import {
   randomBytes,
+  randomUUID,
   scrypt as scryptCallback,
   timingSafeEqual,
 } from 'node:crypto';
@@ -16,7 +17,7 @@ const DASHBOARD_SESSION_DURATION_SETTING = 'dashboard_session_duration';
 const ARCHIVE_RETENTION_SETTING = 'archive_retention_days';
 const INITIAL_PASSWORD_FILENAME = 'dashboard-initial-password.txt';
 const PASSWORD_RECOVERY_FILENAME = 'dashboard-password.txt';
-let cachedHaeApiKey: string | null = null;
+let haeApiKeysInitialized = false;
 let cachedDashboardPasswordHash: string | null = null;
 
 export type DashboardSessionDuration = 'session' | '1h' | '1d' | '7d' | '30d' | '365d';
@@ -58,43 +59,223 @@ const writeEncryptedSetting = async (key: string, value: string): Promise<void> 
   );
 };
 
-export async function ensureHaeApiKey(): Promise<string> {
-  if (cachedHaeApiKey) return cachedHaeApiKey;
+interface HaeApiKeyRow {
+  id: string;
+  device_name: string;
+  encrypted_key: string;
+  enabled: boolean;
+  created_at: Date;
+  updated_at: Date;
+  last_used_at: Date | null;
+  last_source_ip: string | null;
+}
 
-  if (config.haeApiKey) {
+export interface HaeApiKeyRecord {
+  id: string;
+  deviceName: string;
+  key: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+  lastSourceIp: string | null;
+}
+
+const HAE_API_KEY_SELECT = `SELECT
+  id::text,
+  device_name,
+  encrypted_key,
+  enabled,
+  created_at,
+  updated_at,
+  last_used_at,
+  last_source_ip
+FROM hae_api_keys`;
+
+const toHaeApiKeyRecord = (row: HaeApiKeyRow): HaeApiKeyRecord => ({
+  id: row.id,
+  deviceName: row.device_name,
+  key: decryptSecret(row.encrypted_key),
+  enabled: row.enabled,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+  lastUsedAt: row.last_used_at?.toISOString() || null,
+  lastSourceIp: row.last_source_ip,
+});
+
+const ensureHaeApiKeyTable = async (): Promise<void> => {
+  if (haeApiKeysInitialized) return;
+
+  const count = await pool.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM hae_api_keys'
+  );
+  if (Number(count.rows[0]?.count || 0) > 0) {
+    haeApiKeysInitialized = true;
+    return;
+  }
+
+  let legacyKey = config.haeApiKey;
+  if (!legacyKey) {
+    const existing = await pool.query<{ encrypted_value: string }>(
+      'SELECT encrypted_value FROM app_settings WHERE key = $1',
+      [HAE_KEY_SETTING]
+    );
+    if (existing.rows[0]) {
+      legacyKey = decryptSecret(existing.rows[0].encrypted_value);
+    }
+  }
+  if (!legacyKey) {
+    legacyKey = randomBytes(24).toString('hex');
+  }
+
+  const encryptedKey = encryptSecret(legacyKey);
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO hae_api_keys (id, device_name, encrypted_key, enabled)
+     SELECT $1, $2, $3, TRUE
+     WHERE NOT EXISTS (SELECT 1 FROM hae_api_keys)
+     RETURNING id`,
+    [randomUUID(), '默认设备', encryptedKey]
+  );
+
+  if (inserted.rows[0]) {
     await pool.query(
       `INSERT INTO app_settings (key, encrypted_value, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET
          encrypted_value = EXCLUDED.encrypted_value,
          updated_at = NOW()`,
-      [HAE_KEY_SETTING, encryptSecret(config.haeApiKey)]
+      [HAE_KEY_SETTING, encryptedKey]
     );
-    cachedHaeApiKey = config.haeApiKey;
-    return cachedHaeApiKey;
   }
 
-  const existing = await pool.query<{ encrypted_value: string }>(
-    'SELECT encrypted_value FROM app_settings WHERE key = $1',
-    [HAE_KEY_SETTING]
-  );
-  if (existing.rows[0]) {
-    cachedHaeApiKey = decryptSecret(existing.rows[0].encrypted_value);
-    return cachedHaeApiKey;
-  }
+  haeApiKeysInitialized = true;
+};
 
-  const generated = randomBytes(24).toString('hex');
-  await pool.query(
-    `INSERT INTO app_settings (key, encrypted_value, updated_at)
-     VALUES ($1, $2, NOW())`,
-    [HAE_KEY_SETTING, encryptSecret(generated)]
+export async function ensureHaeApiKey(): Promise<string> {
+  await ensureHaeApiKeyTable();
+  const enabled = await pool.query<HaeApiKeyRow>(
+    `${HAE_API_KEY_SELECT}
+     WHERE enabled = TRUE
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1`
   );
-  cachedHaeApiKey = generated;
-  return cachedHaeApiKey;
+  const fallback =
+    enabled.rows[0] ||
+    (
+      await pool.query<HaeApiKeyRow>(
+        `${HAE_API_KEY_SELECT}
+         ORDER BY created_at ASC, id ASC
+         LIMIT 1`
+      )
+    ).rows[0];
+  return fallback ? decryptSecret(fallback.encrypted_key) : '';
 }
 
 export async function getHaeApiKey(): Promise<string> {
   return ensureHaeApiKey();
+}
+
+export async function listHaeApiKeys(): Promise<HaeApiKeyRecord[]> {
+  await ensureHaeApiKeyTable();
+  const result = await pool.query<HaeApiKeyRow>(
+    `${HAE_API_KEY_SELECT}
+     ORDER BY created_at ASC, id ASC`
+  );
+  return result.rows.map(toHaeApiKeyRecord);
+}
+
+export async function createHaeApiKey(deviceName: string): Promise<HaeApiKeyRecord> {
+  await ensureHaeApiKeyTable();
+  const normalizedName = deviceName.trim() || '未命名设备';
+  const key = randomBytes(24).toString('hex');
+  const result = await pool.query<HaeApiKeyRow>(
+    `INSERT INTO hae_api_keys (id, device_name, encrypted_key, enabled)
+     VALUES ($1, $2, $3, TRUE)
+     RETURNING
+       id::text,
+       device_name,
+       encrypted_key,
+       enabled,
+       created_at,
+       updated_at,
+       last_used_at,
+       last_source_ip`,
+    [randomUUID(), normalizedName, encryptSecret(key)]
+  );
+  return toHaeApiKeyRecord(result.rows[0]);
+}
+
+export async function updateHaeApiKey(
+  id: string,
+  updates: { deviceName?: string; enabled?: boolean }
+): Promise<HaeApiKeyRecord | null> {
+  await ensureHaeApiKeyTable();
+  const result = await pool.query<HaeApiKeyRow>(
+    `UPDATE hae_api_keys
+     SET
+       device_name = COALESCE($2, device_name),
+       enabled = COALESCE($3, enabled),
+       updated_at = NOW()
+     WHERE id = $1::uuid
+     RETURNING
+       id::text,
+       device_name,
+       encrypted_key,
+       enabled,
+       created_at,
+       updated_at,
+       last_used_at,
+       last_source_ip`,
+    [
+      id,
+      updates.deviceName === undefined ? null : updates.deviceName.trim() || '未命名设备',
+      updates.enabled === undefined ? null : updates.enabled,
+    ]
+  );
+  return result.rows[0] ? toHaeApiKeyRecord(result.rows[0]) : null;
+}
+
+export async function deleteHaeApiKey(
+  id: string
+): Promise<{ id: string; deviceName: string } | null> {
+  await ensureHaeApiKeyTable();
+  const result = await pool.query<{ id: string; device_name: string }>(
+    `DELETE FROM hae_api_keys
+     WHERE id = $1::uuid
+     RETURNING id::text, device_name`,
+    [id]
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, deviceName: row.device_name } : null;
+}
+
+export async function authenticateHaeApiKey(
+  providedKey: string,
+  sourceIp: string | null
+): Promise<{ id: string; deviceName: string } | null> {
+  await ensureHaeApiKeyTable();
+  const result = await pool.query<HaeApiKeyRow>(
+    `${HAE_API_KEY_SELECT}
+     WHERE enabled = TRUE
+     ORDER BY created_at ASC, id ASC`
+  );
+
+  let matched: HaeApiKeyRow | null = null;
+  for (const row of result.rows) {
+    const candidate = decryptSecret(row.encrypted_key);
+    if (secureCompare(providedKey, candidate)) {
+      matched = row;
+    }
+  }
+  if (!matched) return null;
+
+  await pool.query(
+    `UPDATE hae_api_keys
+     SET last_used_at = NOW(), last_source_ip = $2, updated_at = NOW()
+     WHERE id = $1::uuid`,
+    [matched.id, sourceIp]
+  );
+  return { id: matched.id, deviceName: matched.device_name };
 }
 
 const generateInitialPassword = (): string => {

@@ -17,9 +17,12 @@ import { pool } from '../db.ts';
 import { importAppleHealthZip } from '../appleHealthXml.ts';
 import { parseFitActivity, safeFitFilename } from '../fit.ts';
 import {
-  ensureHaeApiKey,
+  createHaeApiKey,
+  deleteHaeApiKey,
   getArchiveRetentionDays,
+  listHaeApiKeys,
   setArchiveRetentionDays,
+  updateHaeApiKey,
 } from '../settings.ts';
 import { testFitdaysConnection } from '../sources/fitdays.ts';
 import { testIgpsportConnection } from '../sources/igpsport.ts';
@@ -103,6 +106,23 @@ const importHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(100),
 });
 
+const haeApiKeyCreateSchema = z.object({
+  deviceName: z.string().trim().min(1).max(80),
+});
+
+const haeApiKeyUpdateSchema = z
+  .object({
+    deviceName: z.string().trim().min(1).max(80).optional(),
+    enabled: z.boolean().optional(),
+  })
+  .refine((value) => value.deviceName !== undefined || value.enabled !== undefined, {
+    message: '至少需要更新设备名或启用状态。',
+  });
+
+const haeApiKeyIdSchema = z.object({
+  id: z.string().uuid(),
+});
+
 const publicEndpoint = (request: FastifyRequest): string => {
   if (config.publicBaseUrl) return config.publicBaseUrl;
   const forwardedProto = request.headers['x-forwarded-proto'];
@@ -182,7 +202,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       getArchiveStats(),
       listArchives(12),
     ]);
-    const haeApiKey = await ensureHaeApiKey();
+    const haeApiKeys = await listHaeApiKeys();
+    const haeApiKey = haeApiKeys.find((apiKey) => apiKey.enabled)?.key || '';
     const endpoint = `${publicEndpoint(request)}/api/v1/health-auto-export`;
     const count = counts.rows[0];
 
@@ -191,6 +212,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       hae: {
         endpoint,
         apiKey: haeApiKey,
+        apiKeys: haeApiKeys,
       },
       database: {
         connected: true,
@@ -285,6 +307,50 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       })),
     };
   });
+
+  app.get('/api/v1/config/hae-api-keys', async () => ({
+    apiKeys: await listHaeApiKeys(),
+  }));
+
+  app.post('/api/v1/config/hae-api-keys', async (request, reply) => {
+    const body = haeApiKeyCreateSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: '设备名必须为 1 到 80 个字符。' });
+    }
+    return { apiKey: await createHaeApiKey(body.data.deviceName) };
+  });
+
+  app.patch<{ Params: { id: string } }>(
+    '/api/v1/config/hae-api-keys/:id',
+    async (request, reply) => {
+      const params = haeApiKeyIdSchema.safeParse(request.params);
+      const body = haeApiKeyUpdateSchema.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return reply.code(400).send({ error: 'API 管理参数无效。' });
+      }
+
+      const apiKey = await updateHaeApiKey(params.data.id, body.data);
+      if (!apiKey) {
+        return reply.code(404).send({ error: '未找到这个推送 API。' });
+      }
+      return { apiKey };
+    }
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/v1/config/hae-api-keys/:id',
+    async (request, reply) => {
+      const params = haeApiKeyIdSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '推送 API ID 无效。' });
+      }
+      const deleted = await deleteHaeApiKey(params.data.id);
+      if (!deleted) {
+        return reply.code(404).send({ error: '未找到这个推送 API。' });
+      }
+      return { ok: true, deleted };
+    }
+  );
 
   app.put<{ Params: { sourceId: string } }>(
     '/api/v1/config/sources/:sourceId',
