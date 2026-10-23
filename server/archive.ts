@@ -102,6 +102,43 @@ export async function archiveZip(
   };
 }
 
+export async function archiveZipFromPath(
+  sourceId: 'hae' | 'fitdays' | 'igpsport',
+  archiveKind: string,
+  sourcePath: string,
+  originalFilename?: string
+): Promise<ArchiveFile> {
+  const capturedAt = new Date();
+  const year = String(capturedAt.getUTCFullYear());
+  const month = String(capturedAt.getUTCMonth() + 1).padStart(2, '0');
+  const timestamp = capturedAt.toISOString().replace(/[:.]/g, '-');
+  const baseName = originalFilename
+    ? path.basename(originalFilename).replace(/\.[^/.]+$/, '').replace(/[^\w-]/g, '_')
+    : archiveKind;
+  const fileName = `${timestamp}-${baseName}-${randomUUID().slice(0, 8)}.zip`;
+  const relativePath = path.posix.join('archive', sourceId, year, month, fileName);
+  const absolutePath = resolveArchivePath(relativePath);
+  const temporaryPath = `${absolutePath}.tmp`;
+  const sourceStat = await fs.stat(sourcePath);
+
+  await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+  await fs.copyFile(sourcePath, temporaryPath);
+  await fs.rename(temporaryPath, absolutePath);
+
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(absolutePath)) {
+    hash.update(chunk as Buffer);
+  }
+
+  return {
+    relativePath,
+    absolutePath,
+    sizeBytes: sourceStat.size,
+    sha256: hash.digest('hex'),
+    capturedAt: capturedAt.toISOString(),
+  };
+}
+
 export async function registerArchive(
   client: PoolClient,
   archive: ArchiveFile,

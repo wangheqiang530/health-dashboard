@@ -1,7 +1,18 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { WorkoutRecord } from '../../types/health';
-import { X, Flame, Heart, MapPin, Gauge, Mountain, Activity, Zap, Info } from 'lucide-react';
+import {
+  X,
+  Flame,
+  Heart,
+  MapPin,
+  Gauge,
+  Mountain,
+  Activity,
+  Zap,
+  Info,
+  LoaderCircle,
+} from 'lucide-react';
 import { WorkoutRoutePlayback } from './WorkoutRoutePlayback';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { PowerDurationCurveCard } from './PowerDurationCurveCard';
@@ -10,6 +21,8 @@ import { WorkoutHeartRateChart } from './WorkoutHeartRateChart';
 interface WorkoutDetailModalProps {
   workout: WorkoutRecord | null;
   onClose: () => void;
+  detailLoading?: boolean;
+  detailError?: string | null;
 }
 
 const TermHelp: React.FC<{ term: string; explanation: string }> = ({
@@ -25,7 +38,12 @@ const TermHelp: React.FC<{ term: string; explanation: string }> = ({
   </span>
 );
 
-export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout, onClose }) => {
+export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({
+  workout,
+  onClose,
+  detailLoading = false,
+  detailError = null,
+}) => {
   if (!workout) return null;
 
   const isIgpsport = workout.source === 'igpsport' || workout.id.startsWith('igpsport');
@@ -72,7 +90,7 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.94, y: 16 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl bg-white/95 dark:bg-[#12141a]/95 backdrop-blur-2xl p-6 md:p-8 z-10 border border-black/10 dark:border-white/10 shadow-2xl text-neutral-900 dark:text-white"
+          className="relative w-full max-w-6xl max-h-[94vh] overflow-y-auto rounded-3xl bg-white/95 dark:bg-[#12141a]/95 backdrop-blur-2xl p-4 sm:p-6 lg:p-8 z-10 border border-black/10 dark:border-white/10 shadow-2xl text-neutral-900 dark:text-white"
         >
           {/* Close button */}
           <button
@@ -114,6 +132,27 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({ workout,
               )}
             </div>
           </div>
+
+          {detailLoading && (
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-sky-500/15 bg-sky-500/[0.06] px-4 py-3">
+              <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-sky-500" />
+              <div>
+                <p className="m-0 text-xs font-semibold text-neutral-800 dark:text-neutral-100">
+                  正在加载轨迹与逐秒遥测
+                </p>
+                <p className="mt-0.5 text-[10px] text-neutral-500 dark:text-neutral-400">
+                  基础指标已显示，地图和实时曲线将在详情到达后补全。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {detailError && (
+            <div className="mb-6 flex items-start gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-200">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{detailError} 当前仍可查看已有训练摘要。</span>
+            </div>
+          )}
 
           {/* GPS Trail Map & Live Playback Component */}
           {hasRoute && (

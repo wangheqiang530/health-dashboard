@@ -20,7 +20,6 @@ igpsport_rides_summary.json
 igpsport_fits/
 temp_inspect/
 public/sample_hae.json
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

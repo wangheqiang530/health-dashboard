@@ -7,11 +7,15 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 FROM dependencies AS build
+ARG VITE_AMAP_KEY
+ARG VITE_AMAP_SECURITY_CODE
+ENV VITE_AMAP_KEY=$VITE_AMAP_KEY
+ENV VITE_AMAP_SECURITY_CODE=$VITE_AMAP_SECURITY_CODE
 COPY . .
 RUN pnpm build
 
 FROM node:22-alpine AS runtime
-ARG APP_VERSION=1.0.0
+ARG APP_VERSION=1.0.1
 LABEL org.opencontainers.image.title="health-dashboard" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.source="https://github.com/wangheqiang530/health-dashboard"

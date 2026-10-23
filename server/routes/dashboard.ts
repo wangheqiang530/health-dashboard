@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { config } from '../config.ts';
 import { pool } from '../db.ts';
 import { getDashboardData } from '../dashboard.ts';
-import { getWorkoutRecords } from '../workouts.ts';
+import { getWorkoutRecordById, getWorkoutRecords } from '../workouts.ts';
 
 const querySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -45,6 +45,24 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     }
     return getWorkoutRecords(query.data);
   });
+
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/workouts/:id',
+    async (request, reply) => {
+      const params = z
+        .object({ id: z.string().min(1).max(240) })
+        .safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '运动记录 ID 无效。' });
+      }
+
+      const workout = await getWorkoutRecordById(params.data.id);
+      if (!workout) {
+        return reply.code(404).send({ error: '未找到这条运动记录。' });
+      }
+      return workout;
+    }
+  );
 
   app.delete<{ Params: { id: string } }>(
     '/api/v1/workouts/:id',

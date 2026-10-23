@@ -28,6 +28,8 @@ interface CyclingWorkoutRow {
     pwrIF?: number;
     avgBalance?: number[];
   } | null;
+  has_route?: boolean;
+  has_telemetry?: boolean;
 }
 
 interface HaeWorkoutRow {
@@ -44,6 +46,7 @@ interface HaeWorkoutRow {
   raw_workout: Record<string, unknown> | null;
   local_date: string;
   local_start_time: string;
+  source_name?: string | null;
 }
 
 interface HeartRateSampleRow {
@@ -56,6 +59,104 @@ const numberOrNull = (value: string | number | null): number | null => {
   if (value === null) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const startMinuteOfDay = (time: string): number | null => {
+  const [hours, minutes] = time.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+const zoneTotal = (zones: WorkoutRecord['hrZones']): number =>
+  Object.values(zones).reduce((sum, value) => sum + (Number(value) || 0), 0);
+
+const workoutPreferenceScore = (workout: WorkoutRecord): number => {
+  const sourceScore =
+    workout.source === 'igpsport'
+      ? 4
+      : workout.source === 'fit'
+        ? 3
+        : workout.source === 'hae'
+          ? 2
+          : 1;
+  return (
+    sourceScore * 1_000_000_000 +
+    (workout.tss && workout.tss > 0 ? 100_000_000 : 0) +
+    (workout.avgHeartRate > 0 ? 10_000_000 : 0) +
+    (workout.telemetry?.length || 0) * 100 +
+    (workout.routeGpxPoints?.length || 0) * 10 +
+    workout.durationMinutes
+  );
+};
+
+const sameWorkoutWindow = (left: WorkoutRecord, right: WorkoutRecord): boolean => {
+  if (left.date !== right.date || left.category !== right.category) return false;
+  const leftStart = startMinuteOfDay(left.startTime);
+  const rightStart = startMinuteOfDay(right.startTime);
+  if (leftStart === null || rightStart === null) return false;
+  if (Math.abs(leftStart - rightStart) > 2) return false;
+  const durationTolerance = Math.max(5, Math.round(Math.min(left.durationMinutes, right.durationMinutes) * 0.15));
+  return Math.abs(left.durationMinutes - right.durationMinutes) <= durationTolerance;
+};
+
+const mergeWorkoutRecords = (
+  left: WorkoutRecord,
+  right: WorkoutRecord
+): WorkoutRecord => {
+  const preferred =
+    workoutPreferenceScore(left) >= workoutPreferenceScore(right) ? left : right;
+  const fallback = preferred === left ? right : left;
+  const maxOptional = (a?: number, b?: number): number | undefined =>
+    Math.max(a || 0, b || 0) || undefined;
+  const longer = <T>(a?: T[], b?: T[]): T[] | undefined =>
+    (a?.length || 0) >= (b?.length || 0) ? a : b;
+  const routePoints = longer(preferred.routeGpxPoints, fallback.routeGpxPoints);
+  const telemetry = longer(preferred.telemetry, fallback.telemetry);
+
+  return {
+    ...preferred,
+    durationMinutes: Math.max(preferred.durationMinutes, fallback.durationMinutes),
+    activeCalories: Math.max(preferred.activeCalories, fallback.activeCalories),
+    totalCalories: Math.max(preferred.totalCalories, fallback.totalCalories),
+    avgHeartRate: Math.max(preferred.avgHeartRate, fallback.avgHeartRate),
+    maxHeartRate: Math.max(preferred.maxHeartRate, fallback.maxHeartRate),
+    distanceKm: maxOptional(preferred.distanceKm, fallback.distanceKm),
+    paceAvg: preferred.paceAvg || fallback.paceAvg,
+    cadenceAvg: maxOptional(preferred.cadenceAvg, fallback.cadenceAvg),
+    elevationGainM: maxOptional(preferred.elevationGainM, fallback.elevationGainM),
+    avgPower: maxOptional(preferred.avgPower, fallback.avgPower),
+    maxPower: maxOptional(preferred.maxPower, fallback.maxPower),
+    normalizedPower: maxOptional(preferred.normalizedPower, fallback.normalizedPower),
+    intensityFactor: maxOptional(preferred.intensityFactor, fallback.intensityFactor),
+    tss: maxOptional(preferred.tss, fallback.tss),
+    leftRightBalance: preferred.leftRightBalance || fallback.leftRightBalance,
+    hrZones:
+      zoneTotal(preferred.hrZones) >= zoneTotal(fallback.hrZones)
+        ? preferred.hrZones
+        : fallback.hrZones,
+    splits: longer(preferred.splits, fallback.splits),
+    hasRoute: Boolean(preferred.hasRoute || fallback.hasRoute || routePoints?.length),
+    hasTelemetry: Boolean(
+      preferred.hasTelemetry || fallback.hasTelemetry || telemetry?.length
+    ),
+    routeGpxPoints: routePoints,
+    telemetry,
+  };
+};
+
+const mergeDuplicateWorkouts = (workouts: WorkoutRecord[]): WorkoutRecord[] => {
+  const merged: WorkoutRecord[] = [];
+  for (const workout of workouts) {
+    const existingIndex = merged.findIndex((existing) =>
+      sameWorkoutWindow(existing, workout)
+    );
+    if (existingIndex >= 0) {
+      merged[existingIndex] = mergeWorkoutRecords(merged[existingIndex], workout);
+    } else {
+      merged.push(workout);
+    }
+  }
+  return merged;
 };
 
 const energyToKcal = (value: unknown): number | null => {
@@ -139,6 +240,8 @@ const cyclingToWorkout = (row: CyclingWorkoutRow): WorkoutRecord => {
       zone4: 0,
       zone5: 0,
     },
+    hasRoute: row.has_route ?? Boolean(row.raw_record?.routePoints?.length),
+    hasTelemetry: row.has_telemetry ?? Boolean(row.raw_record?.telemetry?.length),
     routeGpxPoints: row.raw_record?.routePoints,
     telemetry: row.raw_record?.telemetry,
   };
@@ -174,6 +277,7 @@ const haeToWorkout = (row: HaeWorkoutRow): WorkoutRecord => {
 };
 
 const haeSourceName = (row: HaeWorkoutRow): string => {
+  if (row.source_name) return row.source_name;
   const source = row.raw_workout?.source;
   if (!source || typeof source !== 'object') return '';
   const name = (source as { name?: unknown }).name;
@@ -225,20 +329,94 @@ const mergeHeartRateTelemetry = (
   return [...merged.values()].sort((left, right) => left.elapsedSec - right.elapsedSec);
 };
 
+const loadHeartRateSamples = async (
+  workoutIds: string[]
+): Promise<Map<string, WorkoutTelemetryPoint[]>> => {
+  const samples = new Map<string, WorkoutTelemetryPoint[]>();
+  if (workoutIds.length === 0) return samples;
+
+  const heartRateRows = await pool.query<HeartRateSampleRow>(
+    `SELECT
+       hw.id::text AS workout_id,
+       GREATEST(
+         0,
+         EXTRACT(EPOCH FROM (hs.start_at - hw.started_at))
+       )::int AS elapsed_sec,
+       hs.value_num::float8 AS heart_rate
+     FROM health_workouts hw
+     JOIN health_samples hs
+       ON hs.source_id = 'hae'
+      AND hs.metric_name IN (
+        'heart_rate',
+        'heartRate',
+        'HKQuantityTypeIdentifierHeartRate'
+      )
+      AND hs.start_at >= hw.started_at - INTERVAL '1 minute'
+      AND hs.start_at <= COALESCE(
+        hw.ended_at,
+        hw.started_at + make_interval(secs => COALESCE(hw.duration_sec, 3600))
+      ) + INTERVAL '5 minutes'
+     WHERE hw.id = ANY($1::bigint[])
+       AND hs.value_num BETWEEN 30 AND 230
+     ORDER BY hw.id, hs.start_at
+     LIMIT 200000`,
+    [workoutIds]
+  );
+
+  for (const sample of heartRateRows.rows) {
+    const points = samples.get(sample.workout_id) || [];
+    const elapsedSec = Math.max(0, Math.round(sample.elapsed_sec));
+    if (points.some((point) => point.elapsedSec === elapsedSec)) continue;
+    points.push({
+      elapsedSec,
+      heartRate: Math.round(sample.heart_rate),
+    });
+    samples.set(sample.workout_id, points);
+  }
+  return samples;
+};
+
 export async function getWorkoutRecords(options: {
   from?: string;
   to?: string;
   limit?: number;
+  includeDetails?: boolean;
 }): Promise<{ workouts: WorkoutRecord[]; total: number; from: string | null; to: string | null }> {
   const limit = Math.min(Math.max(options.limit || 5000, 1), 10000);
+  const includeDetails = options.includeDetails === true;
   const values = [options.from || null, options.to || null, config.timezone, limit];
+  const cyclingRawRecord = includeDetails
+    ? 'raw_record'
+    : `jsonb_build_object(
+         'heartRateZones', raw_record->'heartRateZones',
+         'pwrIF', raw_record->'pwrIF',
+         'avgBalance', raw_record->'avgBalance'
+       ) AS raw_record`;
+  const haeRawWorkout = includeDetails
+    ? 'raw_workout'
+    : `jsonb_build_object(
+         'source', raw_workout->'source',
+         'activeEnergyBurned', raw_workout->'activeEnergyBurned',
+         'activeEnergy', raw_workout->'activeEnergy',
+         'totalEnergyBurned', raw_workout->'totalEnergyBurned'
+       ) AS raw_workout`;
 
   const [cyclingRows, haeRows] = await Promise.all([
     pool.query<CyclingWorkoutRow>(
       `SELECT
          external_id, title, started_at, ended_at, moving_time_sec, distance_km,
          avg_speed_kmh, avg_heart_rate, max_heart_rate, avg_cadence, avg_power,
-         max_power, normalized_power, tss, ascent_m, calories, raw_record,
+         max_power, normalized_power, tss, ascent_m, calories, ${cyclingRawRecord},
+         CASE
+           WHEN jsonb_typeof(raw_record->'routePoints') = 'array'
+             THEN jsonb_array_length(raw_record->'routePoints') > 0
+           ELSE FALSE
+         END AS has_route,
+         CASE
+           WHEN jsonb_typeof(raw_record->'telemetry') = 'array'
+             THEN jsonb_array_length(raw_record->'telemetry') > 0
+           ELSE FALSE
+         END AS has_telemetry,
          to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS local_date,
          to_char(started_at AT TIME ZONE $3, 'HH24:MI') AS local_start_time
        FROM cycling_activities
@@ -251,7 +429,8 @@ export async function getWorkoutRecords(options: {
     pool.query<HaeWorkoutRow>(
       `SELECT
          id::text, name, started_at, ended_at, duration_sec, active_energy_kcal,
-         distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, raw_workout,
+         distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, ${haeRawWorkout},
+         COALESCE(raw_workout->'source'->>'name', '') AS source_name,
          to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS local_date,
          to_char(started_at AT TIME ZONE $3, 'HH24:MI') AS local_start_time
        FROM health_workouts
@@ -264,76 +443,30 @@ export async function getWorkoutRecords(options: {
     ),
   ]);
 
-  const heartRateSamples = new Map<string, WorkoutTelemetryPoint[]>();
-  if (haeRows.rows.length > 0) {
-    const heartRateRows = await pool.query<HeartRateSampleRow>(
-      `SELECT
-         hw.id::text AS workout_id,
-         GREATEST(
-           0,
-           EXTRACT(EPOCH FROM (hs.start_at - hw.started_at))
-         )::int AS elapsed_sec,
-         hs.value_num::float8 AS heart_rate
-       FROM health_workouts hw
-       JOIN health_samples hs
-         ON hs.source_id = 'hae'
-        AND hs.metric_name IN (
-          'heart_rate',
-          'heartRate',
-          'HKQuantityTypeIdentifierHeartRate'
-        )
-        AND hs.start_at >= hw.started_at - INTERVAL '1 minute'
-        AND hs.start_at <= COALESCE(
-          hw.ended_at,
-          hw.started_at + make_interval(secs => COALESCE(hw.duration_sec, 3600))
-        ) + INTERVAL '5 minutes'
-       WHERE hw.id = ANY($1::bigint[])
-         AND hs.value_num BETWEEN 30 AND 230
-       ORDER BY hw.id, hs.start_at
-       LIMIT 200000`,
-      [haeRows.rows.map((row) => row.id)]
-    );
-    for (const sample of heartRateRows.rows) {
-      const points = heartRateSamples.get(sample.workout_id) || [];
-      const elapsedSec = Math.max(0, Math.round(sample.elapsed_sec));
-      if (points.some((point) => point.elapsedSec === elapsedSec)) continue;
-      points.push({
-        elapsedSec,
-        heartRate: Math.round(sample.heart_rate),
-      });
-      heartRateSamples.set(sample.workout_id, points);
-    }
-  }
+  const heartRateSamples = includeDetails
+    ? await loadHeartRateSamples(haeRows.rows.map((row) => row.id))
+    : new Map<string, WorkoutTelemetryPoint[]>();
 
   const cyclingWorkouts = cyclingRows.rows.map(cyclingToWorkout);
-  const cyclingStarts = cyclingWorkouts.map((workout) => {
-    const start = new Date(`${workout.date}T${workout.startTime}:00+08:00`).getTime();
-    return Number.isFinite(start) ? start : null;
-  });
 
   const haeWorkouts = haeRows.rows
     .filter((row) => !/igpsport/i.test(haeSourceName(row)))
     .map((row) => {
       const workout = haeToWorkout(row);
-      const telemetry = mergeHeartRateTelemetry(
-        rawHeartRateTelemetry(row),
-        heartRateSamples.get(row.id) || []
-      );
+      const telemetry = includeDetails
+        ? mergeHeartRateTelemetry(
+            rawHeartRateTelemetry(row),
+            heartRateSamples.get(row.id) || []
+          )
+        : [];
       return telemetry.length > 0 ? { ...workout, telemetry } : workout;
-    })
-    .filter((workout) => {
-      const start = new Date(`${workout.date}T${workout.startTime}:00+08:00`).getTime();
-      if (!Number.isFinite(start)) return true;
-      return !cyclingStarts.some(
-        (cyclingStart) =>
-          cyclingStart !== null && Math.abs(cyclingStart - start) <= 2 * 60 * 1000
-      );
     });
 
-  const workouts = [...cyclingWorkouts, ...haeWorkouts].sort((left, right) =>
-    `${right.date || ''} ${right.startTime}`.localeCompare(
-      `${left.date || ''} ${left.startTime}`
-    )
+  const workouts = mergeDuplicateWorkouts([...cyclingWorkouts, ...haeWorkouts]).sort(
+    (left, right) =>
+      `${right.date || ''} ${right.startTime}`.localeCompare(
+        `${left.date || ''} ${left.startTime}`
+      )
   );
 
   return {
@@ -342,4 +475,59 @@ export async function getWorkoutRecords(options: {
     from: options.from || null,
     to: options.to || null,
   };
+}
+
+export async function getWorkoutRecordById(id: string): Promise<WorkoutRecord | null> {
+  if (id.startsWith('hae-')) {
+    const databaseId = id.slice(4);
+    if (!/^\d+$/.test(databaseId)) return null;
+    const result = await pool.query<HaeWorkoutRow>(
+      `SELECT
+         id::text, name, started_at, ended_at, duration_sec, active_energy_kcal,
+         distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, raw_workout,
+         COALESCE(raw_workout->'source'->>'name', '') AS source_name,
+         to_char((started_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS local_date,
+         to_char(started_at AT TIME ZONE $2, 'HH24:MI') AS local_start_time
+       FROM health_workouts
+       WHERE id = $1::bigint
+       LIMIT 1`,
+      [databaseId, config.timezone]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const workout = haeToWorkout(row);
+    const heartRateSamples = await loadHeartRateSamples([row.id]);
+    const telemetry = mergeHeartRateTelemetry(
+      rawHeartRateTelemetry(row),
+      heartRateSamples.get(row.id) || []
+    );
+    return telemetry.length > 0 ? { ...workout, telemetry } : workout;
+  }
+
+  const externalId = id.startsWith('igpsport-')
+    ? id.slice('igpsport-'.length)
+    : id;
+  const result = await pool.query<CyclingWorkoutRow>(
+    `SELECT
+       external_id, title, started_at, ended_at, moving_time_sec, distance_km,
+       avg_speed_kmh, avg_heart_rate, max_heart_rate, avg_cadence, avg_power,
+       max_power, normalized_power, tss, ascent_m, calories, raw_record,
+       CASE
+         WHEN jsonb_typeof(raw_record->'routePoints') = 'array'
+           THEN jsonb_array_length(raw_record->'routePoints') > 0
+         ELSE FALSE
+       END AS has_route,
+       CASE
+         WHEN jsonb_typeof(raw_record->'telemetry') = 'array'
+           THEN jsonb_array_length(raw_record->'telemetry') > 0
+         ELSE FALSE
+       END AS has_telemetry,
+       to_char((started_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS local_date,
+       to_char(started_at AT TIME ZONE $2, 'HH24:MI') AS local_start_time
+     FROM cycling_activities
+     WHERE external_id = $1
+     LIMIT 1`,
+    [externalId, config.timezone]
+  );
+  return result.rows[0] ? cyclingToWorkout(result.rows[0]) : null;
 }

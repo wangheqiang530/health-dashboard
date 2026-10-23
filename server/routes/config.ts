@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import cron from 'node-cron';
 import { z } from 'zod';
 import {
@@ -15,6 +18,13 @@ import { config } from '../config.ts';
 import { decryptSecret, encryptSecret } from '../crypto.ts';
 import { pool } from '../db.ts';
 import { importAppleHealthZip } from '../appleHealthXml.ts';
+import { startAppleHealthZipTask } from '../appleHealthZipTask.ts';
+import {
+  createImportTask,
+  failImportTask,
+  getImportTask,
+  updateImportTask,
+} from '../importTasks.ts';
 import { parseFitActivity, safeFitFilename } from '../fit.ts';
 import {
   createHaeApiKey,
@@ -159,6 +169,15 @@ const mapProxySchema = z.object({
         return false;
       }
     }, '地图代理地址格式无效。'),
+});
+
+const appleHealthZipTaskCreateSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  fileSizeBytes: z.number().int().positive().max(500 * 1024 * 1024),
+});
+
+const importTaskParamSchema = z.object({
+  taskId: z.string().uuid(),
 });
 
 const publicEndpoint = (request: FastifyRequest): string => {
@@ -707,6 +726,147 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       } catch (error) {
         return reply.code(400).send({
           error: error instanceof Error ? error.message : '删除备份文件失败。',
+        });
+      }
+    }
+  );
+
+  app.post('/api/v1/config/import/apple-health-zip/tasks', async (request, reply) => {
+    const body = appleHealthZipTaskCreateSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'ZIP 文件名或文件大小无效。' });
+    }
+    if (!body.data.fileName.toLowerCase().endsWith('.zip')) {
+      return reply.code(400).send({ error: '请选择有效的 Apple Health ZIP 文件。' });
+    }
+
+    const task = await createImportTask({
+      sourceId: 'hae',
+      importKind: 'apple-health-export',
+      fileName: path.basename(body.data.fileName),
+      fileSizeBytes: body.data.fileSizeBytes,
+      metadata: { uploadMode: 'streamed-task' },
+    });
+    return reply.code(202).send({ ok: true, task });
+  });
+
+  app.get<{ Params: { taskId: string } }>(
+    '/api/v1/config/import/apple-health-zip/tasks/:taskId',
+    async (request, reply) => {
+      const params = importTaskParamSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '导入任务 ID 无效。' });
+      }
+      const task = await getImportTask(params.data.taskId);
+      if (!task) {
+        return reply.code(404).send({ error: '未找到该导入任务。' });
+      }
+      return task;
+    }
+  );
+
+  app.post<{ Params: { taskId: string } }>(
+    '/api/v1/config/import/apple-health-zip/tasks/:taskId/upload',
+    async (request, reply) => {
+      const params = importTaskParamSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.code(400).send({ error: '导入任务 ID 无效。' });
+      }
+      const task = await getImportTask(params.data.taskId);
+      if (!task) {
+        return reply.code(404).send({ error: '未找到该导入任务。' });
+      }
+      if (!['queued', 'running', 'stalled'].includes(task.status)) {
+        return reply.code(409).send({ error: '该导入任务已结束，请创建新任务。' });
+      }
+
+      const uploadDirectory = path.join(config.dataDir, 'import-uploads');
+      const uploadPath = path.join(uploadDirectory, `${task.id}.zip`);
+      await fsp.mkdir(uploadDirectory, { recursive: true });
+
+      try {
+        if (!request.isMultipart()) {
+          return reply.code(400).send({ error: '请使用 multipart/form-data 上传 ZIP 文件。' });
+        }
+        const part = await request.file();
+        if (!part) {
+          return reply.code(400).send({ error: '未接收到上传的 ZIP 文件。' });
+        }
+        const filename = part.filename || task.fileName || 'export.zip';
+        if (!filename.toLowerCase().endsWith('.zip')) {
+          return reply.code(400).send({ error: '请选择有效的 Apple Health ZIP 文件。' });
+        }
+
+        await updateImportTask(task.id, {
+          status: 'running',
+          stage: 'upload',
+          stageLabel: '正在上传 ZIP 文件',
+          progress: 1,
+          bytesProcessed: 0,
+          bytesTotal: task.fileSizeBytes,
+        });
+
+        let receivedBytes = 0;
+        let lastProgressAt = 0;
+        const counter = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            receivedBytes += chunk.length;
+            const now = Date.now();
+            if (now - lastProgressAt >= 300 || receivedBytes === task.fileSizeBytes) {
+              lastProgressAt = now;
+              const ratio =
+                task.fileSizeBytes > 0
+                  ? Math.min(1, receivedBytes / task.fileSizeBytes)
+                  : 0;
+              void updateImportTask(task.id, {
+                stage: 'upload',
+                stageLabel: '正在上传 ZIP 文件',
+                progress: 1 + ratio * 7,
+                bytesProcessed: receivedBytes,
+                bytesTotal: task.fileSizeBytes,
+              });
+            }
+            callback(null, chunk);
+          },
+        });
+
+        await pipeline(
+          part.file,
+          counter,
+          fs.createWriteStream(uploadPath, { flags: 'w' })
+        );
+        if (part.file.truncated) {
+          throw new Error('ZIP 文件超过允许的上传大小。');
+        }
+        if (receivedBytes <= 0) {
+          throw new Error('上传内容为空，请选择有效的 Apple Health ZIP 文件。');
+        }
+
+        await updateImportTask(task.id, {
+          status: 'running',
+          stage: 'queued',
+          stageLabel: '上传完成，等待后台解析',
+          progress: 8,
+          bytesProcessed: receivedBytes,
+          bytesTotal: receivedBytes,
+        });
+        startAppleHealthZipTask({
+          taskId: task.id,
+          filePath: uploadPath,
+          fileName: filename,
+        });
+        return reply.code(202).send({
+          ok: true,
+          taskId: task.id,
+          status: 'queued',
+          task: await getImportTask(task.id),
+        });
+      } catch (error) {
+        await fsp.unlink(uploadPath).catch(() => undefined);
+        await failImportTask(task.id, error, 'upload').catch(() => undefined);
+        request.log.error(error, '上传 Apple Health ZIP 失败');
+        return reply.code(500).send({
+          error: error instanceof Error ? error.message : '上传 Apple Health ZIP 失败',
         });
       }
     }

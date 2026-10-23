@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.0-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.1-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -10,6 +10,14 @@
 一款专为极客、运动爱好者与 NAS 玩家打造的**开源私有化健康数据看板**。完美融合 **Apple Fitness 三环美学** 与 **Grow Bento 风格**，无缝聚合 Apple Watch、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表全量时序数据，实现从采集、解析、图表可视化到物理持久化的全流程闭环。
 
 ![综合看板预览](docs/images/overview.png)
+
+## 🆕 v1.0.1 更新
+
+- **训练页按需加载**：训练列表只返回摘要，打开单条记录时再读取 GPS 与逐秒遥测；真实数据响应体积从约 `2.17 MB` 降至 `32 KB`。
+- **训练负荷修正**：7 日负荷与 28 日基线统一截至所选结束日期，功率训练优先使用 TSS，并合并同时间重复训练。
+- **高德骑行地图**：骑行详情默认跟随，支持普通、卫星、3D 地形、日夜样式、倍速播放和四条遥测曲线同步。
+- **Apple Health ZIP 后台导入**：上传、解压、XML 解析、训练入库、每日汇总与收尾均提供真实进度；任务 ID、失败阶段和停滞状态可恢复查询。
+- **发布清理**：移除独立高德 demo 页面、构建入口与演示资源，地图能力只保留在正式骑行详情中。
 
 ## 🆕 v1.0.0 正式版
 
@@ -119,7 +127,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:1.0.0
+    image: wangheqiang/health-dashboard:1.0.1
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -284,7 +292,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:1.0.0
+    image: wangheqiang/health-dashboard:1.0.1
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -300,7 +308,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 0
-      APP_VERSION: 1.0.0
+      APP_VERSION: 1.0.1
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -391,7 +399,7 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `1.0.0` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `1.0.1` | 当前发布的容器镜像版本号 |
 | `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
 | `BACKUP_RETENTION_DAYS` | `0` | 本地原始备份（ZIP / gzip / FIT）保留天数；`0` 表示永久保留 |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |

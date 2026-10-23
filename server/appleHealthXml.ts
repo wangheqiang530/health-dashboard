@@ -3,10 +3,16 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
+import { Transform } from 'node:stream';
 import AdmZip from 'adm-zip';
 import type { PoolClient } from 'pg';
 import type { DailySummary, VitalityScore } from '../src/types/health.ts';
-import { archiveZip, registerArchive, type ArchiveFile } from './archive.ts';
+import {
+  archiveZip,
+  archiveZipFromPath,
+  registerArchive,
+  type ArchiveFile,
+} from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
 import {
@@ -30,6 +36,26 @@ export interface AppleHealthZipResult {
   normalizedRecordCount: number;
   archivePath: string;
   archiveSizeBytes: number;
+}
+
+export interface AppleHealthZipProgressUpdate {
+  stage:
+    | 'archiving'
+    | 'extracting'
+    | 'parsing'
+    | 'workouts'
+    | 'daily_summaries'
+    | 'finalizing';
+  stageLabel: string;
+  progress: number;
+  processedCount?: number;
+  totalCount?: number;
+  bytesProcessed?: number;
+  bytesTotal?: number;
+}
+
+export interface AppleHealthZipImportOptions {
+  onProgress?: (update: AppleHealthZipProgressUpdate) => void;
 }
 
 function parseDateStr(str?: string): string {
@@ -187,15 +213,27 @@ function parseGpxDirectory(routesDir: string): Map<string, { points: { lat: numb
 }
 
 export async function importAppleHealthZip(
-  zipBuffer: Buffer,
-  originalFilename?: string
+  zipInput: Buffer | string,
+  originalFilename?: string,
+  options: AppleHealthZipImportOptions = {}
 ): Promise<AppleHealthZipResult> {
-  const archive: ArchiveFile = await archiveZip(
-    'hae',
-    'apple-health-export',
-    zipBuffer,
-    originalFilename
-  );
+  const report = (update: AppleHealthZipProgressUpdate) => {
+    options.onProgress?.(update);
+  };
+  report({
+    stage: 'archiving',
+    stageLabel: '正在保存原始 ZIP 归档',
+    progress: 8,
+  });
+  const archive: ArchiveFile =
+    typeof zipInput === 'string'
+      ? await archiveZipFromPath(
+          'hae',
+          'apple-health-export',
+          zipInput,
+          originalFilename
+        )
+      : await archiveZip('hae', 'apple-health-export', zipInput, originalFilename);
 
   const tempDir = path.join(config.dataDir, 'temp_unzip', randomUUID());
   await fsp.mkdir(tempDir, { recursive: true });
@@ -203,7 +241,12 @@ export async function importAppleHealthZip(
   let libraryBatchId: string | null = null;
 
   try {
-    const zip = new AdmZip(zipBuffer);
+    report({
+      stage: 'extracting',
+      stageLabel: '正在读取 ZIP 目录结构',
+      progress: 9,
+    });
+    const zip = new AdmZip(zipInput);
     const entries = zip.getEntries();
 
     const xmlEntry = entries.find(
@@ -221,6 +264,16 @@ export async function importAppleHealthZip(
     // Extract GPX routes
     const gpxEntries = entries.filter((e) => e.entryName.endsWith('.gpx'));
     const routesDir = path.join(tempDir, 'routes');
+    report({
+      stage: 'extracting',
+      stageLabel:
+        gpxEntries.length > 0
+          ? `正在提取 XML 与 ${gpxEntries.length} 条 GPX 轨迹`
+          : '正在提取 Apple Health XML',
+      progress: 10,
+      processedCount: 0,
+      totalCount: gpxEntries.length,
+    });
     if (gpxEntries.length > 0) {
       await fsp.mkdir(routesDir, { recursive: true });
       for (const gpx of gpxEntries) {
@@ -231,6 +284,7 @@ export async function importAppleHealthZip(
     // Extract XML
     zip.extractEntryTo(xmlEntry, tempDir, false, true);
     const extractedXmlPath = path.join(tempDir, path.basename(xmlEntry.entryName));
+    const xmlFileSize = (await fsp.stat(extractedXmlPath)).size;
 
     const gpxRoutes = parseGpxDirectory(routesDir);
 
@@ -289,9 +343,43 @@ export async function importAppleHealthZip(
       throw error;
     }
 
-    // Stream parse the extracted XML
-    const fileStream = fs.createReadStream(extractedXmlPath, { encoding: 'utf8' });
-    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+    // Stream parse the extracted XML while reporting actual bytes consumed.
+    report({
+      stage: 'parsing',
+      stageLabel: '正在解析 Apple Health XML',
+      progress: 12,
+      processedCount: 0,
+      bytesProcessed: 0,
+      bytesTotal: xmlFileSize,
+    });
+    let xmlBytesRead = 0;
+    let lastReportedXmlBytes = 0;
+    const progressStream = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        xmlBytesRead += chunk.length;
+        const shouldReport =
+          xmlBytesRead === xmlFileSize ||
+          xmlBytesRead - lastReportedXmlBytes >= 1024 * 1024;
+        if (shouldReport) {
+          lastReportedXmlBytes = xmlBytesRead;
+          const ratio = xmlFileSize > 0 ? Math.min(1, xmlBytesRead / xmlFileSize) : 1;
+          report({
+            stage: 'parsing',
+            stageLabel: '正在解析 Apple Health XML',
+            progress: 12 + ratio * 58,
+            processedCount: parsedObjectCount,
+            bytesProcessed: xmlBytesRead,
+            bytesTotal: xmlFileSize,
+          });
+        }
+        callback(null, chunk);
+      },
+    });
+    const fileStream = fs.createReadStream(extractedXmlPath);
+    const rl = readline.createInterface({
+      input: fileStream.pipe(progressStream),
+      crlfDelay: Infinity,
+    });
 
     const activitySummaries = new Map<
       string,
@@ -379,6 +467,7 @@ export async function importAppleHealthZip(
     let rawObjectCount = 0;
     let normalizedObjectCount = 0;
     let skippedObjectCount = 0;
+    let parsedObjectCount = 0;
     const rawOccurrenceByHash = new Map<string, number>();
     const heartRateSamples: Array<{ timestamp: number; heartRate: number }> = [];
     const normalizedWorkouts: Array<{
@@ -623,6 +712,7 @@ export async function importAppleHealthZip(
     };
 
     const processObject = async (tag: string, xml: string) => {
+      parsedObjectCount += 1;
       if (tag === 'Record') {
         await processRecord(xml);
         return;
@@ -673,6 +763,14 @@ export async function importAppleHealthZip(
       }
     }
     await flushPending();
+    report({
+      stage: 'parsing',
+      stageLabel: 'XML 解析与原始记录写入完成',
+      progress: 70,
+      processedCount: parsedObjectCount,
+      bytesProcessed: xmlFileSize,
+      bytesTotal: xmlFileSize,
+    });
 
     heartRateSamples.sort((left, right) => left.timestamp - right.timestamp);
     for (const workout of normalizedWorkouts) {
@@ -835,6 +933,13 @@ export async function importAppleHealthZip(
     let totalWorkoutsCount = 0;
 
     try {
+      report({
+        stage: 'workouts',
+        stageLabel: '正在写入训练记录与心率关联',
+        progress: 72,
+        processedCount: normalizedWorkouts.length,
+        totalCount: normalizedWorkouts.length,
+      });
       await client.query(
         `DELETE FROM daily_summaries
          WHERE day < DATE '2000-01-01'
@@ -935,7 +1040,14 @@ export async function importAppleHealthZip(
         );
       }
 
-      for (const dateStr of allTargetDates) {
+      for (const [dateIndex, dateStr] of allTargetDates.entries()) {
+        report({
+          stage: 'daily_summaries',
+          stageLabel: `正在生成每日汇总 ${dateIndex + 1}/${allTargetDates.length}`,
+          progress: 82 + ((dateIndex + 1) / allTargetDates.length) * 14,
+          processedCount: dateIndex + 1,
+          totalCount: allTargetDates.length,
+        });
         const dayInfo = getDayInfo(dateStr);
         const ringsRaw = activitySummaries.get(dateStr);
         const metrics = dailyMetrics.get(dateStr) || getDailyBucket(dateStr);
@@ -1318,6 +1430,12 @@ export async function importAppleHealthZip(
         Number(storedCounts.rows[0]?.sample_count || 0) +
         Number(storedCounts.rows[0]?.workout_count || 0);
 
+      report({
+        stage: 'finalizing',
+        stageLabel: '正在完成归档与导入批次',
+        progress: 98,
+        processedCount: normalizedObjectCount,
+      });
       if (batchId) {
         await completeImportBatch(client, batchId, {
           rawCount: rawObjectCount,

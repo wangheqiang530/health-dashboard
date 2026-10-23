@@ -358,6 +358,15 @@ export async function fetchWorkouts(options: {
   return parseResponse(response);
 }
 
+export async function fetchWorkoutDetail(
+  id: string
+): Promise<DailySummary['workouts'][number]> {
+  const response = await apiFetch(`/api/v1/workouts/${encodeURIComponent(id)}`, {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse(response);
+}
+
 export async function deleteWorkoutRecord(id: string): Promise<{
   ok: true;
   kind: 'workout';
@@ -644,7 +653,7 @@ export async function importHaePayload(payload: unknown): Promise<{
   return parseResponse(response);
 }
 
-export async function importAppleHealthZip(file: File): Promise<{
+export interface AppleHealthZipImportResult {
   ok: true;
   importedDays: number;
   earliestDate: string;
@@ -654,7 +663,116 @@ export async function importAppleHealthZip(file: File): Promise<{
   normalizedRecordCount: number;
   archivePath: string;
   archiveSizeBytes: number;
-}> {
+}
+
+export type AppleHealthZipTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'stalled';
+
+export interface AppleHealthZipTask {
+  id: string;
+  sourceId: 'hae' | 'fitdays' | 'igpsport';
+  importKind: string;
+  fileName: string | null;
+  fileSizeBytes: number;
+  status: AppleHealthZipTaskStatus;
+  stage: string;
+  stageLabel: string;
+  progress: number;
+  processedCount: number;
+  totalCount: number | null;
+  bytesProcessed: number;
+  bytesTotal: number | null;
+  batchId: string | null;
+  result: AppleHealthZipImportResult | null;
+  errorMessage: string | null;
+  failedStage: string | null;
+  metadata: Record<string, unknown>;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  stalled: boolean;
+  elapsedMs: number;
+}
+
+export async function createAppleHealthZipTask(input: {
+  fileName: string;
+  fileSizeBytes: number;
+}): Promise<AppleHealthZipTask> {
+  const response = await apiFetch('/api/v1/config/import/apple-health-zip/tasks', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const result = await parseResponse<{ ok: true; task: AppleHealthZipTask }>(response);
+  return result.task;
+}
+
+export async function fetchAppleHealthZipTask(
+  taskId: string
+): Promise<AppleHealthZipTask> {
+  const response = await apiFetch(
+    `/api/v1/config/import/apple-health-zip/tasks/${encodeURIComponent(taskId)}`,
+    { headers: { Accept: 'application/json' } }
+  );
+  return parseResponse<AppleHealthZipTask>(response);
+}
+
+export function uploadAppleHealthZipTask(
+  taskId: string,
+  file: File,
+  onProgress: (progress: { loaded: number; total: number }) => void
+): Promise<AppleHealthZipTask> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      'POST',
+      `/api/v1/config/import/apple-health-zip/tasks/${encodeURIComponent(taskId)}/upload`
+    );
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      onProgress({ loaded: event.loaded, total: event.total });
+    };
+    xhr.onerror = () => reject(new Error('上传 ZIP 文件失败，请检查网络连接。'));
+    xhr.onload = () => {
+      let payload: {
+        task?: AppleHealthZipTask;
+        error?: string;
+      } = {};
+      try {
+        payload = JSON.parse(xhr.responseText || '{}') as typeof payload;
+      } catch {
+        // Fall back to the HTTP status below when the response is not JSON.
+      }
+      if (xhr.status === 401) {
+        window.dispatchEvent(new Event('health-dashboard:unauthorized'));
+        reject(new Error('UNAUTHORIZED'));
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300 || !payload.task) {
+        reject(new Error(payload.error || `上传失败（HTTP ${xhr.status}）。`));
+        return;
+      }
+      onProgress({ loaded: file.size, total: file.size });
+      resolve(payload.task);
+    };
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    xhr.send(formData);
+  });
+}
+
+export async function importAppleHealthZip(
+  file: File
+): Promise<AppleHealthZipImportResult> {
   const formData = new FormData();
   formData.append('file', file, file.name);
 
@@ -665,7 +783,7 @@ export async function importAppleHealthZip(file: File): Promise<{
     },
     body: formData,
   });
-  return parseResponse(response);
+  return parseResponse<AppleHealthZipImportResult>(response);
 }
 
 export async function deleteArchiveFile(archiveId: string): Promise<{ ok: true; deletedArchiveId: string }> {

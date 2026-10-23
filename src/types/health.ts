@@ -152,6 +152,8 @@ export interface WorkoutRecord {
     zone5: number;
   };
   splits?: { km: number; pace: string; hr: number }[];
+  hasRoute?: boolean;
+  hasTelemetry?: boolean;
   routeGpxPoints?: GpxCoordinate[];
   telemetry?: WorkoutTelemetryPoint[];
 }

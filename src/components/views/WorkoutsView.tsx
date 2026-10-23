@@ -6,7 +6,7 @@ import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
 import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
 import { DateRangePickerModal } from '../ui/DateRangePickerModal';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
-import { fetchWorkouts, uploadFitFile } from '../../api/healthApi';
+import { fetchWorkoutDetail, fetchWorkouts, uploadFitFile } from '../../api/healthApi';
 import {
   Bike,
   Activity,
@@ -56,10 +56,13 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
   const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState<'all' | 'cycling' | 'strength' | 'walking'>('all');
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [hoveredWorkoutId, setHoveredWorkoutId] = useState<string | null>(null);
   const [uploadingFit, setUploadingFit] = useState(false);
   const [fitUploadMessage, setFitUploadMessage] = useState<string | null>(null);
   const fitInputRef = React.useRef<HTMLInputElement | null>(null);
+  const detailRequestRef = React.useRef(0);
 
   const loadWorkouts = useCallback(async () => {
     setLoadingWorkouts(true);
@@ -78,8 +81,41 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
   }, []);
 
   useEffect(() => {
+    // Loading is intentionally toggled around the asynchronous workout query.
+    // oxlint-disable-next-line react/set-state-in-effect
     void loadWorkouts();
   }, [loadWorkouts]);
+
+  const openWorkoutDetail = async (workout: WorkoutRecord) => {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setSelectedWorkout(workout);
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const detail = await fetchWorkoutDetail(workout.id);
+      if (detailRequestRef.current === requestId) {
+        setSelectedWorkout(detail);
+      }
+    } catch (error) {
+      if (detailRequestRef.current === requestId) {
+        setDetailError(
+          error instanceof Error ? error.message : '读取轨迹与遥测详情失败。'
+        );
+      }
+    } finally {
+      if (detailRequestRef.current === requestId) {
+        setDetailLoading(false);
+      }
+    }
+  };
+
+  const closeWorkoutDetail = () => {
+    detailRequestRef.current += 1;
+    setSelectedWorkout(null);
+    setDetailLoading(false);
+    setDetailError(null);
+  };
 
   const handleFitUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -448,7 +484,10 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
       </AppleCard>
 
       {/* iOS 18 Training Load Bento Module (User Requirement) */}
-      <AppleTrainingLoadCard workouts={rangeWorkouts} />
+      <AppleTrainingLoadCard
+        workouts={allWorkouts}
+        endDate={toDate || dateInShanghai()}
+      />
 
       {/* Filter Tabs & Expandable Workouts List */}
       <AppleCard>
@@ -541,7 +580,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                 key={w.id}
                 onMouseEnter={() => setHoveredWorkoutId(w.id)}
                 onMouseLeave={() => setHoveredWorkoutId(null)}
-                onClick={() => setSelectedWorkout(w)}
+                onClick={() => void openWorkoutDetail(w)}
                 className={`p-3.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
                   isHovered
                     ? 'bg-black/[0.04] dark:bg-white/[0.07] border-black/15 dark:border-white/20 shadow-lg'
@@ -577,7 +616,7 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
                             </>
                           )}
                         </span>
-                        {w.routeGpxPoints && (
+                        {(w.hasRoute || Boolean(w.routeGpxPoints?.length)) && (
                           <span className="px-1.5 py-0.2 rounded text-[9px] bg-[#00F5D4]/20 text-[#00F5D4] border border-[#00F5D4]/30">
                             GPX 轨迹
                           </span>
@@ -672,7 +711,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
 
       <WorkoutDetailModal
         workout={selectedWorkout}
-        onClose={() => setSelectedWorkout(null)}
+        onClose={closeWorkoutDetail}
+        detailLoading={detailLoading}
+        detailError={detailError}
       />
 
       <DateRangePickerModal

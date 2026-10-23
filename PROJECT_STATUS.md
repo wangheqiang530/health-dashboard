@@ -1,4 +1,4 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v1.0.0)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v1.0.1)
 
 ## 1. 核心模块与实现状态
 
@@ -8,8 +8,8 @@
 | **体征走势 (Metrics Trend)** | Lucide + Recharts / SVG | ✅ 100% | 支持步数、活动能量、心率范围、静息心率、HRV（心率变异性）日/周/月跨度查看 |
 | **睡眠分析 (Sleep)** | Framer Motion + TS | ✅ 100% | 支持核心睡眠、深度睡眠、REM 快速眼动与清醒时间分期对比与规律性评分 |
 | **身体成分 (Body Composition)** | Fitdays API + Fastify | ✅ 100% | 13+ 整身指标、五部位肌脂、20 kHz / 100 kHz 双频阻抗与历史趋势 |
-| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 独立数据库查询、日期筛选、FIT 遥测回放、IF/NP/TSS/左右平衡、单次活动完整明细 |
-| **数据管道 (Ingestion Pipelines)**| Fastify + Adm-Zip + Zod | ✅ 100% | 支持 Health Auto Export (JSON/Zip/GPX)、Fitdays 定时拉取、iGPSPORT 批量同步 |
+| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 摘要优先加载、按需拉取轨迹与遥测、高德 3D 地图、IF/NP/TSS/左右平衡与训练负荷 |
+| **数据管道 (Ingestion Pipelines)**| Fastify + Adm-Zip + Zod | ✅ 100% | 支持 HAE、Fitdays、iGPSPORT 与 Apple Health ZIP 后台导入；任务进度持久化、真实字节进度、失败与停滞恢复 |
 | **首次启动向导 (Onboarding)** | React Modal + Wizard | ✅ 100% | 自动检测零数据状态，提供交互式 3 步向导引导配置 HAE、体脂秤与骑行码表 |
 | **实时诊断面板 (Live Diagnostics)**| API Health Endpoint | ✅ 100% | 实时检测 Webhook 连通性、最近同步包大小、时间戳与解析耗时 |
 | **本地全量持久化 (Persistence)** | Docker Volume Mount | ✅ 100% | PG 数据、归档原始数据、冷备 SQL、运行日志全量宿主机挂载（适配 NAS） |
@@ -19,7 +19,7 @@
 
 ## 2. 数据库表架构设计 (PostgreSQL)
 
-数据库由 `server/migrations/001_init.sql` 至 `009_body_quality_ignore.sql`
+数据库由 `server/migrations/001_init.sql` 至 `010_import_tasks.sql`
 自动初始化，当前核心表为：
 
 1. `data_sources`：数据源开关、账号、加密密码、Cron 与同步状态
@@ -38,6 +38,7 @@
 14. `health_samples`：跨来源统一时序样本，按自然键保存最新修正值
 15. `data_tombstones`：手动删除与自动异常记录的同步忽略规则及恢复快照
 16. `hae_api_keys`：多设备 HAE Webhook API Key、备注、启停与最近使用信息
+17. `import_tasks`：后台导入任务阶段、真实进度、字节数、记录数、结果、失败阶段与停滞恢复
 
 ---
 
@@ -54,7 +55,10 @@
 - **界面回归**：本地浏览器验证睡眠分期悬停读数、身体详情周期趋势、最高/最低点标注、悬浮层层级、心率十字导航与训练心率区间数据源说明。
 - **v0.0.16 本地副本回归**：使用最新 PostgreSQL 冷备恢复独立测试库，验证真实解剖身体详情、数据审计删除、HAE 多设备 API 管理及训练 emoji 展示。
 - **v1.0.0 正式版回归**：验证 Fitdays 全量/增量同步、SUID 档案选择、不完整体测自动忽略与误删恢复、身体指标对比卡片、趋势小窗十字导航、Apple 健康运动心率恢复采样，以及地图 HTTP 代理和服务端瓦片缓存。
+- **训练页性能回归**：真实 78 条训练摘要响应从约 `5.2 秒 / 2.17 MB` 降至 `83–187 ms / 约 32 KB`，单条详情按需返回轨迹与遥测。
+- **训练负荷回归**：完整 28 日窗口与 TSS 优先算法生效，修正最近一周筛选被误当作 28 日基线的问题，并合并同时间重复训练。
+- **Apple Health ZIP 后台导入回归**：验证真实 XML 字节进度、上传进度、任务恢复、失败阶段、45 秒停滞检测与重复导入幂等性。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:1.0.0`（已发布，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:1.0.1`（已发布，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

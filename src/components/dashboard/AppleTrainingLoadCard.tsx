@@ -5,11 +5,13 @@ import type { WorkoutRecord } from '../../types/health';
 
 interface AppleTrainingLoadCardProps {
   workouts: WorkoutRecord[];
+  endDate?: string;
 }
 
 const loadForWorkout = (workout: WorkoutRecord): number => {
+  if (workout.tss && workout.tss > 0) return workout.tss;
   if (workout.durationMinutes <= 0 || workout.avgHeartRate <= 0) return 0;
-  return workout.durationMinutes * Math.pow(workout.avgHeartRate / 100, 1.8) * 1.4;
+  return workout.durationMinutes * Math.pow(workout.avgHeartRate / 100, 1.8);
 };
 
 const dateOffset = (date: string, days: number): string => {
@@ -23,7 +25,18 @@ const dateOffset = (date: string, days: number): string => {
   }).format(value);
 };
 
-export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ workouts }) => {
+const todayInShanghai = (): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+
+export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({
+  workouts,
+  endDate,
+}) => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const loadByDate = useMemo(() => {
@@ -35,41 +48,41 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
     return map;
   }, [workouts]);
 
-  const loadDates = Array.from(loadByDate.keys()).sort();
-  const latestDate = loadDates[loadDates.length - 1];
+  const latestWorkoutDate = Array.from(loadByDate.keys()).sort().at(-1);
+  const windowEndDate = endDate || latestWorkoutDate || todayInShanghai();
+  const windowStartDate = dateOffset(windowEndDate, -27);
   const rollingPoints = useMemo(
     () =>
-      latestDate
-        ? Array.from({ length: 28 }, (_, index) => {
-            const date = dateOffset(latestDate, index - 27);
-            const sevenStart = dateOffset(date, -6);
-            const twentyEightStart = dateOffset(date, -27);
-            let acuteSum = 0;
-            let chronicSum = 0;
-            loadDates.forEach((day) => {
-              const load = loadByDate.get(day) || 0;
-              if (day >= sevenStart && day <= date) acuteSum += load;
-              if (day >= twentyEightStart && day <= date) chronicSum += load;
-            });
-            return {
-              date,
-              acuteAverage: acuteSum / 7,
-              chronicAverage: chronicSum / 28,
-            };
-          })
-        : [],
-    [latestDate, loadByDate, loadDates]
+      Array.from({ length: 28 }, (_, index) => {
+        const date = dateOffset(windowEndDate, index - 27);
+        const sevenStart = dateOffset(date, -6);
+        const twentyEightStart = dateOffset(date, -27);
+        let acuteSum = 0;
+        let chronicSum = 0;
+        loadByDate.forEach((load, day) => {
+          if (day >= sevenStart && day <= date) acuteSum += load;
+          if (day >= twentyEightStart && day <= date) chronicSum += load;
+        });
+        return {
+          date,
+          acuteAverage: acuteSum / 7,
+          chronicAverage: chronicSum / 28,
+        };
+      }),
+    [loadByDate, windowEndDate]
   );
 
   const latestPoint = rollingPoints[rollingPoints.length - 1];
-  const hasLoadData = Boolean(latestPoint && latestPoint.acuteAverage > 0);
+  const hasLoadData = rollingPoints.some(
+    (point) => point.acuteAverage > 0 || point.chronicAverage > 0
+  );
   const ratio =
     hasLoadData && latestPoint.chronicAverage > 0
       ? Number((latestPoint.acuteAverage / latestPoint.chronicAverage).toFixed(2))
       : null;
 
   let statusText = '数据不足';
-  let statusSubtext = '至少需要带平均心率的训练记录，才能计算训练负荷。';
+  let statusSubtext = '至少需要带 TSS 或平均心率的训练记录，才能计算训练负荷。';
   let statusBadge = '暂无评估';
   let badgeColor = 'bg-neutral-500/15 text-neutral-500 border-neutral-500/30';
   let accent = '#64748B';
@@ -144,7 +157,15 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
     hoverIndex === null ? null : acutePoints[Math.min(hoverIndex, acutePoints.length - 1)];
   const activeChronic =
     hoverIndex === null ? null : chronicPoints[Math.min(hoverIndex, chronicPoints.length - 1)];
-  const effectiveWorkoutCount = workouts.filter((workout) => loadForWorkout(workout) > 0).length;
+  const effectiveWorkoutCount = workouts.filter((workout) => {
+    const date = workout.date;
+    return Boolean(
+      date &&
+        date >= windowStartDate &&
+        date <= windowEndDate &&
+        loadForWorkout(workout) > 0
+    );
+  }).length;
 
   const handleChartMove = (event: React.MouseEvent<SVGSVGElement>) => {
     if (rollingPoints.length === 0) return;
@@ -170,7 +191,7 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
               </span>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              按自然日计算 7 日负荷与 28 日基线，休息日按 0 计入
+              近 7 日与近 28 日均截至所选结束日期，休息日按 0 计入；功率训练优先使用 TSS
             </p>
           </div>
         </div>
@@ -230,7 +251,7 @@ export const AppleTrainingLoadCard: React.FC<AppleTrainingLoadCardProps> = ({ wo
             <div className="p-3 rounded-2xl bg-amber-500/[0.07] border border-amber-500/15">
               <span className="text-[10px] text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
                 <Flame className="w-3 h-3 text-amber-500" />
-                有效训练
+                近 28 日有效
               </span>
               <span className="text-xl font-black font-mono text-amber-500 block mt-1">
                 {effectiveWorkoutCount}

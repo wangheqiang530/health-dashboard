@@ -1,26 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { useTheme } from '../../context/ThemeContext';
 import {
   Activity,
   Gauge,
   Heart,
   Mountain,
   Navigation,
-  Pause,
-  Play,
-  RotateCcw,
   Zap,
 } from 'lucide-react';
 import type { WorkoutRecord, WorkoutTelemetryPoint } from '../../types/health';
+import { WorkoutAmapRoute } from './WorkoutAmapRoute';
 
 interface WorkoutRoutePlaybackProps {
   workout: WorkoutRecord;
 }
 
 type MetricKey = 'heartRate' | 'cadence' | 'power' | 'speedKmh';
-type MapTileType = 'osm' | 'topo' | 'none';
 
 const METRICS: Array<{
   key: MetricKey;
@@ -34,23 +28,6 @@ const METRICS: Array<{
   { key: 'power', label: '功率', unit: 'W', color: '#F59E0B', icon: Zap },
   { key: 'speedKmh', label: '速度', unit: 'km/h', color: '#0EA5E9', icon: Gauge },
 ];
-
-const formatElapsed = (seconds: number): string => {
-  const safe = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-    : `${minutes}:${String(secs).padStart(2, '0')}`;
-};
-
-const speedColor = (speedKmh: number | null): string => {
-  if (speedKmh === null || speedKmh <= 0.8) return '#FFD60A';
-  const ratio = Math.min(1, Math.max(0, (speedKmh - 1) / 34));
-  const hue = 120 * (1 - ratio);
-  return `hsl(${hue.toFixed(0)} 88% 52%)`;
-};
 
 const TelemetryChart: React.FC<{
   telemetry: WorkoutTelemetryPoint[];
@@ -198,19 +175,9 @@ const TelemetryChart: React.FC<{
 };
 
 export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ workout }) => {
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === 'dark';
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [playSpeed, setPlaySpeed] = useState(2);
-  const [mapTileType, setMapTileType] = useState<MapTileType>('osm');
-  const [tileStatus, setTileStatus] = useState<'loading' | 'ready' | 'error' | 'disabled'>(
-    'loading'
-  );
-
-  const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const beaconMarkerRef = useRef<L.Marker | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const animationRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
 
@@ -231,126 +198,18 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     () =>
       (workout.telemetry || []).filter(
         (point) =>
-          Number.isFinite(point.elapsedSec) ||
           Number.isFinite(point.heartRate) ||
-          Number.isFinite(point.power)
+          Number.isFinite(point.cadence) ||
+          Number.isFinite(point.power) ||
+          Number.isFinite(point.speedKmh)
       ),
     [workout.telemetry]
-  );
-  const routeSpeeds = useMemo(
-    () =>
-      routeCoords.map((_, index) => {
-        const directSpeed = workout.routeGpxPoints?.[index]?.speedKmh;
-        if (Number.isFinite(directSpeed)) return Number(directSpeed);
-        const telemetryIndex =
-          routeCoords.length <= 1
-            ? 0
-            : Math.round((index / (routeCoords.length - 1)) * Math.max(telemetry.length - 1, 0));
-        const matchedSpeed = telemetry[telemetryIndex]?.speedKmh;
-        return Number.isFinite(matchedSpeed) ? Number(matchedSpeed) : null;
-      }),
-    [routeCoords, telemetry, workout.routeGpxPoints]
   );
   const currentTelemetryIndex = Math.min(
     Math.round(progress * Math.max(telemetry.length - 1, 0)),
     Math.max(telemetry.length - 1, 0)
   );
   const currentTelemetry = telemetry[currentTelemetryIndex];
-  const currentRouteIndex = Math.min(
-    Math.floor(progress * Math.max(routeCoords.length - 1, 0)),
-    Math.max(routeCoords.length - 1, 0)
-  );
-  const currentPoint = routeCoords[currentRouteIndex];
-  const currentElapsed = currentTelemetry?.elapsedSec ??
-    progress * Math.max(workout.durationMinutes * 60, 1);
-
-  useEffect(() => {
-    if (!mapContainerRef.current || routeCoords.length < 2) return;
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: false,
-      attributionControl: false,
-    });
-    mapInstanceRef.current = map;
-
-    if (mapTileType === 'none') {
-      setTileStatus('disabled');
-    } else {
-      setTileStatus('loading');
-      let tileErrors = 0;
-      const tileLayer = L.tileLayer(
-        mapTileType === 'topo'
-          ? '/api/v1/map/tiles/topo/{z}/{x}/{y}'
-          : '/api/v1/map/tiles/osm/{z}/{x}/{y}',
-        mapTileType === 'topo'
-          ? { maxZoom: 17, keepBuffer: 3 }
-          : { maxZoom: 19, keepBuffer: 3 }
-      );
-      tileLayer.on('tileload', () => setTileStatus('ready'));
-      tileLayer.on('tileerror', () => {
-        tileErrors += 1;
-        if (tileErrors >= 3) setTileStatus('error');
-      });
-      tileLayer.addTo(map);
-    }
-
-    L.polyline(routeCoords, {
-      color: isDark ? '#F8FAFC' : '#0F172A',
-      weight: 7,
-      opacity: 0.22,
-      lineCap: 'round',
-      lineJoin: 'round',
-    }).addTo(map);
-    for (let index = 1; index < routeCoords.length; index += 1) {
-      const speed = routeSpeeds[index] ?? routeSpeeds[index - 1] ?? null;
-      L.polyline([routeCoords[index - 1], routeCoords[index]], {
-        color: speedColor(speed),
-        weight: 4.8,
-        opacity: 0.98,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map);
-    }
-
-    const markerIcon = (label: string, color: string) =>
-      L.divIcon({
-        className: 'route-marker',
-        html: `<div style="background:${color};color:#000;font-weight:700;font-size:10px;padding:2px 6px;border-radius:10px;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;">${label}</div>`,
-        iconSize: [40, 20],
-        iconAnchor: [20, 10],
-      });
-    L.marker(routeCoords[0], { icon: markerIcon('起点', '#22C55E') }).addTo(map);
-    L.marker(routeCoords[routeCoords.length - 1], {
-      icon: markerIcon('终点', '#EF4444'),
-    }).addTo(map);
-
-    const beaconIcon = L.divIcon({
-      className: 'route-beacon',
-      html: '<div style="width:20px;height:20px;border-radius:50%;background:#00F5D4;border:3px solid #fff;box-shadow:0 0 16px #00F5D4;"></div>',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-    });
-    beaconMarkerRef.current = L.marker(routeCoords[0], { icon: beaconIcon }).addTo(map);
-    const routeBounds = L.latLngBounds(routeCoords);
-    map.fitBounds(routeBounds, { padding: [35, 35] });
-
-    const resizeTimer = window.setTimeout(() => {
-      map.invalidateSize();
-      map.fitBounds(routeBounds, { padding: [35, 35] });
-    }, 250);
-
-    return () => {
-      window.clearTimeout(resizeTimer);
-      map.remove();
-      mapInstanceRef.current = null;
-      beaconMarkerRef.current = null;
-    };
-  }, [isDark, mapTileType, routeCoords, routeSpeeds]);
-
-  useEffect(() => {
-    if (beaconMarkerRef.current && currentPoint) {
-      beaconMarkerRef.current.setLatLng(currentPoint);
-    }
-  }, [currentPoint]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -359,14 +218,13 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
       return;
     }
 
-    const totalDurationMs =
-      (Math.max(workout.durationMinutes, 1) * 60 * 1000) / Math.max(playSpeed * 120, 1);
+    const totalDurationMs = 42_000;
     const tick = (timestamp: number) => {
       if (lastTimeRef.current === null) lastTimeRef.current = timestamp;
       const delta = timestamp - lastTimeRef.current;
       lastTimeRef.current = timestamp;
       setProgress((previous) => {
-        const next = previous + delta / totalDurationMs;
+        const next = previous + (delta / totalDurationMs) * playbackSpeed;
         if (next >= 1) {
           setIsPlaying(false);
           return 1;
@@ -379,7 +237,7 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [isPlaying, playSpeed, workout.durationMinutes]);
+  }, [isPlaying, playbackSpeed]);
 
   return (
     <div className="p-4 rounded-3xl bg-black/[0.02] dark:bg-black/60 border border-black/10 dark:border-white/10 space-y-4 shadow-xl">
@@ -387,82 +245,37 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
         <div className="flex items-center gap-2">
           <Navigation className="w-4 h-4 text-[#00F5D4]" />
           <span className="text-sm font-bold text-neutral-900 dark:text-white tracking-wide">
-            GPS 轨迹与遥测回放
+            高德 3D 轨迹与遥测回放
           </span>
-          <span className="text-[10px] text-neutral-400 font-mono">
+          <span className="hidden text-[10px] text-neutral-400 font-mono sm:inline">
             {routeCoords.length} 轨迹点 · {telemetry.length} 遥测帧
           </span>
         </div>
-        <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-xl text-[10px] font-semibold">
-          {[
-            { key: 'osm' as const, label: '街道' },
-            { key: 'topo' as const, label: '地形' },
-            { key: 'none' as const, label: '纯轨迹' },
-          ].map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => setMapTileType(option.key)}
-              className={`px-2 py-0.5 rounded-lg transition-all cursor-pointer ${
-                mapTileType === option.key
-                  ? 'bg-white dark:bg-white/20 text-neutral-900 dark:text-white shadow-sm'
-                  : 'text-neutral-500 dark:text-neutral-400'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <span className="self-start rounded-full border border-sky-500/20 bg-sky-500/10 px-2.5 py-1 text-[9px] font-semibold text-sky-600 dark:text-sky-300 sm:self-auto">
+          高德地图 · 真实 FIT 轨迹
+        </span>
       </div>
 
       {routeCoords.length >= 2 ? (
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-black/5 bg-white/55 px-3 py-2 text-[10px] text-neutral-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-400">
-            <span className="font-semibold text-neutral-700 dark:text-neutral-200">轨迹颜色 · 速度</span>
-            <span className="flex items-center gap-1.5 font-mono">
-              <span className="h-2 w-2 rounded-full bg-[#FFD60A]" />
-              静止
-              <span className="ml-2 h-2 w-12 rounded-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500" />
-              慢 → 快
-            </span>
-          </div>
-          <div
-            ref={mapContainerRef}
-            className="w-full h-[300px] rounded-2xl overflow-hidden border border-black/5 dark:border-white/10"
-            style={
-              mapTileType === 'none'
-                ? {
-                    backgroundImage:
-                      'linear-gradient(rgba(127,127,127,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(127,127,127,.08) 1px, transparent 1px)',
-                    backgroundSize: '24px 24px',
-                  }
-                : undefined
-            }
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-neutral-400">
-            <span>
-              © OpenStreetMap contributors
-              {mapTileType === 'topo' ? ' / OpenTopoMap' : ''}
-            </span>
-            <span
-              className={
-                tileStatus === 'error'
-                  ? 'text-amber-500 font-semibold'
-                  : tileStatus === 'ready'
-                    ? 'text-emerald-500'
-                    : ''
-              }
-            >
-              {tileStatus === 'loading'
-                ? '底图加载中'
-                : tileStatus === 'ready'
-                  ? '底图已加载'
-                  : tileStatus === 'error'
-                    ? '底图加载受限，轨迹仍可查看'
-                    : '纯轨迹模式'}
-            </span>
-          </div>
-        </div>
+        <WorkoutAmapRoute
+          workout={workout}
+          progress={progress}
+          isPlaying={isPlaying}
+          playbackSpeed={playbackSpeed}
+          onProgressChange={(nextProgress) => {
+            setIsPlaying(false);
+            setProgress(nextProgress);
+          }}
+          onTogglePlayback={() => {
+            if (progress >= 1) setProgress(0);
+            setIsPlaying((value) => !value);
+          }}
+          onResetPlayback={() => {
+            setIsPlaying(false);
+            setProgress(0);
+          }}
+          onPlaybackSpeedChange={setPlaybackSpeed}
+        />
       ) : (
         <div className="p-5 rounded-3xl bg-black/[0.02] dark:bg-white/[0.03] border border-black/5 dark:border-white/10 text-center">
           <Navigation className="w-6 h-6 mx-auto text-neutral-400 mb-2" />
@@ -474,65 +287,6 @@ export const WorkoutRoutePlayback: React.FC<WorkoutRoutePlaybackProps> = ({ work
           </p>
         </div>
       )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setIsPlaying((value) => !value)}
-          className="px-3 py-1.5 rounded-xl bg-[#00F5D4] text-neutral-950 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-        >
-          {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-          {isPlaying ? '暂停' : '播放'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setIsPlaying(false);
-            setProgress(0);
-          }}
-          className="px-3 py-1.5 rounded-xl bg-black/5 dark:bg-white/10 text-xs font-semibold text-neutral-600 dark:text-neutral-300 flex items-center gap-1.5 cursor-pointer"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          重置
-        </button>
-        <div className="flex bg-black/5 dark:bg-white/10 p-0.5 rounded-xl">
-          {[1, 2, 4].map((speed) => (
-            <button
-              key={speed}
-              type="button"
-              onClick={() => setPlaySpeed(speed)}
-              className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
-                playSpeed === speed
-                  ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900'
-                  : 'text-neutral-500 dark:text-neutral-400'
-              }`}
-            >
-              {speed}x
-            </button>
-          ))}
-        </div>
-        <span className="text-[11px] text-neutral-400 font-mono ml-auto">
-          {formatElapsed(currentElapsed)} / {formatElapsed(workout.durationMinutes * 60)}
-        </span>
-      </div>
-
-      <div className="space-y-1">
-        <input
-          type="range"
-          min="0"
-          max="1000"
-          step="1"
-          value={Math.round(progress * 1000)}
-          onChange={(event) => setProgress(Number(event.target.value) / 1000)}
-          className="w-full accent-[#00F5D4] cursor-pointer"
-          aria-label="拖动播放进度"
-        />
-        <div className="flex justify-between text-[9px] text-neutral-400 font-mono">
-          <span>0:00</span>
-          <span>{Math.round(progress * 100)}%</span>
-          <span>{formatElapsed(workout.durationMinutes * 60)}</span>
-        </div>
-      </div>
 
       {telemetry.length > 1 ? (
         <div className="space-y-2.5">
