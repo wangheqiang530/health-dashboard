@@ -6,6 +6,7 @@ import type {
 } from '../src/types/health.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
+import { getActivityGoals } from './settings.ts';
 import { isSourceRunning } from './sync.ts';
 
 interface DailyRow {
@@ -492,6 +493,7 @@ export async function getDashboardData(options: {
 
   const firstDay = dailyRows.rows[0].day;
   const lastDay = dailyRows.rows[dailyRows.rows.length - 1].day;
+  const activityGoals = await getActivityGoals();
   const bodyRows = await pool.query<BodyRow>(
     `SELECT
        id::text,
@@ -548,6 +550,11 @@ export async function getDashboardData(options: {
   let latestResting: { value: number; date: string } | undefined;
   for (const row of dailyRows.rows) {
     const summary = row.summary;
+    if (summary.rings) {
+      summary.rings.move.goal = activityGoals.moveKcal;
+      summary.rings.exercise.goal = activityGoals.exerciseMinutes;
+      summary.rings.stand.goal = activityGoals.standHours;
+    }
     const bodyBefore = bodyRows.rows.filter((body) => body.measured_date <= row.day);
     const latestBody = bodyBefore[bodyBefore.length - 1];
     const bodyTrend = bodyBefore.slice(-8);

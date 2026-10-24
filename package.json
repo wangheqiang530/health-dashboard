@@ -1,7 +1,7 @@
 {
   "name": "health-dashboard",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "test:raw-import": "tsx scripts/test_import_pipeline.ts",
+    "test:data-fixes": "tsx scripts/test_data_fixes.ts",
     "import:apple-health": "tsx scripts/import_apple_health_file.ts",
     "import:hae": "tsx scripts/import_hae_file.ts",
     "lint": "oxlint",

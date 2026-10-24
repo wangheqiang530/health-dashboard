@@ -215,10 +215,10 @@ export const IgnoredRecordsPanel: React.FC<IgnoredRecordsPanelProps> = ({
                   <button
                     type="button"
                     onClick={() => void handleRestore(record)}
-                    disabled={workingId === record.id || record.autoIgnored}
+                    disabled={workingId === record.id || record.canRestore === false}
                     title={
-                      record.autoIgnored
-                        ? '不完整数据不能恢复；等待上游生成完整体测后可重新同步'
+                      record.canRestore === false
+                        ? '缺少可恢复快照；请等待下一次数据源同步'
                         : '恢复记录到数据库'
                     }
                     className="flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 text-[10px] font-semibold text-emerald-600 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-300"

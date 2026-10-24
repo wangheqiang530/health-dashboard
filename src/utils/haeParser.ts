@@ -12,6 +12,7 @@ import type {
   GpxCoordinate,
   WorkoutTelemetryPoint,
 } from '../types/health';
+import { mergeDuplicateWorkouts } from './workoutDedupe';
 
 interface HAEDataPoint {
   date?: string;
@@ -845,6 +846,7 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
       });
     });
 
+    const dedupedDayWorkouts = mergeDuplicateWorkouts(dayWorkouts);
     const hasCompleteVitalityInputs = hrvCurrent > 0 && restingHr > 0 && sleepScore > 0;
     const hrvDiffPct =
       hasCompleteVitalityInputs && hrvBaseline > 0
@@ -971,7 +973,7 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
       sleep,
       vitals,
       heartRateTimeline,
-      workouts: dayWorkouts,
+      workouts: dedupedDayWorkouts,
       steps: {
         count: stepCount,
         goal: Math.round(metricAverageForDay(['step_goal'], dateStr)) || 10000,

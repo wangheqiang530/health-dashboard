@@ -177,6 +177,17 @@ export const getFitdaysRecordQualityIssues = (record: FitdaysRecord): string[] =
   return issues;
 };
 
+export const getFitdaysRecordCriticalIssues = (record: FitdaysRecord): string[] => {
+  const issues: string[] = [];
+  if (record.weightKg === null || record.weightKg < 20 || record.weightKg > 350) {
+    issues.push('体重缺失或超出合理范围');
+  }
+  if (!Number.isFinite(new Date(record.measuredAt).getTime())) {
+    issues.push('测量时间无效');
+  }
+  return issues;
+};
+
 async function fitdaysRequest(
   path: string,
   body: unknown,

@@ -4,10 +4,12 @@ import { gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import type { PoolClient } from 'pg';
 import type { DailySummary, WorkoutRecord } from '../src/types/health.ts';
+import type { ActivityRings } from '../src/types/health.ts';
 import {
   parseHealthAutoExportJSON,
   type HaeDayPresence,
 } from '../src/utils/haeParser.ts';
+import { mergeDuplicateWorkouts } from '../src/utils/workoutDedupe.ts';
 import { archiveJson, registerArchive, resolveArchivePath } from './archive.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
@@ -27,24 +29,46 @@ export function mergeWorkouts(
   existingWorkouts: WorkoutRecord[] = [],
   newWorkouts: WorkoutRecord[] = []
 ): WorkoutRecord[] {
-  const merged = [...existingWorkouts];
-  for (const nw of newWorkouts) {
-    const idx = merged.findIndex(
-      (w) =>
-        (w.id && nw.id && w.id === nw.id) ||
-        (w.startTime === nw.startTime && w.name === nw.name)
-    );
-    if (idx >= 0) {
-      merged[idx] = { ...merged[idx], ...nw };
-    } else {
-      merged.push(nw);
-    }
-  }
-  return merged;
+  return mergeDuplicateWorkouts([...existingWorkouts, ...newWorkouts]);
 }
 
 const positiveOr = (next: number, previous: number): number =>
   Number.isFinite(next) && next > 0 ? next : previous;
+
+const cumulativeMax = (next: number, previous: number): number =>
+  Math.max(Number.isFinite(next) ? next : 0, Number.isFinite(previous) ? previous : 0);
+
+const mergeActivityRings = (
+  previous: ActivityRings,
+  next: ActivityRings
+): ActivityRings => ({
+  move: {
+    ...next.move,
+    current: cumulativeMax(next.move.current, previous.move.current),
+    goal: next.move.goal || previous.move.goal,
+  },
+  exercise: {
+    ...next.exercise,
+    current: cumulativeMax(next.exercise.current, previous.exercise.current),
+    goal: next.exercise.goal || previous.exercise.goal,
+  },
+  stand: {
+    ...next.stand,
+    current: cumulativeMax(next.stand.current, previous.stand.current),
+    goal: next.stand.goal || previous.stand.goal,
+  },
+});
+
+const mergeCumulativeSteps = (
+  previous: DailySummary['steps'],
+  next: DailySummary['steps']
+): DailySummary['steps'] => ({
+  ...next,
+  count: cumulativeMax(next.count, previous.count),
+  goal: next.goal || previous.goal,
+  distanceKm: cumulativeMax(next.distanceKm, previous.distanceKm),
+  flightsClimbed: cumulativeMax(next.flightsClimbed, previous.flightsClimbed),
+});
 
 export function mergeDailySummary(
   previous: DailySummary,
@@ -124,26 +148,28 @@ export function mergeDailySummary(
     dayName: next.dayName || previous.dayName,
     shortDay: next.shortDay || previous.shortDay,
     isToday: next.isToday,
-    rings: presence.rings ? next.rings : previous.rings,
+    rings: presence.rings ? mergeActivityRings(previous.rings, next.rings) : previous.rings,
     vitality: presence.vitals || presence.sleep ? next.vitality : previous.vitality,
     sleep: presence.sleep ? next.sleep : previous.sleep,
     vitals,
     heartRateTimeline: presence.heartRate
-      ? next.heartRateTimeline
+      ? next.heartRateTimeline.length >= previous.heartRateTimeline.length
+        ? next.heartRateTimeline
+        : previous.heartRateTimeline
       : previous.heartRateTimeline,
     workouts,
-    steps: presence.steps ? next.steps : previous.steps,
+    steps: presence.steps ? mergeCumulativeSteps(previous.steps, next.steps) : previous.steps,
     body,
     mobility: presence.mobility ? next.mobility : previous.mobility,
     environment: presence.environment ? next.environment : previous.environment,
     cyclingDistanceKm: presence.steps
-      ? next.cyclingDistanceKm
+      ? cumulativeMax(next.cyclingDistanceKm, previous.cyclingDistanceKm)
       : previous.cyclingDistanceKm,
     basalEnergyKcal: presence.steps
-      ? next.basalEnergyKcal
+      ? cumulativeMax(next.basalEnergyKcal, previous.basalEnergyKcal)
       : previous.basalEnergyKcal,
     totalBurnedKcal: presence.rings || presence.steps
-      ? next.totalBurnedKcal
+      ? cumulativeMax(next.totalBurnedKcal, previous.totalBurnedKcal)
       : previous.totalBurnedKcal,
     physicalEffortAvg: positiveOr(next.physicalEffortAvg, previous.physicalEffortAvg),
     mindfulMinutes: positiveOr(next.mindfulMinutes, previous.mindfulMinutes),
@@ -392,6 +418,88 @@ const normalizeWorkouts = (workouts: HaeWorkout[]): NormalizedWorkout[] =>
     };
   });
 
+const normalizedWorkoutCategory = (name: string): WorkoutRecord['category'] => {
+  const normalized = name.toLowerCase();
+  if (/骑行|cycling|bike/.test(normalized)) return 'cycling';
+  if (/力量|strength|functional|core/.test(normalized)) return 'strength';
+  if (/步行|走路|walk/.test(normalized)) return 'walking';
+  if (/游泳|swim/.test(normalized)) return 'swimming';
+  if (/hiit|高强度|间歇/.test(normalized)) return 'hiit';
+  return 'running';
+};
+
+const normalizedWorkoutScore = (workout: NormalizedWorkout): number =>
+  (workout.avgHeartRate || 0) * 10_000 +
+  (workout.activeEnergyKcal || 0) * 100 +
+  (workout.distanceKm || 0) * 10 +
+  (workout.durationSec || 0) / 60 +
+  (workout.rawWorkout.route ? 1_000_000 : 0);
+
+const sameNormalizedWorkoutWindow = (
+  left: NormalizedWorkout,
+  right: NormalizedWorkout
+): boolean => {
+  if (
+    normalizedWorkoutCategory(left.name) !== normalizedWorkoutCategory(right.name) ||
+    !left.startedAt ||
+    !right.startedAt
+  ) {
+    return false;
+  }
+  const startDelta = Math.abs(
+    new Date(left.startedAt).getTime() - new Date(right.startedAt).getTime()
+  );
+  if (startDelta > 2 * 60_000) return false;
+  const leftMinutes = (left.durationSec || 0) / 60;
+  const rightMinutes = (right.durationSec || 0) / 60;
+  const tolerance = Math.max(5, Math.min(leftMinutes, rightMinutes) * 0.15);
+  return Math.abs(leftMinutes - rightMinutes) <= tolerance;
+};
+
+const mergeNormalizedWorkouts = (
+  left: NormalizedWorkout,
+  right: NormalizedWorkout
+): NormalizedWorkout => {
+  const preferred =
+    normalizedWorkoutScore(left) >= normalizedWorkoutScore(right) ? left : right;
+  const fallback = preferred === left ? right : left;
+  const maxOptional = (a: number | null, b: number | null): number | null =>
+    Math.max(a || 0, b || 0) || null;
+  return {
+    ...preferred,
+    durationSec: Math.max(preferred.durationSec || 0, fallback.durationSec || 0) || null,
+    activeEnergyKcal: maxOptional(
+      preferred.activeEnergyKcal,
+      fallback.activeEnergyKcal
+    ),
+    distanceKm: maxOptional(preferred.distanceKm, fallback.distanceKm),
+    avgHeartRate: maxOptional(preferred.avgHeartRate, fallback.avgHeartRate),
+    maxHeartRate: maxOptional(preferred.maxHeartRate, fallback.maxHeartRate),
+    elevationGainM: maxOptional(preferred.elevationGainM, fallback.elevationGainM),
+    sourceName: preferred.sourceName || fallback.sourceName,
+    deviceName: preferred.deviceName || fallback.deviceName,
+    endedAt: preferred.endedAt || fallback.endedAt,
+  };
+};
+
+const dedupeNormalizedWorkouts = (workouts: NormalizedWorkout[]): NormalizedWorkout[] => {
+  const deduped: NormalizedWorkout[] = [];
+  for (const workout of workouts) {
+    const existingIndex = deduped.findIndex((existing) =>
+      sameNormalizedWorkoutWindow(existing, workout)
+    );
+    if (existingIndex >= 0) {
+      deduped[existingIndex] = mergeNormalizedWorkouts(
+        deduped[existingIndex],
+        workout
+      );
+    } else {
+      deduped.push(workout);
+    }
+  }
+  return deduped;
+};
+
 async function insertMetrics(client: PoolClient, importId: string, rows: NormalizedMetric[]): Promise<void> {
   const batchSize = 400;
   for (let offset = 0; offset < rows.length; offset += batchSize) {
@@ -580,7 +688,7 @@ export async function importHaePayload(
   const parsed = parseHealthAutoExportJSON(payload);
   const { metrics, workouts } = unpackPayload(payload);
   const normalizedMetrics = normalizeMetrics(metrics);
-  const normalizedWorkouts = normalizeWorkouts(workouts);
+  const normalizedWorkouts = dedupeNormalizedWorkouts(normalizeWorkouts(workouts));
   const dates = parsed.dates;
   if (dates.length === 0) {
     throw new Error('HAE 数据中没有可用的日期。');

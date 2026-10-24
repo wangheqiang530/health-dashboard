@@ -5,7 +5,7 @@ import { decryptSecret } from './crypto.ts';
 import { pool } from './db.ts';
 import {
   fetchFitdaysRecords,
-  getFitdaysRecordQualityIssues,
+  getFitdaysRecordCriticalIssues,
 } from './sources/fitdays.ts';
 import { syncRecentRides } from './sources/igpsport.ts';
 import {
@@ -116,8 +116,8 @@ async function persistFitdays(
         }))
     );
     for (const record of records) {
-      const qualityIssues = getFitdaysRecordQualityIssues(record);
-      if (qualityIssues.length > 0) {
+      const criticalIssues = getFitdaysRecordCriticalIssues(record);
+      if (criticalIssues.length > 0) {
         await client.query(
           `DELETE FROM body_measurements
            WHERE source_id = 'fitdays' AND external_id = $1`,
@@ -132,7 +132,7 @@ async function persistFitdays(
             record.externalId,
             JSON.stringify({
               reasonCode: 'auto_incomplete_body',
-              reason: `自动忽略：${qualityIssues.join('；')}`,
+              reason: `自动忽略：${criticalIssues.join('；')}`,
               autoIgnored: true,
               measuredAt: record.measuredAt,
               measuredDate: record.measuredDate,

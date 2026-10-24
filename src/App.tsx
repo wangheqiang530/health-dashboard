@@ -29,6 +29,7 @@ import { TrendsView } from './components/views/TrendsView';
 import { BodyDetailsView } from './components/views/BodyDetailsView';
 import { WorkoutsView } from './components/views/WorkoutsView';
 import { ConfigCenterView } from './components/views/ConfigCenterView';
+import { WorkoutMapPage } from './components/dashboard/WorkoutMapPage';
 
 import {
   Sparkles,
@@ -625,11 +626,22 @@ function DashboardContent() {
 }
 
 export default function App() {
+  const isStandaloneMapPage =
+    typeof window !== 'undefined' &&
+    window.location.pathname.replace(/\/+$/, '') === '/workout-map';
+  const standaloneWorkoutId = isStandaloneMapPage
+    ? new URLSearchParams(window.location.search).get('id') || ''
+    : null;
+
   return (
     <ThemeProvider>
       <CustomizationProvider>
         <PasswordGate>
-          <DashboardContent />
+          {isStandaloneMapPage ? (
+            <WorkoutMapPage workoutId={standaloneWorkoutId || ''} />
+          ) : (
+            <DashboardContent />
+          )}
         </PasswordGate>
       </CustomizationProvider>
     </ThemeProvider>

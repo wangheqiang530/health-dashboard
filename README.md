@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.1-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.2-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -10,6 +10,14 @@
 一款专为极客、运动爱好者与 NAS 玩家打造的**开源私有化健康数据看板**。完美融合 **Apple Fitness 三环美学** 与 **Grow Bento 风格**，无缝聚合 Apple Watch、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表全量时序数据，实现从采集、解析、图表可视化到物理持久化的全流程闭环。
 
 ![综合看板预览](docs/images/overview.png)
+
+## 🆕 v1.0.2 更新
+
+- **可配置健身圆环目标**：配置中心可直接设置动态能量、锻炼时间和站立时间目标，保存后立即应用到历史与实时摘要。
+- **HAE 增量摘要保护**：圆环、步数、距离等当天累计字段不再被较短时间窗口覆盖，避免增量推送把完整数据改小。
+- **全屏骑行地图**：骑行详情支持独立大地图页面、普通/卫星/3D 地形切换、移动端视角控制与四路遥测同步拖动。
+- **版本更新检查增强**：Docker Hub 与 GitHub Tags 双源检查，外部源不可用时自动使用本地缓存并明确显示检查状态。
+- **忽略记录恢复改进**：不完整体测保留原始记录，可在数据审计中查看并恢复有效字段。
 
 ## 🆕 v1.0.1 更新
 
@@ -127,7 +135,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:1.0.1
+    image: wangheqiang/health-dashboard:1.0.2
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -292,7 +300,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:1.0.1
+    image: wangheqiang/health-dashboard:1.0.2
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -308,7 +316,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 0
-      APP_VERSION: 1.0.1
+      APP_VERSION: 1.0.2
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -399,7 +407,7 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `1.0.1` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `1.0.2` | 当前发布的容器镜像版本号 |
 | `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
 | `BACKUP_RETENTION_DAYS` | `0` | 本地原始备份（ZIP / gzip / FIT）保留天数；`0` 表示永久保留 |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |

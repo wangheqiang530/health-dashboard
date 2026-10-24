@@ -27,6 +27,8 @@ export interface IgnoredRecord {
   displayName: string;
   recordDate: string | null;
   snapshotAvailable: boolean;
+  rawRecordAvailable: boolean;
+  canRestore: boolean;
 }
 
 const objectValue = (value: unknown): Record<string, unknown> | null =>
@@ -42,6 +44,11 @@ const numberValue = (value: unknown): number | null => {
   return value !== null && value !== undefined && value !== '' && Number.isFinite(parsed)
     ? parsed
     : null;
+};
+
+const positiveNumberValue = (value: unknown): number | null => {
+  const parsed = numberValue(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
 };
 
 const jsonValue = (value: unknown): string =>
@@ -69,6 +76,8 @@ const toIgnoredRecord = (row: IgnoredRow): IgnoredRecord => {
   const rawReason = textValue(row.metadata.reason);
   const legacyAutoIgnored =
     rawReason === 'weight-only incomplete upstream measurement';
+  const snapshotAvailable = Boolean(objectValue(row.metadata.snapshot));
+  const rawRecordAvailable = Boolean(objectValue(row.metadata.rawRecord));
   return {
     id: row.id,
     recordKind: row.record_kind,
@@ -85,7 +94,12 @@ const toIgnoredRecord = (row: IgnoredRow): IgnoredRecord => {
       textValue(row.metadata.measuredDate) ||
       textValue(row.metadata.date) ||
       null,
-    snapshotAvailable: Boolean(objectValue(row.metadata.snapshot)),
+    snapshotAvailable,
+    rawRecordAvailable,
+    canRestore:
+      row.record_kind === 'body_measurement'
+        ? snapshotAvailable || rawRecordAvailable
+        : true,
   };
 };
 
@@ -127,23 +141,23 @@ const restoreBodySnapshot = async (
       textValue(snapshot.profile_id),
       snapshot.measured_at || snapshot.measuredAt || row.metadata.measuredAt,
       snapshot.measured_date || snapshot.measuredDate || row.metadata.measuredDate,
-      numberValue(snapshot.weight_kg),
-      numberValue(snapshot.bmi),
-      numberValue(snapshot.body_fat_rate),
-      numberValue(snapshot.skeletal_muscle_rate),
-      numberValue(snapshot.muscle_rate),
-      numberValue(snapshot.lean_body_mass_kg),
-      numberValue(snapshot.visceral_fat_level),
-      numberValue(snapshot.water_rate),
-      numberValue(snapshot.bone_mass_kg),
-      numberValue(snapshot.bmr_kcal),
-      numberValue(snapshot.subcutaneous_fat_rate),
-      numberValue(snapshot.protein_rate),
-      numberValue(snapshot.body_age),
-      numberValue(snapshot.heart_rate),
-      numberValue(snapshot.score),
-      numberValue(snapshot.smi),
-      numberValue(snapshot.whr),
+      positiveNumberValue(snapshot.weight_kg),
+      positiveNumberValue(snapshot.bmi),
+      positiveNumberValue(snapshot.body_fat_rate),
+      positiveNumberValue(snapshot.skeletal_muscle_rate),
+      positiveNumberValue(snapshot.muscle_rate),
+      positiveNumberValue(snapshot.lean_body_mass_kg),
+      positiveNumberValue(snapshot.visceral_fat_level),
+      positiveNumberValue(snapshot.water_rate),
+      positiveNumberValue(snapshot.bone_mass_kg),
+      positiveNumberValue(snapshot.bmr_kcal),
+      positiveNumberValue(snapshot.subcutaneous_fat_rate),
+      positiveNumberValue(snapshot.protein_rate),
+      positiveNumberValue(snapshot.body_age),
+      positiveNumberValue(snapshot.heart_rate),
+      positiveNumberValue(snapshot.score),
+      positiveNumberValue(snapshot.smi),
+      positiveNumberValue(snapshot.whr),
       jsonValue(snapshot.raw_record),
       null,
     ]
@@ -170,8 +184,8 @@ const restoreBodyFromRaw = async (client: PoolClient, row: IgnoredRow): Promise<
     throw new Error('忽略记录缺少可恢复的测量时间。');
   }
 
-  const weight = numberValue(raw.weight_kg);
-  const bodyFat = numberValue(raw.bfr);
+  const weight = positiveNumberValue(raw.weight_kg);
+  const bodyFat = positiveNumberValue(raw.bfr);
   const leanMass =
     weight !== null && bodyFat !== null
       ? Number((weight * (1 - bodyFat / 100)).toFixed(3))
@@ -194,19 +208,19 @@ const restoreBodyFromRaw = async (client: PoolClient, row: IgnoredRow): Promise<
       measuredAt,
       measuredDate,
       weight,
-      numberValue(raw.bmi),
+      positiveNumberValue(raw.bmi),
       bodyFat,
-      numberValue(raw.rosm),
-      numberValue(raw.rom),
+      positiveNumberValue(raw.rosm),
+      positiveNumberValue(raw.rom),
       leanMass,
-      numberValue(raw.uvi),
-      numberValue(raw.vwc),
-      numberValue(raw.bm),
-      numberValue(raw.bmr),
-      numberValue(raw.sfr),
-      numberValue(raw.pp),
-      numberValue(raw.bodyage),
-      numberValue(raw.hr),
+      positiveNumberValue(raw.uvi),
+      positiveNumberValue(raw.vwc),
+      positiveNumberValue(raw.bm),
+      positiveNumberValue(raw.bmr),
+      positiveNumberValue(raw.sfr),
+      positiveNumberValue(raw.pp),
+      positiveNumberValue(raw.bodyage),
+      positiveNumberValue(raw.hr),
       jsonValue(raw),
     ]
   );
@@ -319,14 +333,14 @@ export async function restoreIgnoredRecord(id: string): Promise<{
     if (!row) {
       throw new Error('忽略记录不存在或已恢复。');
     }
-    if (row.metadata.reasonCode === 'auto_incomplete_body') {
-      throw new Error('这条记录因体测字段不完整被自动忽略，需等待上游生成完整数据后重新同步。');
-    }
-
     const snapshot = objectValue(row.metadata.snapshot);
     if (row.record_kind === 'body_measurement') {
       if (snapshot) await restoreBodySnapshot(client, row, snapshot);
-      else await restoreBodyFromRaw(client, row);
+      else if (objectValue(row.metadata.rawRecord)) {
+        await restoreBodyFromRaw(client, row);
+      } else {
+        throw new Error('这条体测记录没有可恢复的原始数据，请等待下一次同步。');
+      }
     } else if (snapshot && row.record_kind === 'health_workout') {
       await restoreHealthWorkoutSnapshot(client, row, snapshot);
     } else if (snapshot && row.record_kind === 'cycling_activity') {

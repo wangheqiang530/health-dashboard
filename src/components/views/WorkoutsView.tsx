@@ -6,6 +6,7 @@ import { WorkoutDetailModal } from '../dashboard/WorkoutDetailModal';
 import { AppleTrainingLoadCard } from '../dashboard/AppleTrainingLoadCard';
 import { DateRangePickerModal } from '../ui/DateRangePickerModal';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
+import { preloadAmap } from '../../utils/amapLoader';
 import { fetchWorkoutDetail, fetchWorkouts, uploadFitFile } from '../../api/healthApi';
 import {
   Bike,
@@ -69,7 +70,9 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     setWorkoutError(null);
     try {
       const result = await fetchWorkouts({
-        limit: 10000,
+        from: fromDate || undefined,
+        to: toDate || undefined,
+        limit: datePreset === 'all' ? 10000 : 1000,
       });
       setAllWorkouts(result.workouts);
     } catch (error) {
@@ -78,13 +81,17 @@ export const WorkoutsView: React.FC<WorkoutsViewProps> = ({ onRefreshData }) => 
     } finally {
       setLoadingWorkouts(false);
     }
-  }, []);
+  }, [datePreset, fromDate, toDate]);
 
   useEffect(() => {
     // Loading is intentionally toggled around the asynchronous workout query.
     // oxlint-disable-next-line react/set-state-in-effect
     void loadWorkouts();
   }, [loadWorkouts]);
+
+  useEffect(() => {
+    void preloadAmap()?.catch(() => undefined);
+  }, []);
 
   const openWorkoutDetail = async (workout: WorkoutRecord) => {
     const requestId = detailRequestRef.current + 1;

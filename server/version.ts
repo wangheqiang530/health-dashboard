@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.ts';
 import { httpFetch } from './http.ts';
@@ -41,6 +42,9 @@ export interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  updateCheckStatus: 'ok' | 'cached' | 'unavailable';
+  updateCheckSource: 'dockerhub' | 'github' | 'cache' | null;
+  updateCheckCheckedAt: string | null;
   releaseUrl: string;
   repoUrl: string;
   dockerImage: string;
@@ -48,7 +52,22 @@ export interface VersionInfo {
   system?: SystemStatus;
 }
 
-let cachedVersionTag: { latestVersion: string | null; updateAvailable: boolean; expiresAt: number } | null = null;
+type UpdateSource = 'dockerhub' | 'github';
+
+interface CachedVersionTag {
+  latestVersion: string;
+  source: UpdateSource | 'cache';
+  checkedAt: string;
+  expiresAt: number;
+}
+
+interface LatestVersionResult {
+  latestVersion: string;
+  source: UpdateSource;
+}
+
+let cachedVersionTag: CachedVersionTag | null = null;
+const versionCachePath = path.join(config.dataDir, 'version-check.json');
 
 const readCurrentVersion = async (): Promise<string> => {
   const packagePath = fileURLToPath(new URL('../package.json', import.meta.url));
@@ -61,7 +80,7 @@ const parseSemver = (value: string): number[] | null => {
   return match ? match.slice(1, 4).map(Number) : null;
 };
 
-const compareVersions = (left: string, right: string): number => {
+export const compareVersions = (left: string, right: string): number => {
   const a = parseSemver(left);
   const b = parseSemver(right);
   if (!a || !b) return 0;
@@ -71,13 +90,62 @@ const compareVersions = (left: string, right: string): number => {
   return 0;
 };
 
-const fetchLatestDockerHubVersion = async (): Promise<string | null> => {
+const normalizeVersion = (value: string): string => value.trim().replace(/^v/i, '');
+
+const readPersistedVersionCache = async (): Promise<CachedVersionTag | null> => {
+  try {
+    const payload = JSON.parse(await fs.readFile(versionCachePath, 'utf8')) as {
+      latestVersion?: string;
+      source?: UpdateSource;
+      checkedAt?: string;
+    };
+    if (
+      !payload.latestVersion ||
+      parseSemver(payload.latestVersion) === null ||
+      (payload.source !== 'dockerhub' && payload.source !== 'github')
+    ) {
+      return null;
+    }
+    return {
+      latestVersion: normalizeVersion(payload.latestVersion),
+      source: payload.source,
+      checkedAt: payload.checkedAt || new Date().toISOString(),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedVersionCache = async (result: LatestVersionResult): Promise<void> => {
+  try {
+    await fs.mkdir(path.dirname(versionCachePath), { recursive: true });
+    const temporaryPath = `${versionCachePath}.tmp`;
+    await fs.writeFile(
+      temporaryPath,
+      JSON.stringify(
+        {
+          latestVersion: result.latestVersion,
+          source: result.source,
+          checkedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )
+    );
+    await fs.rename(temporaryPath, versionCachePath);
+  } catch {
+    // The update check must never affect dashboard availability.
+  }
+};
+
+const fetchLatestDockerHubVersion = async (): Promise<LatestVersionResult | null> => {
   const repository = config.dockerHubRepository;
   const response = await httpFetch(
-    `https://hub.docker.com/v2/repositories/${repository}/tags?page_size=50&ordering=last_updated`,
+    `https://hub.docker.com/v2/repositories/${repository}/tags?page_size=100&ordering=last_updated`,
     {
       headers: { Accept: 'application/json', 'User-Agent': 'health-dashboard-update-check' },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(8_000),
     }
   );
   if (!response.ok) return null;
@@ -86,7 +154,46 @@ const fetchLatestDockerHubVersion = async (): Promise<string | null> => {
     .map((tag) => tag.name)
     .filter((tag): tag is string => parseSemver(tag) !== null);
   versions.sort((left, right) => compareVersions(right, left));
-  return versions[0]?.replace(/^v/i, '') || null;
+  return versions[0]
+    ? { latestVersion: normalizeVersion(versions[0]), source: 'dockerhub' }
+    : null;
+};
+
+const fetchLatestGitHubVersion = async (): Promise<LatestVersionResult | null> => {
+  const response = await httpFetch(
+    `https://api.github.com/repos/${config.githubRepository}/tags?per_page=100`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'health-dashboard-update-check',
+      },
+      signal: AbortSignal.timeout(8_000),
+    }
+  );
+  if (!response.ok) return null;
+  const payload = (await response.json()) as Array<{ name?: string }>;
+  const versions = payload
+    .map((tag) => tag.name || '')
+    .filter((tag) => parseSemver(tag) !== null);
+  versions.sort((left, right) => compareVersions(right, left));
+  return versions[0]
+    ? { latestVersion: normalizeVersion(versions[0]), source: 'github' }
+    : null;
+};
+
+const fetchLatestVersion = async (): Promise<LatestVersionResult | null> => {
+  const sources = [fetchLatestDockerHubVersion(), fetchLatestGitHubVersion()];
+  try {
+    return await Promise.any(
+      sources.map(async (request) => {
+        const result = await request;
+        if (!result) throw new Error('版本源没有可用版本');
+        return result;
+      })
+    );
+  } catch {
+    return null;
+  }
 };
 
 const formatBytes = (bytes: number): string => {
@@ -100,19 +207,48 @@ export async function getVersionInfo(): Promise<VersionInfo> {
   const currentVersion = await readCurrentVersion();
   let latestVersion: string | null = null;
   let updateAvailable = false;
+  let updateCheckStatus: VersionInfo['updateCheckStatus'] = 'unavailable';
+  let updateCheckSource: VersionInfo['updateCheckSource'] = null;
+  let updateCheckCheckedAt: string | null = null;
 
   if (cachedVersionTag && Date.now() < cachedVersionTag.expiresAt) {
     latestVersion = cachedVersionTag.latestVersion;
-    updateAvailable = cachedVersionTag.updateAvailable;
+    updateCheckSource = cachedVersionTag.source;
+    updateCheckCheckedAt = cachedVersionTag.checkedAt;
+    updateCheckStatus = cachedVersionTag.source === 'cache' ? 'cached' : 'ok';
   } else {
-    latestVersion = await fetchLatestDockerHubVersion().catch(() => null);
-    updateAvailable = latestVersion !== null && compareVersions(latestVersion, currentVersion) > 0;
-    cachedVersionTag = {
-      latestVersion,
-      updateAvailable,
-      expiresAt: Date.now() + (latestVersion ? 60 * 60 * 1000 : 5 * 60 * 1000),
-    };
+    const remote = await fetchLatestVersion().catch(() => null);
+    if (remote) {
+      latestVersion = remote.latestVersion;
+      updateCheckSource = remote.source;
+      updateCheckCheckedAt = new Date().toISOString();
+      updateCheckStatus = 'ok';
+      cachedVersionTag = {
+        latestVersion: remote.latestVersion,
+        source: remote.source,
+        checkedAt: updateCheckCheckedAt,
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      };
+      await writePersistedVersionCache(remote);
+    } else {
+      const persisted = await readPersistedVersionCache();
+      if (persisted) {
+        latestVersion = persisted.latestVersion;
+        updateCheckSource = 'cache';
+        updateCheckCheckedAt = persisted.checkedAt;
+        updateCheckStatus = 'cached';
+        cachedVersionTag = {
+          ...persisted,
+          source: 'cache',
+          expiresAt: Date.now() + 5 * 60 * 1000,
+        };
+      } else {
+        cachedVersionTag = null;
+      }
+    }
   }
+  updateAvailable =
+    latestVersion !== null && compareVersions(latestVersion, currentVersion) > 0;
 
   const mem = process.memoryUsage();
   const rssMb = Number((mem.rss / 1024 / 1024).toFixed(1));
@@ -182,6 +318,9 @@ export async function getVersionInfo(): Promise<VersionInfo> {
     currentVersion,
     latestVersion,
     updateAvailable,
+    updateCheckStatus,
+    updateCheckSource,
+    updateCheckCheckedAt,
     releaseUrl: `https://github.com/${config.githubRepository}/releases`,
     repoUrl: `https://github.com/${config.githubRepository}`,
     dockerImage: `docker.io/${config.dockerHubRepository}`,

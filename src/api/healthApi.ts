@@ -46,6 +46,12 @@ export interface ImportBatchItem {
   errorMessage: string | null;
 }
 
+export interface ActivityGoals {
+  moveKcal: number;
+  exerciseMinutes: number;
+  standHours: number;
+}
+
 export interface BackendConfig {
   sources: DataSourceConfig[];
   hae: {
@@ -56,6 +62,7 @@ export interface BackendConfig {
   map: {
     proxyUrl: string;
   };
+  activityGoals: ActivityGoals;
   database: {
     connected: boolean;
     dailySummaries: number;
@@ -117,6 +124,8 @@ export interface IgnoredRecord {
   displayName: string;
   recordDate: string | null;
   snapshotAvailable: boolean;
+  rawRecordAvailable?: boolean;
+  canRestore?: boolean;
 }
 
 export interface DataCoverage {
@@ -174,6 +183,9 @@ export interface VersionInfo {
   currentVersion: string;
   latestVersion: string | null;
   updateAvailable: boolean;
+  updateCheckStatus: 'ok' | 'cached' | 'unavailable';
+  updateCheckSource: 'dockerhub' | 'github' | 'cache' | null;
+  updateCheckCheckedAt: string | null;
   releaseUrl: string;
   repoUrl?: string;
   dockerImage: string;
@@ -388,6 +400,29 @@ export async function fetchBackendConfig(): Promise<BackendConfig> {
     headers: { Accept: 'application/json' },
   });
   return parseResponse<BackendConfig>(response);
+}
+
+export async function fetchActivityGoals(): Promise<{ goals: ActivityGoals }> {
+  const response = await apiFetch('/api/v1/config/activity-goals', {
+    headers: { Accept: 'application/json' },
+  });
+  return parseResponse<{ goals: ActivityGoals }>(response);
+}
+
+export async function updateActivityGoals(goals: ActivityGoals): Promise<{
+  ok: true;
+  goals: ActivityGoals;
+  message: string;
+}> {
+  const response = await apiFetch('/api/v1/config/activity-goals', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(goals),
+  });
+  return parseResponse(response);
 }
 
 export async function fetchHaeApiKeys(): Promise<{ apiKeys: HaeApiKey[] }> {

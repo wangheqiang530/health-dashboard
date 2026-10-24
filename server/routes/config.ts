@@ -27,11 +27,13 @@ import {
 } from '../importTasks.ts';
 import { parseFitActivity, safeFitFilename } from '../fit.ts';
 import {
+  getActivityGoals,
   createHaeApiKey,
   deleteHaeApiKey,
   getArchiveRetentionDays,
   getMapProxyUrl,
   listHaeApiKeys,
+  setActivityGoals,
   setArchiveRetentionDays,
   setMapProxyUrl,
   updateHaeApiKey,
@@ -115,6 +117,12 @@ const allSourceParamSchema = z.object({
 
 const storageSchema = z.object({
   retentionDays: z.number().int().min(0).max(3650),
+});
+
+const activityGoalsSchema = z.object({
+  moveKcal: z.number().int().min(1).max(5000),
+  exerciseMinutes: z.number().int().min(1).max(1440),
+  standHours: z.number().int().min(1).max(24),
 });
 
 const importHistoryQuerySchema = z.object({
@@ -207,58 +215,60 @@ const sourceView = (source: SourceRow) => ({
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/config', async (request) => {
-    const [sources, runs, counts, retentionDays, archiveStats, archives] = await Promise.all([
-      pool.query<SourceRow>('SELECT * FROM data_sources ORDER BY id'),
-      pool.query<RunRow>(
-        `SELECT id, source_id, trigger_type, status, started_at, finished_at,
-                records_count, message, details
-         FROM sync_runs
-         ORDER BY started_at DESC
-         LIMIT 20`
-      ),
-      pool.query<{
-        daily_count: string;
-        metric_count: string;
-        workout_count: string;
-        body_count: string;
-        ride_count: string;
-        raw_record_count: string;
-        sample_count: string;
-        import_batch_count: string;
-        failed_batch_count: string;
-        daily_earliest: string | null;
-        daily_latest: string | null;
-        body_earliest: string | null;
-        body_latest: string | null;
-        ride_earliest: string | null;
-        ride_latest: string | null;
-        workout_earliest: string | null;
-        workout_latest: string | null;
-      }>(
-        `SELECT
-          (SELECT COUNT(*) FROM daily_summaries)::text AS daily_count,
-          (SELECT COUNT(*) FROM health_metric_points)::text AS metric_count,
-          (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
-          (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
-          (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
-          (SELECT COUNT(*) FROM health_raw_records)::text AS raw_record_count,
-          (SELECT COUNT(*) FROM health_samples)::text AS sample_count,
-          (SELECT COUNT(*) FROM import_batches)::text AS import_batch_count,
-          (SELECT COUNT(*) FROM import_batches WHERE status = 'failed')::text AS failed_batch_count,
-          (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
-          (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
-          (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
-          (SELECT to_char(MAX(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_latest,
-          (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_earliest,
-          (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_latest,
-          (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_earliest,
-          (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_latest`,
-        [config.timezone]
-      ),
-      getArchiveRetentionDays(),
-      getArchiveStats(),
-      listArchives(12),
-    ]);
+    const [sources, runs, counts, retentionDays, archiveStats, archives, activityGoals] =
+      await Promise.all([
+        pool.query<SourceRow>('SELECT * FROM data_sources ORDER BY id'),
+        pool.query<RunRow>(
+          `SELECT id, source_id, trigger_type, status, started_at, finished_at,
+                  records_count, message, details
+           FROM sync_runs
+           ORDER BY started_at DESC
+           LIMIT 20`
+        ),
+        pool.query<{
+          daily_count: string;
+          metric_count: string;
+          workout_count: string;
+          body_count: string;
+          ride_count: string;
+          raw_record_count: string;
+          sample_count: string;
+          import_batch_count: string;
+          failed_batch_count: string;
+          daily_earliest: string | null;
+          daily_latest: string | null;
+          body_earliest: string | null;
+          body_latest: string | null;
+          ride_earliest: string | null;
+          ride_latest: string | null;
+          workout_earliest: string | null;
+          workout_latest: string | null;
+        }>(
+          `SELECT
+            (SELECT COUNT(*) FROM daily_summaries)::text AS daily_count,
+            (SELECT COUNT(*) FROM health_metric_points)::text AS metric_count,
+            (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
+            (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
+            (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
+            (SELECT COUNT(*) FROM health_raw_records)::text AS raw_record_count,
+            (SELECT COUNT(*) FROM health_samples)::text AS sample_count,
+            (SELECT COUNT(*) FROM import_batches)::text AS import_batch_count,
+            (SELECT COUNT(*) FROM import_batches WHERE status = 'failed')::text AS failed_batch_count,
+            (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
+            (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
+            (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
+            (SELECT to_char(MAX(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_latest,
+            (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_earliest,
+            (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_latest,
+            (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_earliest,
+            (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_latest`,
+          [config.timezone]
+        ),
+        getArchiveRetentionDays(),
+        getArchiveStats(),
+        listArchives(12),
+        getActivityGoals(),
+      ]);
     const haeApiKeys = await listHaeApiKeys();
     const haeApiKey = haeApiKeys.find((apiKey) => apiKey.enabled)?.key || '';
     const mapProxyUrl = await getMapProxyUrl();
@@ -275,6 +285,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       map: {
         proxyUrl: mapProxyUrl,
       },
+      activityGoals,
       database: {
         connected: true,
         dailySummaries: Number(count?.daily_count || 0),
@@ -328,6 +339,26 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         details: run.details,
       })),
       timezone: config.timezone,
+    };
+  });
+
+  app.get('/api/v1/config/activity-goals', async () => ({
+    goals: await getActivityGoals(),
+  }));
+
+  app.put('/api/v1/config/activity-goals', async (request, reply) => {
+    const body = activityGoalsSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({
+        error: '圆环目标无效：动态能量需为 1-5000 kcal，锻炼需为 1-1440 分钟，站立需为 1-24 小时。',
+      });
+    }
+
+    const goals = await setActivityGoals(body.data);
+    return {
+      ok: true,
+      goals,
+      message: '圆环目标已保存，并应用到现有健康摘要。',
     };
   });
 

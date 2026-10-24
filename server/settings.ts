@@ -16,12 +16,25 @@ const DASHBOARD_PASSWORD_HASH_SETTING = 'dashboard_password_hash';
 const DASHBOARD_SESSION_DURATION_SETTING = 'dashboard_session_duration';
 const ARCHIVE_RETENTION_SETTING = 'archive_retention_days';
 const MAP_PROXY_SETTING = 'map_proxy_url';
+const ACTIVITY_GOALS_SETTING = 'activity_goals';
 const INITIAL_PASSWORD_FILENAME = 'dashboard-initial-password.txt';
 const PASSWORD_RECOVERY_FILENAME = 'dashboard-password.txt';
 let haeApiKeysInitialized = false;
 let cachedDashboardPasswordHash: string | null = null;
 
 export type DashboardSessionDuration = 'session' | '1h' | '1d' | '7d' | '30d' | '365d';
+
+export interface ActivityGoals {
+  moveKcal: number;
+  exerciseMinutes: number;
+  standHours: number;
+}
+
+const DEFAULT_ACTIVITY_GOALS: ActivityGoals = {
+  moveKcal: 440,
+  exerciseMinutes: 30,
+  standHours: 12,
+};
 
 export const DASHBOARD_SESSION_DURATIONS: ReadonlyArray<{
   value: DashboardSessionDuration;
@@ -447,6 +460,66 @@ export async function setMapProxyUrl(proxyUrl: string): Promise<string> {
     return '';
   }
   await writeEncryptedSetting(MAP_PROXY_SETTING, normalized);
+  return normalized;
+}
+
+const normalizeActivityGoals = (value: Partial<ActivityGoals>): ActivityGoals => {
+  const normalizeInteger = (candidate: unknown, fallback: number, min: number, max: number) => {
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed)
+      ? Math.min(Math.max(Math.round(parsed), min), max)
+      : fallback;
+  };
+
+  return {
+    moveKcal: normalizeInteger(value.moveKcal, DEFAULT_ACTIVITY_GOALS.moveKcal, 1, 5000),
+    exerciseMinutes: normalizeInteger(
+      value.exerciseMinutes,
+      DEFAULT_ACTIVITY_GOALS.exerciseMinutes,
+      1,
+      1440
+    ),
+    standHours: normalizeInteger(value.standHours, DEFAULT_ACTIVITY_GOALS.standHours, 1, 24),
+  };
+};
+
+export async function getActivityGoals(): Promise<ActivityGoals> {
+  const saved = await readEncryptedSetting(ACTIVITY_GOALS_SETTING);
+  if (!saved) return { ...DEFAULT_ACTIVITY_GOALS };
+
+  try {
+    const parsed = JSON.parse(saved) as Partial<ActivityGoals>;
+    return normalizeActivityGoals(parsed);
+  } catch {
+    return { ...DEFAULT_ACTIVITY_GOALS };
+  }
+}
+
+export async function setActivityGoals(goals: ActivityGoals): Promise<ActivityGoals> {
+  const normalized = normalizeActivityGoals(goals);
+  await writeEncryptedSetting(ACTIVITY_GOALS_SETTING, JSON.stringify(normalized));
+  await pool.query(
+    `UPDATE daily_summaries
+     SET summary = jsonb_set(
+           jsonb_set(
+             jsonb_set(
+               summary,
+               '{rings,move,goal}',
+               to_jsonb($1::integer),
+               false
+             ),
+             '{rings,exercise,goal}',
+             to_jsonb($2::integer),
+             false
+           ),
+           '{rings,stand,goal}',
+           to_jsonb($3::integer),
+           false
+         ),
+         updated_at = NOW()
+     WHERE summary ? 'rings'`,
+    [normalized.moveKcal, normalized.exerciseMinutes, normalized.standHours]
+  );
   return normalized;
 }
 

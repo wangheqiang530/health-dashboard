@@ -4,6 +4,7 @@ import type { AutoExportSyncInfo, DailySummary } from '../../types/health';
 import { useCustomization, PRESET_COLORS, type LiquidColorPreset } from '../../context/CustomizationContext';
 import { AppleCard } from '../ui/AppleCard';
 import { DataSourceSettings } from './DataSourceSettings';
+import { ActivityGoalsSettings } from './ActivityGoalsSettings';
 import { SecuritySettings } from './SecuritySettings';
 import { DataAuditModal } from './DataAuditModal';
 import { AppleHealthZipModal } from '../dashboard/AppleHealthZipModal';
@@ -211,6 +212,8 @@ export const ConfigCenterView: React.FC<ConfigCenterViewProps> = ({
       </AppleCard>
 
       <SecuritySettings />
+
+      <ActivityGoalsSettings onGoalsChanged={onRefreshData} />
 
       <DataSourceSettings onDataChanged={onRefreshData} />
 

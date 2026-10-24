@@ -1,14 +1,14 @@
-# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v1.0.1)
+# 📊 健康面板 (Health Dashboard) - 完整项目状态报告 (v1.0.2)
 
 ## 1. 核心模块与实现状态
 
 | 模块 / 组件 | 技术栈 | 状态 | 说明 |
 | :--- | :--- | :---: | :--- |
-| **仪表盘总览 (Overview)** | React 19 + Tailwind v4 | ✅ 100% | 包含运动三环、今日核心指标、心率静息与最大值、睡眠简报与快捷同步卡片 |
+| **仪表盘总览 (Overview)** | React 19 + Tailwind v4 | ✅ 100% | 包含可配置目标的运动三环、今日核心指标、心率静息与最大值、睡眠简报与快捷同步卡片 |
 | **体征走势 (Metrics Trend)** | Lucide + Recharts / SVG | ✅ 100% | 支持步数、活动能量、心率范围、静息心率、HRV（心率变异性）日/周/月跨度查看 |
 | **睡眠分析 (Sleep)** | Framer Motion + TS | ✅ 100% | 支持核心睡眠、深度睡眠、REM 快速眼动与清醒时间分期对比与规律性评分 |
 | **身体成分 (Body Composition)** | Fitdays API + Fastify | ✅ 100% | 13+ 整身指标、五部位肌脂、20 kHz / 100 kHz 双频阻抗与历史趋势 |
-| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 摘要优先加载、按需拉取轨迹与遥测、高德 3D 地图、IF/NP/TSS/左右平衡与训练负荷 |
+| **运动记录与骑行 (Workouts)** | iGPSPORT API + HAE | ✅ 100% | 摘要优先加载、按需拉取轨迹与遥测、全屏高德 3D 地图、四路遥测联动、IF/NP/TSS/左右平衡与训练负荷 |
 | **数据管道 (Ingestion Pipelines)**| Fastify + Adm-Zip + Zod | ✅ 100% | 支持 HAE、Fitdays、iGPSPORT 与 Apple Health ZIP 后台导入；任务进度持久化、真实字节进度、失败与停滞恢复 |
 | **首次启动向导 (Onboarding)** | React Modal + Wizard | ✅ 100% | 自动检测零数据状态，提供交互式 3 步向导引导配置 HAE、体脂秤与骑行码表 |
 | **实时诊断面板 (Live Diagnostics)**| API Health Endpoint | ✅ 100% | 实时检测 Webhook 连通性、最近同步包大小、时间戳与解析耗时 |
@@ -58,7 +58,8 @@
 - **训练页性能回归**：真实 78 条训练摘要响应从约 `5.2 秒 / 2.17 MB` 降至 `83–187 ms / 约 32 KB`，单条详情按需返回轨迹与遥测。
 - **训练负荷回归**：完整 28 日窗口与 TSS 优先算法生效，修正最近一周筛选被误当作 28 日基线的问题，并合并同时间重复训练。
 - **Apple Health ZIP 后台导入回归**：验证真实 XML 字节进度、上传进度、任务恢复、失败阶段、45 秒停滞检测与重复导入幂等性。
+- **v1.0.2 数据与界面回归**：验证圆环目标在配置中心保存后即时生效；HAE 局部窗口不会覆盖较大的当天累计值；桌面与移动端目标配置无溢出；全屏地图和遥测联动可正常加载。
 - **容器镜像**：
-  - 官方 Hub 镜像：`wangheqiang/health-dashboard:1.0.1`（已发布，体积优化）
+  - 官方 Hub 镜像：`wangheqiang/health-dashboard:1.0.2`（已发布，体积优化）
   - 本地容器运行：已通过持续健康检查 (`healthy`)，内存开销 < 80MB。
 - **网络穿透与反代**：支持 Nginx Proxy Manager 反向代理，支持自定义端口及安全 HTTPS 协议。

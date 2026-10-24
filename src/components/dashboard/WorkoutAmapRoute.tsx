@@ -21,8 +21,9 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { GpxCoordinate, WorkoutRecord, WorkoutTelemetryPoint } from '../../types/health';
+import { loadAmap } from '../../utils/amapLoader';
 
-type MapMode = 'normal' | 'satellite' | 'terrain';
+export type WorkoutMapMode = 'normal' | 'satellite' | 'terrain';
 type MapTheme = 'dark' | 'light';
 
 interface WorkoutAmapRouteProps {
@@ -34,46 +35,10 @@ interface WorkoutAmapRouteProps {
   onTogglePlayback: () => void;
   onResetPlayback: () => void;
   onPlaybackSpeedChange: (speed: number) => void;
+  fullscreen?: boolean;
+  defaultMapMode?: WorkoutMapMode;
+  showMapBadge?: boolean;
 }
-
-declare global {
-  interface Window {
-    AMap?: any;
-    _AMapSecurityConfig?: {
-      securityJsCode: string;
-    };
-  }
-}
-
-let amapLoader: Promise<any> | null = null;
-
-const loadAmap = (key: string, securityCode: string): Promise<any> => {
-  if (window.AMap) return Promise.resolve(window.AMap);
-  if (amapLoader) return amapLoader;
-
-  amapLoader = new Promise((resolve, reject) => {
-    window._AMapSecurityConfig = { securityJsCode: securityCode };
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = `https://webapi.amap.com/maps?v=2.1Beta&key=${encodeURIComponent(key)}`;
-    script.onload = () => {
-      if (window.AMap) {
-        resolve(window.AMap);
-      } else {
-        amapLoader = null;
-        reject(new Error('高德地图脚本已加载，但 AMap 对象不可用。'));
-      }
-    };
-    script.onerror = () => {
-      amapLoader = null;
-      script.remove();
-      reject(new Error('高德地图加载失败，请检查网络或 Key 域名白名单。'));
-    };
-    document.head.appendChild(script);
-  });
-
-  return amapLoader;
-};
 
 const outOfChina = (lat: number, lng: number): boolean =>
   lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
@@ -186,6 +151,9 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
   onTogglePlayback,
   onResetPlayback,
   onPlaybackSpeedChange,
+  fullscreen = false,
+  defaultMapMode = 'normal',
+  showMapBadge = true,
 }) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
@@ -198,18 +166,20 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
       ? '缺少 VITE_AMAP_KEY 或 VITE_AMAP_SECURITY_CODE，高德地图暂不可用。'
       : null;
   const [amap, setAmap] = useState<any>(null);
-  const [mapMode, setMapMode] = useState<MapMode>('terrain');
+  const [mapMode, setMapMode] = useState<WorkoutMapMode>(defaultMapMode);
   const [mapTheme, setMapTheme] = useState<MapTheme>(isDark ? 'dark' : 'light');
   const [followMode, setFollowMode] = useState(true);
   const [pitchAngle, setPitchAngle] = useState(58);
   const [yawOffset, setYawOffset] = useState(0);
   const [mapError, setMapError] = useState<string | null>(missingConfigMessage);
   const [mapReady, setMapReady] = useState(false);
+  const [mapComplete, setMapComplete] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const playbackMarkerRef = useRef<any>(null);
   const progressRef = useRef(progress);
   const pitchAngleRef = useRef(pitchAngle);
+  const mapThemeRef = useRef<MapTheme>(mapTheme);
   const followModeRef = useRef(followMode);
   const cameraProgressRef = useRef(progress);
   const smoothedHeadingRef = useRef<number | null>(null);
@@ -224,6 +194,10 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
   useEffect(() => {
     pitchAngleRef.current = pitchAngle;
   }, [pitchAngle]);
+
+  useEffect(() => {
+    mapThemeRef.current = mapTheme;
+  }, [mapTheme]);
 
   useEffect(() => {
     followModeRef.current = followMode;
@@ -288,8 +262,19 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
   );
 
   useEffect(() => {
-    if (!amap || !mapContainerRef.current || convertedPoints.length < 2) return;
+    if (!amap || !mapContainerRef.current) return;
+    if (convertedPoints.length < 2) {
+      // The external AMap instance is being synchronized with the current route.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setMapReady(false);
+      setMapComplete(false);
+      setMapError('当前记录没有可用的 GPS 轨迹点。');
+      return;
+    }
+    // The external AMap instance is being synchronized with the current route.
+    // oxlint-disable-next-line react/set-state-in-effect
     setMapReady(false);
+    setMapComplete(false);
     setMapError(null);
 
     let map: any;
@@ -303,8 +288,12 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
         center: convertedPoints[0],
         resizeEnable: true,
         showLabel: true,
+        features: ['bg', 'road', 'building', 'point'],
+        showBuildingBlock: true,
         mapStyle:
-          mapTheme === 'dark' ? 'amap://styles/darkblue' : 'amap://styles/normal',
+          mapThemeRef.current === 'dark'
+            ? 'amap://styles/darkblue'
+            : 'amap://styles/normal',
         layers: satelliteLayers,
         viewMode: mapMode === 'terrain' ? '3D' : '2D',
         pitch: mapMode === 'terrain' ? pitchAngleRef.current : 0,
@@ -393,14 +382,30 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
       map.setBounds(bounds, false, [50, 70, 50, 70]);
     }
 
-    const readyTimer = window.setTimeout(() => setMapReady(true), 0);
+    const handleMapComplete = () => {
+      setMapComplete(true);
+      setMapReady(true);
+    };
+    try {
+      map.on?.('complete', handleMapComplete);
+    } catch {
+      // The complete event is optional on older AMap builds.
+    }
+    const readyTimer = window.setTimeout(() => setMapReady(true), 1600);
+    const completeFallbackTimer = window.setTimeout(() => setMapComplete(true), 3500);
     const resizeTimer = window.setTimeout(() => {
       map.resize?.();
     }, 180);
 
     return () => {
       window.clearTimeout(readyTimer);
+      window.clearTimeout(completeFallbackTimer);
       window.clearTimeout(resizeTimer);
+      try {
+        map.off?.('complete', handleMapComplete);
+      } catch {
+        // Ignore event cleanup failures while the map is being replaced.
+      }
       try {
         map.destroy();
       } catch {
@@ -409,7 +414,19 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
       mapRef.current = null;
       playbackMarkerRef.current = null;
     };
-  }, [amap, convertedPoints, mapMode, mapTheme, routeSpeeds]);
+  }, [amap, convertedPoints, mapMode, routeSpeeds]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      map.setMapStyle?.(
+        mapTheme === 'dark' ? 'amap://styles/darkblue' : 'amap://styles/normal'
+      );
+    } catch {
+      // Theme changes should never take down the map.
+    }
+  }, [mapTheme]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -546,8 +563,20 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
   const normalizedProgress = clamp(progress, 0, 1);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-black/10 bg-[#0b1220] shadow-2xl dark:border-white/10">
-      <div className="relative h-[340px] overflow-hidden sm:h-[360px] lg:h-[370px]">
+    <div
+      className={
+        fullscreen
+          ? 'relative h-full w-full overflow-hidden bg-[#0b1220]'
+          : 'overflow-hidden rounded-2xl border border-black/10 bg-[#0b1220] shadow-2xl dark:border-white/10'
+      }
+    >
+      <div
+        className={
+          fullscreen
+            ? 'relative h-full w-full overflow-hidden'
+            : 'relative h-[340px] overflow-hidden sm:h-[360px] lg:h-[370px]'
+        }
+      >
         <div
           ref={mapContainerRef}
           role="application"
@@ -556,7 +585,8 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-slate-950/20 via-transparent to-slate-950/20" />
 
-        <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap items-center gap-2">
+        {showMapBadge && (
+          <div className="pointer-events-none absolute left-3 top-3 flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-md border border-white/12 bg-slate-950/80 px-2.5 py-1.5 text-[10px] font-semibold text-slate-100 shadow-lg backdrop-blur-md">
             <MapIcon className="h-3.5 w-3.5 text-sky-300" />
             高德地图
@@ -571,9 +601,16 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
           <span className="hidden rounded-md border border-white/10 bg-slate-950/72 px-2 py-1 text-[9px] text-slate-300 backdrop-blur-md sm:inline-flex">
             {routePoints.length.toLocaleString()} 轨迹点
           </span>
-        </div>
+          </div>
+        )}
 
-        <div className="absolute right-3 top-3 flex items-center gap-1.5">
+        <div
+          className={
+            fullscreen
+              ? 'absolute right-3 top-[212px] z-20 flex items-center gap-1.5 sm:top-3'
+              : 'absolute right-3 top-3 flex items-center gap-1.5'
+          }
+        >
           <div className="flex rounded-md border border-white/12 bg-slate-950/82 p-0.5 shadow-lg backdrop-blur-md">
             {[
               { id: 'normal' as const, label: '普通', icon: MapIcon },
@@ -630,7 +667,11 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
           </div>
         </div>
 
-        <div className="pointer-events-none absolute bottom-12 left-3 rounded-md border border-white/10 bg-slate-950/76 px-2.5 py-1.5 text-[9px] text-slate-300 backdrop-blur-md">
+        <div
+          className={`pointer-events-none absolute bottom-12 left-3 rounded-md border border-white/10 bg-slate-950/76 px-2.5 py-1.5 text-[9px] text-slate-300 backdrop-blur-md ${
+            fullscreen ? 'hidden sm:block' : ''
+          }`}
+        >
           <span className="mr-1.5 font-semibold">轨迹速度</span>
           <span className="inline-block h-1.5 w-16 translate-y-[-1px] rounded-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-rose-500" />
           <span className="ml-1.5">慢 → 快</span>
@@ -715,12 +756,77 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
           </div>
         )}
 
+        {fullscreen && mapMode === 'terrain' && (
+          <div className="absolute right-3 top-[258px] z-20 flex gap-1 rounded-md border border-white/12 bg-slate-950/82 p-1 shadow-lg backdrop-blur-md sm:hidden">
+            <button
+              type="button"
+              onClick={() => adjustZoom(1)}
+              className="flex h-8 w-8 items-center justify-center rounded bg-white/[0.06] text-slate-200 transition hover:bg-white/15"
+              aria-label="放大地图"
+              title="放大地图"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => adjustZoom(-1)}
+              className="flex h-8 w-8 items-center justify-center rounded bg-white/[0.06] text-slate-200 transition hover:bg-white/15"
+              aria-label="缩小地图"
+              title="缩小地图"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {fullscreen && mapMode === 'terrain' && (
+          <div className="absolute right-3 top-[310px] z-20 w-[92px] rounded-lg border border-white/12 bg-slate-950/82 p-1.5 shadow-xl backdrop-blur-md sm:hidden">
+            <div className="mb-1 flex items-center justify-between px-0.5">
+              <span className="text-[8px] font-semibold text-slate-400">视角球</span>
+              <span className="font-mono text-[8px] text-sky-300">{pitchAngle}°</span>
+            </div>
+            <div
+              role="application"
+              tabIndex={0}
+              aria-label="拖动调整地图旋转和俯仰"
+              title="拖动调整旋转和俯仰，双击复位"
+              onPointerDown={handleViewPointerDown}
+              onPointerMove={handleViewPointerMove}
+              onPointerUp={handleViewPointerUp}
+              onPointerCancel={handleViewPointerUp}
+              onDoubleClick={() => applyViewAngles(0, 58)}
+              onKeyDown={handleViewKeyDown}
+              className="relative h-16 w-full touch-none select-none overflow-hidden rounded-full border border-sky-300/25 bg-[radial-gradient(circle_at_50%_45%,rgba(56,189,248,.14),rgba(15,23,42,.7))] shadow-inner outline-none focus:border-sky-300/60"
+            >
+              <div className="absolute inset-2 rounded-full border border-white/10" />
+              <div className="absolute inset-4 rounded-full border border-dashed border-white/10" />
+              <div className="absolute left-1/2 top-1/2 h-px w-3/4 -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+              <div className="absolute left-1/2 top-1/2 h-3/4 w-px -translate-x-1/2 -translate-y-1/2 bg-white/10" />
+              <div
+                className="pointer-events-none absolute h-5 w-5 rounded-full border-2 border-sky-100/90 bg-sky-400/85 shadow-[0_0_14px_rgba(56,189,248,.55)] transition-[left,top] duration-100"
+                style={{
+                  left: `${50 + (yawOffset / 180) * 38}%`,
+                  top: `${88 - (pitchAngle / 70) * 76}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {!mapReady && !mapError && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0b1220]">
             <div className="flex items-center gap-2 rounded-md border border-white/10 bg-slate-900/85 px-3 py-2 text-xs text-slate-300">
               <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
               正在加载高德地图与轨迹
             </div>
+          </div>
+        )}
+
+        {mapReady && !mapComplete && !mapError && (
+          <div className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/78 px-3 py-1.5 text-[9px] font-medium text-slate-300 shadow-lg backdrop-blur-md">
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+            道路与建筑细节加载中
           </div>
         )}
 
@@ -735,7 +841,13 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
         )}
       </div>
 
-      <div className="space-y-2.5 border-t border-white/10 bg-slate-950 px-3 py-3 text-slate-100 sm:px-4">
+      <div
+        className={
+          fullscreen
+            ? 'absolute inset-x-0 bottom-0 z-30 space-y-2.5 border-t border-white/10 bg-slate-950/88 px-3 py-3 text-slate-100 shadow-[0_-12px_36px_rgba(2,6,23,.45)] backdrop-blur-xl sm:px-4'
+            : 'space-y-2.5 border-t border-white/10 bg-slate-950 px-3 py-3 text-slate-100 sm:px-4'
+        }
+      >
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -808,7 +920,7 @@ export const WorkoutAmapRoute: React.FC<WorkoutAmapRouteProps> = ({
         />
         <div className="flex items-center justify-between gap-3 font-mono text-[9px] text-slate-500">
           <span>{Math.round(normalizedProgress * 100)}%</span>
-          <span className="truncate">拖动进度或下方曲线，地图光点与四项遥测同步定位</span>
+          <span className="truncate">拖动进度条，或在曲线图上按住拖动，地图光点与四项遥测同步定位</span>
           <span>高德地图 · GCJ-02</span>
         </div>
       </div>

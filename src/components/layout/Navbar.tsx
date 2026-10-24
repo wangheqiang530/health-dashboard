@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../context/ThemeContext';
 import { useCustomization } from '../../context/CustomizationContext';
@@ -52,6 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showSystemPopover, setShowSystemPopover] = useState(false);
   const [isSyncingDevices, setIsSyncingDevices] = useState(false);
   const [deviceSyncToast, setDeviceSyncToast] = useState<string | null>(null);
+  const lastVersionCheckRef = useRef(0);
   const [isWizardCompleted, setIsWizardCompleted] = useState<boolean>(() => {
     return typeof window !== 'undefined' && localStorage.getItem('health_dashboard_wizard_completed') === 'true';
   });
@@ -61,16 +62,29 @@ export const Navbar: React.FC<NavbarProps> = ({
     const loadVersion = async () => {
       try {
         const info = await fetchVersionInfo();
-        if (active) setVersionInfo(info);
+        if (active) {
+          setVersionInfo(info);
+          lastVersionCheckRef.current = Date.now();
+        }
       } catch {
         // The local version remains visible when the update check is offline.
       }
     };
     void loadVersion();
-    const timer = window.setInterval(() => void loadVersion(), 6 * 60 * 60 * 1000);
+    const timer = window.setInterval(() => void loadVersion(), 30 * 60 * 1000);
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastVersionCheckRef.current >= 30 * 60 * 1000
+      ) {
+        void loadVersion();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -131,6 +145,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     { key: 'workouts', label: '体能训练' },
     { key: 'config', label: '配置中心' },
   ];
+  const updateCheckStatus = versionInfo
+    ? versionInfo.updateCheckStatus ?? 'unavailable'
+    : undefined;
+  const updateCheckSourceLabel =
+    versionInfo?.updateCheckSource === 'dockerhub'
+      ? 'Docker Hub'
+      : versionInfo?.updateCheckSource === 'github'
+        ? 'GitHub Tags'
+        : versionInfo?.updateCheckSource === 'cache'
+          ? '本地缓存'
+          : '外部版本源';
 
   return (
     <header className="sticky top-0 z-40 w-full mb-6 transition-colors duration-200">
@@ -168,15 +193,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   className={`relative flex items-center gap-1 px-1.5 py-0.5 text-[9px] md:text-[10px] font-bold rounded-md border whitespace-nowrap transition-all ${
                     versionInfo?.updateAvailable
                       ? 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/35 hover:bg-amber-500/25 animate-pulse'
-                      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border-emerald-500/25 hover:bg-emerald-500/15'
+                      : !updateCheckStatus
+                        ? 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/25 hover:bg-slate-500/15'
+                        : updateCheckStatus === 'unavailable'
+                        ? 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border-slate-500/25 hover:bg-slate-500/15'
+                        : updateCheckStatus === 'cached'
+                          ? 'bg-sky-500/10 text-sky-600 dark:text-sky-300 border-sky-500/25 hover:bg-sky-500/15'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border-emerald-500/25 hover:bg-emerald-500/15'
                   }`}
                   title="点击查看 GitHub 仓库，鼠标悬停查看系统健康与运行状态"
                 >
-                  <span>v{versionInfo?.currentVersion || '1.0.1'}</span>
+                  <span>v{versionInfo?.currentVersion || '...'}</span>
                   {versionInfo?.updateAvailable ? (
                     <span className="flex items-center gap-0.5 text-[8px] text-amber-500 font-extrabold">
                       ● 新版 v{versionInfo.latestVersion}
                     </span>
+                  ) : !versionInfo ? null : updateCheckStatus === 'unavailable' ? (
+                    <span className="text-[8px] font-bold">● 更新检查离线</span>
+                  ) : updateCheckStatus === 'cached' ? (
+                    <span className="text-[8px] font-bold">● 缓存检查</span>
                   ) : (
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   )}
@@ -226,6 +261,39 @@ export const Navbar: React.FC<NavbarProps> = ({
                         </div>
                       )}
 
+                      {versionInfo && (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-black/5 bg-black/[0.025] px-2.5 py-2 text-[10px] dark:border-white/[0.08] dark:bg-white/[0.035]">
+                        <span className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
+                          <RefreshCw
+                            className={`h-3 w-3 ${
+                              updateCheckStatus === 'unavailable'
+                                ? 'text-amber-500'
+                                : updateCheckStatus === 'cached'
+                                  ? 'text-sky-500'
+                                  : 'text-emerald-500'
+                            }`}
+                          />
+                          版本更新检测
+                        </span>
+                        <span
+                          className={`text-right font-semibold ${
+                            updateCheckStatus === 'unavailable'
+                              ? 'text-amber-600 dark:text-amber-300'
+                              : 'text-neutral-700 dark:text-neutral-200'
+                          }`}
+                        >
+                          {updateCheckStatus === 'unavailable'
+                            ? '外部版本源暂不可用'
+                            : updateCheckStatus === 'cached'
+                              ? `使用缓存 · v${versionInfo?.latestVersion || '—'}`
+                              : `已检查 · v${versionInfo?.latestVersion || '—'}`}
+                          <span className="block text-[8px] font-normal text-neutral-400">
+                            {updateCheckSourceLabel}
+                          </span>
+                        </span>
+                      </div>
+                      )}
+
                       {/* Metrics List */}
                       <div className="space-y-1.5 text-[11px] font-mono">
                         <div className="flex items-center justify-between">
@@ -273,7 +341,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                       <div className="pt-1.5 border-t border-black/5 dark:border-white/10 text-[9px] text-neutral-400 flex items-center justify-between font-mono">
                         <span>Node.js {versionInfo?.system?.nodeVersion || 'v24'}</span>
-                        <span>当前系统镜像: v{versionInfo?.currentVersion || '1.0.1'}</span>
+                        <span>当前系统镜像: v{versionInfo?.currentVersion || '...'}</span>
                       </div>
                     </motion.div>
                   )}

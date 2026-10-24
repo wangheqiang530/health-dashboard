@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { WorkoutRecord } from '../../types/health';
 import {
@@ -17,6 +17,7 @@ import { WorkoutRoutePlayback } from './WorkoutRoutePlayback';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
 import { PowerDurationCurveCard } from './PowerDurationCurveCard';
 import { WorkoutHeartRateChart } from './WorkoutHeartRateChart';
+import { preloadAmap } from '../../utils/amapLoader';
 
 interface WorkoutDetailModalProps {
   workout: WorkoutRecord | null;
@@ -44,6 +45,11 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({
   detailLoading = false,
   detailError = null,
 }) => {
+  useEffect(() => {
+    if (!workout?.hasRoute && !workout?.routeGpxPoints?.length) return;
+    void preloadAmap()?.catch(() => undefined);
+  }, [workout?.hasRoute, workout?.routeGpxPoints?.length]);
+
   if (!workout) return null;
 
   const isIgpsport = workout.source === 'igpsport' || workout.id.startsWith('igpsport');
