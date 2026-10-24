@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.2-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.3-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -10,6 +10,11 @@
 一款专为极客、运动爱好者与 NAS 玩家打造的**开源私有化健康数据看板**。完美融合 **Apple Fitness 三环美学** 与 **Grow Bento 风格**，无缝聚合 Apple Watch、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表全量时序数据，实现从采集、解析、图表可视化到物理持久化的全流程闭环。
 
 ![综合看板预览](docs/images/overview.png)
+
+## 🆕 v1.0.3 更新
+
+- **启动阻塞修复**：HAE 历史摘要自愈改为服务监听成功后的后台任务，不再阻塞健康检查和反向代理。
+- **启动可观测性**：自愈开始、完成与失败均写入运行日志，失败不会影响主服务启动。
 
 ## 🆕 v1.0.2 更新
 
@@ -135,7 +140,7 @@ services:
         max-file: "3"
 
   app:
-    image: wangheqiang/health-dashboard:1.0.2
+    image: wangheqiang/health-dashboard:1.0.3
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -300,7 +305,7 @@ services:
       retries: 20
 
   app:
-    image: wangheqiang/health-dashboard:1.0.2
+    image: wangheqiang/health-dashboard:1.0.3
     container_name: health-dashboard-app
     restart: unless-stopped
     init: true
@@ -316,7 +321,7 @@ services:
       LOG_LEVEL: info
       MAX_HAE_BYTES: 268435456
       BACKUP_RETENTION_DAYS: 0
-      APP_VERSION: 1.0.2
+      APP_VERSION: 1.0.3
       DOCKERHUB_REPOSITORY: wangheqiang/health-dashboard
       GITHUB_REPOSITORY: wangheqiang530/health-dashboard
     ports:
@@ -407,7 +412,7 @@ http://192.168.1.20:8443
 | `POSTGRES_PORT` | `5433` | PostgreSQL 宿主机暴露端口（供外部 AI、Dify 或客户端直连） |
 | `APP_ENCRYPTION_KEY` | - | 32 字节随机 Hex 秘钥，用于加密存储数据源密码与 Webhook API Key |
 | `DASHBOARD_PORT` | `8443` | 宿主机 Web 访问端口 |
-| `APP_VERSION` | `1.0.2` | 当前发布的容器镜像版本号 |
+| `APP_VERSION` | `1.0.3` | 当前发布的容器镜像版本号 |
 | `DASHBOARD_PASSWORD` | 自动生成 | 可选的首个面板密码；当前密码始终同步到 `data/dashboard-password.txt`，登录后可在配置中心修改 |
 | `BACKUP_RETENTION_DAYS` | `0` | 本地原始备份（ZIP / gzip / FIT）保留天数；`0` 表示永久保留 |
 | `MAX_HAE_BYTES` | `268435456` | 请求体积上限 (256MB)，满足超大型健康导出包上传 |

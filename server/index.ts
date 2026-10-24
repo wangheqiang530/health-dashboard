@@ -167,19 +167,26 @@ try {
   if (passwordRecoveryFile) {
     app.log.info(`面板密码找回文件：${passwordRecoveryFile}`);
   }
-  try {
-    const repair = await repairHistoricalHaeSummaries();
-    if (repair.repairedCount > 0) {
-      app.log.info(`[hae:repair] 成功自愈与增量合并 ${repair.repairedCount} 天历史健康数据。`);
-    }
-  } catch (repairErr) {
-    app.log.warn({ err: repairErr }, '[hae:repair] 历史数据自愈合并跳过');
-  }
   await reloadSchedules();
   await startArchiveCleanupScheduler();
   await startBackupScheduler();
   await app.listen({ host: config.host, port: config.port });
   app.log.info(`Health Dashboard API listening on http://${config.host}:${config.port}`);
+  const repairTimer = setTimeout(() => {
+    app.log.info('[hae:repair] 开始后台自愈历史健康摘要');
+    void repairHistoricalHaeSummaries()
+      .then((repair) => {
+        if (repair.repairedCount > 0) {
+          app.log.info(
+            `[hae:repair] 成功自愈与增量合并 ${repair.repairedCount} 天历史健康数据。`
+          );
+        }
+      })
+      .catch((repairErr) => {
+        app.log.warn({ err: repairErr }, '[hae:repair] 历史数据自愈合并跳过');
+      });
+  }, 10_000);
+  repairTimer.unref();
   void backfillCyclingRoutes()
     .then((result) => {
       if (result.scanned > 0) {
