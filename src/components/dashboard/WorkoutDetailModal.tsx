@@ -50,6 +50,47 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({
     void preloadAmap()?.catch(() => undefined);
   }, [workout?.hasRoute, workout?.routeGpxPoints?.length]);
 
+  const powerTelemetry = (workout?.telemetry || [])
+    .map((p) => p.power)
+    .filter((p): p is number => typeof p === 'number' && Number.isFinite(p) && p >= 0);
+
+  const cogganZones = React.useMemo(() => {
+    if (!workout || powerTelemetry.length === 0) return null;
+    const ftp =
+      workout.normalizedPower && workout.intensityFactor && workout.intensityFactor > 0
+        ? Math.round(workout.normalizedPower / workout.intensityFactor)
+        : workout.avgPower
+          ? Math.max(120, Math.round(workout.avgPower * 1.05))
+          : 200;
+
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    for (const p of powerTelemetry) {
+      const ratio = p / ftp;
+      if (ratio < 0.55) counts[0]++;
+      else if (ratio <= 0.75) counts[1]++;
+      else if (ratio <= 0.90) counts[2]++;
+      else if (ratio <= 1.05) counts[3]++;
+      else if (ratio <= 1.20) counts[4]++;
+      else if (ratio <= 1.50) counts[5]++;
+      else counts[6]++;
+    }
+    const total = powerTelemetry.length || 1;
+    const zoneDefs = [
+      { zone: 'Z1', name: '积极恢复 (<55% FTP)', color: '#94A3B8' },
+      { zone: 'Z2', name: '有氧耐力 (56-75% FTP)', color: '#38BDF8' },
+      { zone: 'Z3', name: '节奏耐力 (76-90% FTP)', color: '#4ADE80' },
+      { zone: 'Z4', name: '乳酸阈值 (91-105% FTP)', color: '#FACC15' },
+      { zone: 'Z5', name: '无氧摄氧 (106-120% FTP)', color: '#FB923C' },
+      { zone: 'Z6', name: '无氧耐受 (121-150% FTP)', color: '#F43F5E' },
+      { zone: 'Z7', name: '神经肌肉 (>150% FTP)', color: '#A855F7' },
+    ];
+    return zoneDefs.map((def, idx) => ({
+      ...def,
+      pct: Math.round((counts[idx] / total) * 100),
+      count: counts[idx],
+    }));
+  }, [workout, powerTelemetry]);
+
   if (!workout) return null;
 
   const isIgpsport = workout.source === 'igpsport' || workout.id.startsWith('igpsport');
@@ -434,9 +475,27 @@ export const WorkoutDetailModal: React.FC<WorkoutDetailModalProps> = ({
                   NP: {workout.normalizedPower ? `${workout.normalizedPower}W` : '—'}
                 </span>
               </div>
-              <p className="text-xs text-neutral-400">
-                当前数据源未提供逐秒功率，因此不生成 Coggan 功率区间分布。
-              </p>
+              {cogganZones ? (
+                <div className="space-y-2">
+                  {cogganZones.map((z) => (
+                    <div key={z.zone} className="flex items-center gap-3 text-xs">
+                      <span className="w-8 font-mono font-bold text-neutral-500 dark:text-neutral-400">{z.zone}</span>
+                      <span className="w-36 text-neutral-700 dark:text-neutral-300 truncate">{z.name}</span>
+                      <div className="flex-1 h-2 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{ width: `${z.pct}%`, backgroundColor: z.color }}
+                        />
+                      </div>
+                      <span className="w-10 text-right font-mono font-bold text-neutral-900 dark:text-white">{z.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-400">
+                  当前数据源未提供逐秒功率采样，因此不生成 Coggan 功率区间分布。
+                </p>
+              )}
             </div>
           )}
 

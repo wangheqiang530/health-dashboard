@@ -15,7 +15,7 @@ COPY . .
 RUN pnpm build
 
 FROM node:22-alpine AS runtime
-ARG APP_VERSION=1.0.3
+ARG APP_VERSION=1.0.4
 LABEL org.opencontainers.image.title="health-dashboard" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.source="https://github.com/wangheqiang530/health-dashboard"

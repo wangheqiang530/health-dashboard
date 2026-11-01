@@ -1,5 +1,6 @@
 import type { WorkoutRecord, WorkoutTelemetryPoint } from '../src/types/health.ts';
 import { mergeDuplicateWorkouts } from '../src/utils/workoutDedupe.ts';
+import { parseRoutePoints } from '../src/utils/haeParser.ts';
 import { config } from './config.ts';
 import { pool } from './db.ts';
 
@@ -48,12 +49,8 @@ interface HaeWorkoutRow {
   local_date: string;
   local_start_time: string;
   source_name?: string | null;
-}
-
-interface HeartRateSampleRow {
-  workout_id: string;
-  elapsed_sec: number;
-  heart_rate: number;
+  has_route?: boolean;
+  has_telemetry?: boolean;
 }
 
 const numberOrNull = (value: string | number | null): number | null => {
@@ -155,10 +152,51 @@ const haeToWorkout = (row: HaeWorkoutRow): WorkoutRecord => {
   const activeCalories = Math.round(
     numberOrNull(row.active_energy_kcal) || rawWorkoutEnergy(row.raw_workout) || 0
   );
+  const raw = (row.raw_workout && typeof row.raw_workout === 'object' ? row.raw_workout : {}) as Record<string, any>;
+  const category = categoryFor(row.name);
+  const distanceKm = numberOrNull(row.distance_km) || undefined;
+
+  const cadenceAvg = Math.round(
+    numberOrNull(raw.avgCadence?.qty ?? raw.avgCadence ?? raw.cadence?.qty ?? raw.cadence ?? raw.stepCadence) || 0
+  ) || undefined;
+
+  const avgPower = Math.round(
+    numberOrNull(raw.avgPower?.qty ?? raw.avgPower ?? raw.power?.qty ?? raw.power ?? raw.cyclingPower) || 0
+  ) || undefined;
+  const maxPower = Math.round(
+    numberOrNull(raw.maxPower?.qty ?? raw.maxPower) || 0
+  ) || undefined;
+
+  const rawSpeed = numberOrNull(
+    raw.avgSpeed?.qty ?? raw.avgSpeed ?? raw.speed?.qty ?? raw.speed ?? raw.measurements?.averageSpeed?.value
+  );
+  const speedKmh =
+    rawSpeed !== null
+      ? rawSpeed > 0 && category === 'cycling' && rawSpeed < 15
+        ? Number((rawSpeed * 3.6).toFixed(1))
+        : Number(rawSpeed.toFixed(1))
+      : distanceKm && durationMinutes > 0
+        ? Number((distanceKm / (durationMinutes / 60)).toFixed(1))
+        : undefined;
+
+  let paceAvg: string | undefined;
+  if (category === 'cycling') {
+    paceAvg = speedKmh ? `${speedKmh.toFixed(1)} km/h` : undefined;
+  } else if (distanceKm && durationMinutes > 0) {
+    const totalSeconds = row.duration_sec || durationMinutes * 60;
+    const paceSeconds = Math.round(totalSeconds / distanceKm);
+    const paceMins = Math.floor(paceSeconds / 60);
+    const paceSecs = paceSeconds % 60;
+    paceAvg = `${String(paceMins).padStart(2, '0')}'${String(paceSecs).padStart(2, '0')}"`;
+  }
+
+  const routeGpxPoints = parseRoutePoints(raw.route ?? raw.locations);
+  const hasRoute = row.has_route ?? Boolean(routeGpxPoints?.length);
+
   return {
     id: `hae-${row.id}`,
     name: row.name,
-    category: categoryFor(row.name),
+    category,
     source: 'hae',
     date: row.local_date,
     startTime: row.local_start_time,
@@ -167,7 +205,11 @@ const haeToWorkout = (row: HaeWorkoutRow): WorkoutRecord => {
     totalCalories: activeCalories,
     avgHeartRate: row.avg_heart_rate || 0,
     maxHeartRate: row.max_heart_rate || 0,
-    distanceKm: numberOrNull(row.distance_km) || undefined,
+    distanceKm,
+    paceAvg,
+    cadenceAvg,
+    avgPower,
+    maxPower,
     elevationGainM: Math.round(numberOrNull(row.elevation_gain_m) || 0) || undefined,
     hrZones: {
       zone1: 0,
@@ -176,6 +218,8 @@ const haeToWorkout = (row: HaeWorkoutRow): WorkoutRecord => {
       zone4: 0,
       zone5: 0,
     },
+    hasRoute,
+    routeGpxPoints,
   };
 };
 
@@ -220,39 +264,76 @@ const rawHeartRateTelemetry = (row: HaeWorkoutRow): WorkoutTelemetryPoint[] => {
   return points;
 };
 
-const mergeHeartRateTelemetry = (
-  direct: WorkoutTelemetryPoint[],
-  sampled: WorkoutTelemetryPoint[]
-): WorkoutTelemetryPoint[] => {
-  const merged = new Map<number, WorkoutTelemetryPoint>();
-  for (const point of [...sampled, ...direct]) {
-    if (!Number.isFinite(point.elapsedSec) || !Number.isFinite(point.heartRate)) continue;
-    merged.set(Math.round(point.elapsedSec), point);
+const computeNormalizedPower = (telemetry: WorkoutTelemetryPoint[]): number | undefined => {
+  const points = telemetry.filter((p) => typeof p.power === 'number');
+  if (points.length < 30) return undefined;
+
+  const powers = points.map((p) => p.power!);
+  const rolling: number[] = [];
+  let sum = 0;
+  for (let i = 0; i < powers.length; i++) {
+    sum += powers[i];
+    if (i >= 29) {
+      if (i > 29) sum -= powers[i - 30];
+      rolling.push(sum / 30);
+    }
   }
-  return [...merged.values()].sort((left, right) => left.elapsedSec - right.elapsedSec);
+  if (rolling.length === 0) return undefined;
+  const sumFourth = rolling.reduce((acc, val) => acc + Math.pow(val, 4), 0);
+  const np = Math.pow(sumFourth / rolling.length, 0.25);
+  return Number.isFinite(np) && np > 0 ? Math.round(np) : undefined;
 };
 
-const loadHeartRateSamples = async (
-  workoutIds: string[]
-): Promise<Map<string, WorkoutTelemetryPoint[]>> => {
-  const samples = new Map<string, WorkoutTelemetryPoint[]>();
-  if (workoutIds.length === 0) return samples;
+interface TelemetrySampleRow {
+  workout_id: string;
+  elapsed_sec: number;
+  metric_kind: 'hr' | 'power' | 'cadence' | 'speed';
+  val: number;
+}
 
-  const heartRateRows = await pool.query<HeartRateSampleRow>(
+const loadHaeWorkoutTelemetry = async (
+  workouts: HaeWorkoutRow[]
+): Promise<Map<string, {
+  telemetry: WorkoutTelemetryPoint[];
+  avgPower?: number;
+  maxPower?: number;
+  normalizedPower?: number;
+  intensityFactor?: number;
+  tss?: number;
+  cadenceAvg?: number;
+}>> => {
+  const result = new Map();
+  if (workouts.length === 0) return result;
+  const workoutIds = workouts.map((w) => w.id);
+
+  const sampleRows = await pool.query<TelemetrySampleRow>(
     `SELECT
        hw.id::text AS workout_id,
        GREATEST(
          0,
          EXTRACT(EPOCH FROM (hs.start_at - hw.started_at))
        )::int AS elapsed_sec,
-       hs.value_num::float8 AS heart_rate
+       CASE
+         WHEN LOWER(REPLACE(hs.metric_name, ' ', '_')) IN (
+           'heart_rate', 'heartrate', 'hkquantitytypeidentifierheartrate'
+         ) THEN 'hr'
+         WHEN LOWER(REPLACE(hs.metric_name, ' ', '_')) IN (
+           'cycling_power', 'cyclingpower', 'hkquantitytypeidentifiercyclingpower'
+         ) THEN 'power'
+         WHEN LOWER(REPLACE(hs.metric_name, ' ', '_')) IN (
+           'cycling_cadence', 'cyclingcadence', 'step_cadence', 'stepcadence', 'hkquantitytypeidentifiercyclingcadence'
+         ) THEN 'cadence'
+         ELSE 'speed'
+       END AS metric_kind,
+       hs.value_num::float8 AS val
      FROM health_workouts hw
      JOIN health_samples hs
        ON hs.source_id = 'hae'
-      AND hs.metric_name IN (
-        'heart_rate',
-        'heartRate',
-        'HKQuantityTypeIdentifierHeartRate'
+      AND LOWER(REPLACE(hs.metric_name, ' ', '_')) IN (
+        'heart_rate', 'heartrate', 'hkquantitytypeidentifierheartrate',
+        'cycling_power', 'cyclingpower', 'hkquantitytypeidentifiercyclingpower',
+        'cycling_cadence', 'cyclingcadence', 'step_cadence', 'stepcadence', 'hkquantitytypeidentifiercyclingcadence',
+        'cycling_speed', 'cyclingspeed', 'walking_speed', 'speed'
       )
       AND hs.start_at >= hw.started_at - INTERVAL '1 minute'
       AND hs.start_at <= COALESCE(
@@ -260,23 +341,86 @@ const loadHeartRateSamples = async (
         hw.started_at + make_interval(secs => COALESCE(hw.duration_sec, 3600))
       ) + INTERVAL '5 minutes'
      WHERE hw.id = ANY($1::bigint[])
-       AND hs.value_num BETWEEN 30 AND 230
+       AND hs.value_num >= 0
      ORDER BY hw.id, hs.start_at
-     LIMIT 200000`,
+     LIMIT 300000`,
     [workoutIds]
   );
 
-  for (const sample of heartRateRows.rows) {
-    const points = samples.get(sample.workout_id) || [];
-    const elapsedSec = Math.max(0, Math.round(sample.elapsed_sec));
-    if (points.some((point) => point.elapsedSec === elapsedSec)) continue;
-    points.push({
-      elapsedSec,
-      heartRate: Math.round(sample.heart_rate),
-    });
-    samples.set(sample.workout_id, points);
+  const samplesByWorkout = new Map<string, TelemetrySampleRow[]>();
+  for (const row of sampleRows.rows) {
+    const list = samplesByWorkout.get(row.workout_id) || [];
+    list.push(row);
+    samplesByWorkout.set(row.workout_id, list);
   }
-  return samples;
+
+  for (const row of workouts) {
+    const rows = samplesByWorkout.get(row.id) || [];
+    const directHr = rawHeartRateTelemetry(row);
+    const pointMap = new Map<number, WorkoutTelemetryPoint>();
+
+    for (const d of directHr) {
+      pointMap.set(d.elapsedSec, { ...d });
+    }
+
+    for (const sample of rows) {
+      let pt = pointMap.get(sample.elapsed_sec);
+      if (!pt) {
+        pt = { elapsedSec: sample.elapsed_sec };
+        pointMap.set(sample.elapsed_sec, pt);
+      }
+      if (sample.metric_kind === 'hr' && sample.val >= 30 && sample.val <= 230) {
+        if (!pt.heartRate) pt.heartRate = Math.round(sample.val);
+      } else if (sample.metric_kind === 'power' && sample.val >= 0 && sample.val <= 2500) {
+        pt.power = Math.round(sample.val);
+      } else if (sample.metric_kind === 'cadence' && sample.val >= 0 && sample.val <= 250) {
+        pt.cadence = Math.round(sample.val);
+      } else if (sample.metric_kind === 'speed' && sample.val >= 0 && sample.val <= 150) {
+        const speedVal = Number(sample.val.toFixed(1));
+        pt.speedKmh = speedVal;
+      }
+    }
+
+    const telemetry = Array.from(pointMap.values()).sort((a, b) => a.elapsedSec - b.elapsedSec);
+    const powers = telemetry.map((p) => p.power).filter((p): p is number => typeof p === 'number' && p > 0);
+    const cadences = telemetry.map((p) => p.cadence).filter((c): c is number => typeof c === 'number' && c > 0);
+
+    let avgPower: number | undefined;
+    let maxPower: number | undefined;
+    let normalizedPower: number | undefined;
+    let intensityFactor: number | undefined;
+    let tss: number | undefined;
+    let cadenceAvg: number | undefined;
+
+    if (powers.length > 0) {
+      avgPower = Math.round(powers.reduce((a, b) => a + b, 0) / powers.length);
+      maxPower = Math.max(...powers);
+      normalizedPower = computeNormalizedPower(telemetry);
+      if (normalizedPower) {
+        const ftp = 200;
+        intensityFactor = Number((normalizedPower / ftp).toFixed(2));
+        const durationSec = row.duration_sec || (telemetry[telemetry.length - 1]?.elapsedSec || 0);
+        if (durationSec > 0) {
+          tss = Number(((durationSec * normalizedPower * intensityFactor) / (ftp * 3600) * 100).toFixed(1));
+        }
+      }
+    }
+
+    if (cadences.length > 0) {
+      cadenceAvg = Math.round(cadences.reduce((a, b) => a + b, 0) / cadences.length);
+    }
+
+    result.set(row.id, {
+      telemetry,
+      avgPower,
+      maxPower,
+      normalizedPower,
+      intensityFactor,
+      tss,
+      cadenceAvg,
+    });
+  }
+  return result;
 };
 
 export async function getWorkoutRecords(options: {
@@ -301,7 +445,17 @@ export async function getWorkoutRecords(options: {
          'source', raw_workout->'source',
          'activeEnergyBurned', raw_workout->'activeEnergyBurned',
          'activeEnergy', raw_workout->'activeEnergy',
-         'totalEnergyBurned', raw_workout->'totalEnergyBurned'
+         'totalEnergyBurned', raw_workout->'totalEnergyBurned',
+         'avgCadence', raw_workout->'avgCadence',
+         'cadence', raw_workout->'cadence',
+         'stepCadence', raw_workout->'stepCadence',
+         'avgPower', raw_workout->'avgPower',
+         'power', raw_workout->'power',
+         'cyclingPower', raw_workout->'cyclingPower',
+         'maxPower', raw_workout->'maxPower',
+         'avgSpeed', raw_workout->'avgSpeed',
+         'speed', raw_workout->'speed',
+         'measurements', raw_workout->'measurements'
        ) AS raw_workout`;
 
   const [cyclingRows, haeRows] = await Promise.all([
@@ -334,6 +488,12 @@ export async function getWorkoutRecords(options: {
          id::text, name, started_at, ended_at, duration_sec, active_energy_kcal,
          distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, ${haeRawWorkout},
          COALESCE(raw_workout->'source'->>'name', '') AS source_name,
+         CASE
+           WHEN jsonb_typeof(raw_workout->'route') = 'array' AND jsonb_array_length(raw_workout->'route') > 0 THEN TRUE
+           WHEN jsonb_typeof(raw_workout->'locations') = 'array' AND jsonb_array_length(raw_workout->'locations') > 0 THEN TRUE
+           WHEN jsonb_typeof(raw_workout->'route'->'locations') = 'array' AND jsonb_array_length(raw_workout->'route'->'locations') > 0 THEN TRUE
+           ELSE FALSE
+         END AS has_route,
          to_char((started_at AT TIME ZONE $3)::date, 'YYYY-MM-DD') AS local_date,
          to_char(started_at AT TIME ZONE $3, 'HH24:MI') AS local_start_time
        FROM health_workouts
@@ -346,9 +506,9 @@ export async function getWorkoutRecords(options: {
     ),
   ]);
 
-  const heartRateSamples = includeDetails
-    ? await loadHeartRateSamples(haeRows.rows.map((row) => row.id))
-    : new Map<string, WorkoutTelemetryPoint[]>();
+  const haeTelemetryMap = includeDetails
+    ? await loadHaeWorkoutTelemetry(haeRows.rows)
+    : new Map();
 
   const cyclingWorkouts = cyclingRows.rows.map(cyclingToWorkout);
 
@@ -356,13 +516,21 @@ export async function getWorkoutRecords(options: {
     .filter((row) => !/igpsport/i.test(haeSourceName(row)))
     .map((row) => {
       const workout = haeToWorkout(row);
-      const telemetry = includeDetails
-        ? mergeHeartRateTelemetry(
-            rawHeartRateTelemetry(row),
-            heartRateSamples.get(row.id) || []
-          )
-        : [];
-      return telemetry.length > 0 ? { ...workout, telemetry } : workout;
+      const tel = haeTelemetryMap.get(row.id);
+      if (tel) {
+        return {
+          ...workout,
+          cadenceAvg: workout.cadenceAvg ?? tel.cadenceAvg,
+          avgPower: workout.avgPower ?? tel.avgPower,
+          maxPower: workout.maxPower ?? tel.maxPower,
+          normalizedPower: tel.normalizedPower,
+          intensityFactor: tel.intensityFactor,
+          tss: tel.tss,
+          hasTelemetry: tel.telemetry.length > 0,
+          telemetry: tel.telemetry.length > 0 ? tel.telemetry : undefined,
+        };
+      }
+      return workout;
     });
 
   const workouts = mergeDuplicateWorkouts([...cyclingWorkouts, ...haeWorkouts]).sort(
@@ -389,6 +557,12 @@ export async function getWorkoutRecordById(id: string): Promise<WorkoutRecord | 
          id::text, name, started_at, ended_at, duration_sec, active_energy_kcal,
          distance_km, avg_heart_rate, max_heart_rate, elevation_gain_m, raw_workout,
          COALESCE(raw_workout->'source'->>'name', '') AS source_name,
+         CASE
+           WHEN jsonb_typeof(raw_workout->'route') = 'array' AND jsonb_array_length(raw_workout->'route') > 0 THEN TRUE
+           WHEN jsonb_typeof(raw_workout->'locations') = 'array' AND jsonb_array_length(raw_workout->'locations') > 0 THEN TRUE
+           WHEN jsonb_typeof(raw_workout->'route'->'locations') = 'array' AND jsonb_array_length(raw_workout->'route'->'locations') > 0 THEN TRUE
+           ELSE FALSE
+         END AS has_route,
          to_char((started_at AT TIME ZONE $2)::date, 'YYYY-MM-DD') AS local_date,
          to_char(started_at AT TIME ZONE $2, 'HH24:MI') AS local_start_time
        FROM health_workouts
@@ -399,12 +573,22 @@ export async function getWorkoutRecordById(id: string): Promise<WorkoutRecord | 
     const row = result.rows[0];
     if (!row) return null;
     const workout = haeToWorkout(row);
-    const heartRateSamples = await loadHeartRateSamples([row.id]);
-    const telemetry = mergeHeartRateTelemetry(
-      rawHeartRateTelemetry(row),
-      heartRateSamples.get(row.id) || []
-    );
-    return telemetry.length > 0 ? { ...workout, telemetry } : workout;
+    const telMap = await loadHaeWorkoutTelemetry([row]);
+    const tel = telMap.get(row.id);
+    if (tel) {
+      return {
+        ...workout,
+        cadenceAvg: workout.cadenceAvg ?? tel.cadenceAvg,
+        avgPower: workout.avgPower ?? tel.avgPower,
+        maxPower: workout.maxPower ?? tel.maxPower,
+        normalizedPower: tel.normalizedPower,
+        intensityFactor: tel.intensityFactor,
+        tss: tel.tss,
+        hasTelemetry: tel.telemetry.length > 0,
+        telemetry: tel.telemetry.length > 0 ? tel.telemetry : undefined,
+      };
+    }
+    return workout;
   }
 
   const externalId = id.startsWith('igpsport-')

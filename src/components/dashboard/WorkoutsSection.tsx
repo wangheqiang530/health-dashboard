@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import type { WorkoutRecord } from '../../types/health';
 import { AppleCard } from '../ui/AppleCard';
 import { WorkoutDetailModal } from './WorkoutDetailModal';
 import { Flame, Heart, ChevronRight, Activity, Dumbbell, Bike, Footprints } from 'lucide-react';
 import { getCalorieFoodEquivalents } from '../../utils/calorieFoods';
+import { fetchWorkoutDetail } from '../../api/healthApi';
 
 interface WorkoutsSectionProps {
   workouts: WorkoutRecord[];
@@ -11,6 +12,31 @@ interface WorkoutsSectionProps {
 
 export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) => {
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const detailRequestRef = useRef(0);
+
+  const handleSelectWorkout = async (w: WorkoutRecord) => {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setSelectedWorkout(w);
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const detail = await fetchWorkoutDetail(w.id);
+      if (detailRequestRef.current === requestId) {
+        setSelectedWorkout(detail);
+      }
+    } catch (err) {
+      if (detailRequestRef.current === requestId) {
+        setDetailError(err instanceof Error ? err.message : '读取详情失败');
+      }
+    } finally {
+      if (detailRequestRef.current === requestId) {
+        setDetailLoading(false);
+      }
+    }
+  };
 
   const getCategoryIcon = (category: WorkoutRecord['category']) => {
     switch (category) {
@@ -55,13 +81,13 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
             <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
               {workouts.map((w) => {
                 const Icon = getCategoryIcon(w.category);
-                const isIgpsport = w.id.startsWith('igpsport') || w.category === 'cycling';
+                const isIgpsport = w.source === 'igpsport' || w.id.startsWith('igpsport') || w.source === 'fit' || w.id.startsWith('fit-');
                 const food = getCalorieFoodEquivalents(w.activeCalories);
 
                 return (
                   <div
                     key={w.id}
-                    onClick={() => setSelectedWorkout(w)}
+                    onClick={() => void handleSelectWorkout(w)}
                     className="group p-3.5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.03] hover:bg-black/[0.05] dark:hover:bg-white/[0.07] border border-black/[0.05] dark:border-white/[0.05] hover:border-black/[0.1] dark:hover:border-white/[0.12] transition-all duration-200 cursor-pointer flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -123,6 +149,8 @@ export const WorkoutsSection: React.FC<WorkoutsSectionProps> = ({ workouts }) =>
       <WorkoutDetailModal
         workout={selectedWorkout}
         onClose={() => setSelectedWorkout(null)}
+        detailLoading={detailLoading}
+        detailError={detailError}
       />
     </>
   );

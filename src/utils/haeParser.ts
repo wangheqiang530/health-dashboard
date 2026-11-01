@@ -63,9 +63,18 @@ interface HAEWorkout {
   avgHeartRate?: HAEMeasurement;
   maxHeartRate?: HAEMeasurement;
   avgCadence?: HAEMeasurement;
+  cadence?: HAEMeasurement;
+  stepCadence?: HAEMeasurement;
+  avgPower?: HAEMeasurement;
+  power?: HAEMeasurement;
+  cyclingPower?: HAEMeasurement;
+  maxPower?: HAEMeasurement;
+  avgSpeed?: HAEMeasurement;
+  speed?: HAEMeasurement;
   elevationAscended?: HAEMeasurement;
   heartRateData?: HAEDataPoint[];
   route?: unknown;
+  locations?: unknown;
 }
 
 interface HAEPayload {
@@ -205,10 +214,16 @@ const formatPace = (secondsPerKm: number): string | undefined => {
   return `${minutes}'${seconds.toString().padStart(2, '0')}"`;
 };
 
-const parseRoutePoints = (route: unknown): GpxCoordinate[] | undefined => {
-  if (!Array.isArray(route)) return undefined;
+export const parseRoutePoints = (route: unknown): GpxCoordinate[] | undefined => {
+  if (!route) return undefined;
+  const list = Array.isArray(route)
+    ? route
+    : typeof route === 'object' && Array.isArray((route as { locations?: unknown }).locations)
+      ? (route as { locations: unknown[] }).locations
+      : [];
+  if (list.length === 0) return undefined;
   const points: GpxCoordinate[] = [];
-  for (const item of route) {
+  for (const item of list) {
     if (!item || typeof item !== 'object') continue;
     const point = item as Record<string, unknown>;
     const lat = finiteNumber(point.lat ?? point.latitude);
@@ -778,8 +793,6 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
           : undefined;
       const avgHeartRate = Math.round(finiteMeasure(workout.avgHeartRate) || 0);
       const maxHeartRate = Math.round(finiteMeasure(workout.maxHeartRate) || 0);
-      const cadence = finiteMeasure(workout.avgCadence);
-      const elevation = finiteMeasure(workout.elevationAscended);
       const nameLower = (workout.name || '').toLowerCase();
       let category: WorkoutRecord['category'] = 'running';
       if (nameLower.includes('骑行') || nameLower.includes('cycling') || nameLower.includes('bike')) {
@@ -793,6 +806,28 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
       } else if (nameLower.includes('游泳') || nameLower.includes('swim')) {
         category = 'swimming';
       }
+
+      const cadence =
+        finiteMeasure(workout.avgCadence) ??
+        finiteMeasure(workout.cadence) ??
+        finiteMeasure(workout.stepCadence);
+      const avgPower =
+        finiteMeasure(workout.avgPower) ??
+        finiteMeasure(workout.power) ??
+        finiteMeasure(workout.cyclingPower);
+      const maxPower = finiteMeasure(workout.maxPower);
+      const rawSpeed =
+        finiteMeasure(workout.avgSpeed) ??
+        finiteMeasure(workout.speed);
+      const speedKmh =
+        rawSpeed !== null
+          ? rawSpeed > 0 && category === 'cycling' && rawSpeed < 15
+            ? Number((rawSpeed * 3.6).toFixed(1))
+            : Number(rawSpeed.toFixed(1))
+          : distanceKm && durationMinutes > 0
+            ? Number((distanceKm / (durationMinutes / 60)).toFixed(1))
+            : undefined;
+      const elevation = finiteMeasure(workout.elevationAscended);
 
       const heartRatePoints = (workout.heartRateData || [])
         .map(pointValue)
@@ -834,14 +869,19 @@ export function parseHealthAutoExportJSON(rawJson: unknown): HaeParseResult {
         avgHeartRate: measuredAvgHr,
         maxHeartRate: measuredMaxHr,
         distanceKm,
-        paceAvg:
-          distanceKm && durationMinutes > 0
+        paceAvg: category === 'cycling'
+          ? speedKmh ? `${speedKmh.toFixed(1)} km/h` : undefined
+          : distanceKm && durationMinutes > 0
             ? formatPace((durationMinutes * 60) / distanceKm)
             : undefined,
         cadenceAvg: cadence === null ? undefined : Math.round(cadence),
+        avgPower: avgPower === null ? undefined : Math.round(avgPower),
+        maxPower: maxPower === null ? undefined : Math.round(maxPower),
         elevationGainM: elevation === null ? undefined : Math.round(elevation),
         hrZones: { zone1: 0, zone2: 0, zone3: 0, zone4: 0, zone5: 0 },
-        routeGpxPoints: parseRoutePoints(workout.route),
+        hasRoute: Boolean(parseRoutePoints(workout.route ?? workout.locations)?.length),
+        hasTelemetry: Boolean(heartRateTelemetry(workout, startDate, durationMinutes)?.length),
+        routeGpxPoints: parseRoutePoints(workout.route ?? workout.locations),
         telemetry: heartRateTelemetry(workout, startDate, durationMinutes),
       });
     });

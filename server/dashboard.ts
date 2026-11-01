@@ -571,6 +571,8 @@ export async function getDashboardData(options: {
       );
       if (duplicateIndex >= 0) {
         const existing = summary.workouts[duplicateIndex];
+        const routeGpxPoints = existing.routeGpxPoints || ride.routeGpxPoints;
+        const telemetry = existing.telemetry || ride.telemetry;
         summary.workouts[duplicateIndex] = {
           ...ride,
           ...existing,
@@ -580,6 +582,15 @@ export async function getDashboardData(options: {
           avgHeartRate: existing.avgHeartRate || ride.avgHeartRate,
           maxHeartRate: existing.maxHeartRate || ride.maxHeartRate,
           paceAvg: existing.paceAvg || ride.paceAvg,
+          avgPower: existing.avgPower || ride.avgPower,
+          maxPower: existing.maxPower || ride.maxPower,
+          normalizedPower: existing.normalizedPower || ride.normalizedPower,
+          intensityFactor: existing.intensityFactor || ride.intensityFactor,
+          tss: existing.tss || ride.tss,
+          hasRoute: Boolean(existing.hasRoute || ride.hasRoute || routeGpxPoints?.length),
+          hasTelemetry: Boolean(existing.hasTelemetry || ride.hasTelemetry || telemetry?.length),
+          routeGpxPoints,
+          telemetry,
         };
       } else {
         summary.workouts.push(ride);

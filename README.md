@@ -2,7 +2,7 @@
 
 > **“告别数据孤岛与付费云壁垒，让你的心率、体脂与骑行轨迹，100% 真正属于你自己。”**
 
-[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.3-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
+[![Docker Image Version](https://img.shields.io/badge/docker%20image-v1.0.4-blue?logo=docker)](https://hub.docker.com/r/wangheqiang/health-dashboard)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)]()
 [![PostgreSQL](https://img.shields.io/badge/postgresql-16-blue.svg)]()
@@ -10,6 +10,14 @@
 一款专为极客、运动爱好者与 NAS 玩家打造的**开源私有化健康数据看板**。完美融合 **Apple Fitness 三环美学** 与 **Grow Bento 风格**，无缝聚合 Apple Watch、Fitdays (沃莱) 智能体脂秤与 iGPSPORT (迹驰) 骑行码表全量时序数据，实现从采集、解析、图表可视化到物理持久化的全流程闭环。
 
 ![综合看板预览](docs/images/overview.png)
+
+## 🆕 v1.0.4 更新
+
+- **Apple Watch 骑行深度解析与遥测联动**：全面支持 Apple Watch 外接蓝牙功率计与踏频器的骑行记录，详情按需聚合关联逐秒功率、踏频与速度采样，实时推算 Coggan 标准化功率（NP）、强度因子（IF）及训练压力分数（TSS）。
+- **Coggan 经典 7 区间功率分布**：骑行运动详情全面支持 Coggan 7 区间（Z1 积极恢复 ~ Z7 神经肌肉）彩色分布与时间占比分析，消除未提供逐秒功率的静态占位。
+- **高德 3D 轨迹与路线对象兼容**：增强 HAE 路线与坐标解析器，完美兼容带有 locations 对象封装的 Apple Watch GPS 轨迹，放开对 Apple Watch 运动记录的地图轨迹与 4 路遥测联动展示。
+- **配置中心秒开与性能优化**：引入前端 SWR 缓存机制，再次访问配置中心 0 延迟秒开，彻底消除“正在读取 PostgreSQL 配置...”卡顿遮罩；后端全表统计与归档查询增加 30 秒内存缓存，杜绝重复全表扫描。
+- **运动来源徽章与交互修正**：修正大盘训练卡片中把 Apple Watch 骑行误标为码表的问题，点击大盘训练记录同步按需加载完整遥测与轨迹。
 
 ## 🆕 v1.0.3 更新
 

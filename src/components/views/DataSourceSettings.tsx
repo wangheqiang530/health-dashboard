@@ -111,10 +111,23 @@ const sourceLabel = (sourceId: 'hae' | SourceId): string => {
 const formatCoverage = (earliest: string | null, latest: string | null): string =>
   earliest && latest ? `${earliest} → ${latest}` : '暂无记录';
 
+let cachedBackendConfig: BackendConfig | null = null;
+
 export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataChanged }) => {
-  const [config, setConfig] = useState<BackendConfig | null>(null);
-  const [drafts, setDrafts] = useState<Record<SourceId, SourceDraft> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<BackendConfig | null>(() => cachedBackendConfig);
+  const [drafts, setDrafts] = useState<Record<SourceId, SourceDraft> | null>(() => {
+    if (!cachedBackendConfig) return null;
+    const fitdays = cachedBackendConfig.sources.find((source) => source.id === 'fitdays');
+    const igpsport = cachedBackendConfig.sources.find((source) => source.id === 'igpsport');
+    if (fitdays && igpsport) {
+      return {
+        fitdays: toDraft(fitdays),
+        igpsport: toDraft(igpsport),
+      };
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(() => !cachedBackendConfig);
   const [savingId, setSavingId] = useState<SourceId | null>(null);
   const [syncingId, setSyncingId] = useState<SourceId | null>(null);
   const [confirmFullSyncSource, setConfirmFullSyncSource] = useState<SourceId | null>(null);
@@ -137,10 +150,11 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
   const loadConfig = async (updateDrafts: boolean) => {
     try {
       const nextConfig = await fetchBackendConfig();
+      cachedBackendConfig = nextConfig;
       setConfig(nextConfig);
       setRetentionDays(String(nextConfig.storage.retentionDays));
       setMapProxyUrl(nextConfig.map?.proxyUrl || '');
-      if (updateDrafts) {
+      if (updateDrafts || !drafts) {
         const fitdays = nextConfig.sources.find((source) => source.id === 'fitdays');
         const igpsport = nextConfig.sources.find((source) => source.id === 'igpsport');
         if (fitdays && igpsport) {
@@ -151,10 +165,12 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
         }
       }
     } catch (error) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : '无法连接后端服务',
-      });
+      if (!config) {
+        setMessage({
+          type: 'error',
+          text: error instanceof Error ? error.message : '无法连接后端服务',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -561,7 +577,7 @@ export const DataSourceSettings: React.FC<DataSourceSettingsProps> = ({ onDataCh
     }
   };
 
-  if (loading) {
+  if (loading && !config) {
     return (
       <AppleCard>
         <div className="flex items-center gap-3 text-sm text-neutral-500 dark:text-neutral-400">

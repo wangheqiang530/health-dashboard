@@ -213,6 +213,74 @@ const sourceView = (source: SourceRow) => ({
   nextRunAt: source.id === 'hae' ? null : getNextScheduledRun(source.id),
 });
 
+let cachedCountsResult: any = null;
+let cachedCountsTimestamp = 0;
+let cachedArchiveStatsResult: any = null;
+let cachedArchiveStatsTimestamp = 0;
+
+export function invalidateConfigCountsCache(): void {
+  cachedCountsTimestamp = 0;
+  cachedArchiveStatsTimestamp = 0;
+}
+
+async function getCachedCounts(): Promise<any> {
+  if (Date.now() - cachedCountsTimestamp < 30_000 && cachedCountsResult) {
+    return cachedCountsResult;
+  }
+  const counts = await pool.query<{
+    daily_count: string;
+    metric_count: string;
+    workout_count: string;
+    body_count: string;
+    ride_count: string;
+    raw_record_count: string;
+    sample_count: string;
+    import_batch_count: string;
+    failed_batch_count: string;
+    daily_earliest: string | null;
+    daily_latest: string | null;
+    body_earliest: string | null;
+    body_latest: string | null;
+    ride_earliest: string | null;
+    ride_latest: string | null;
+    workout_earliest: string | null;
+    workout_latest: string | null;
+  }>(
+    `SELECT
+      (SELECT COUNT(*) FROM daily_summaries)::text AS daily_count,
+      (SELECT COUNT(*) FROM health_metric_points)::text AS metric_count,
+      (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
+      (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
+      (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
+      (SELECT COUNT(*) FROM health_raw_records)::text AS raw_record_count,
+      (SELECT COUNT(*) FROM health_samples)::text AS sample_count,
+      (SELECT COUNT(*) FROM import_batches)::text AS import_batch_count,
+      (SELECT COUNT(*) FROM import_batches WHERE status = 'failed')::text AS failed_batch_count,
+      (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
+      (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
+      (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
+      (SELECT to_char(MAX(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_latest,
+      (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_earliest,
+      (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_latest,
+      (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_earliest,
+      (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_latest`,
+    [config.timezone]
+  );
+  cachedCountsResult = counts;
+  cachedCountsTimestamp = Date.now();
+  return counts;
+}
+
+async function getCachedArchiveStats(): Promise<any> {
+  if (Date.now() - cachedArchiveStatsTimestamp < 30_000 && cachedArchiveStatsResult) {
+    return cachedArchiveStatsResult;
+  }
+  const stats = await getArchiveStats();
+  cachedArchiveStatsResult = stats;
+  cachedArchiveStatsTimestamp = Date.now();
+  return stats;
+}
+
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/config', async (request) => {
     const [sources, runs, counts, retentionDays, archiveStats, archives, activityGoals] =
@@ -225,47 +293,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
            ORDER BY started_at DESC
            LIMIT 20`
         ),
-        pool.query<{
-          daily_count: string;
-          metric_count: string;
-          workout_count: string;
-          body_count: string;
-          ride_count: string;
-          raw_record_count: string;
-          sample_count: string;
-          import_batch_count: string;
-          failed_batch_count: string;
-          daily_earliest: string | null;
-          daily_latest: string | null;
-          body_earliest: string | null;
-          body_latest: string | null;
-          ride_earliest: string | null;
-          ride_latest: string | null;
-          workout_earliest: string | null;
-          workout_latest: string | null;
-        }>(
-          `SELECT
-            (SELECT COUNT(*) FROM daily_summaries)::text AS daily_count,
-            (SELECT COUNT(*) FROM health_metric_points)::text AS metric_count,
-            (SELECT COUNT(*) FROM health_workouts)::text AS workout_count,
-            (SELECT COUNT(*) FROM body_measurements)::text AS body_count,
-            (SELECT COUNT(*) FROM cycling_activities)::text AS ride_count,
-            (SELECT COUNT(*) FROM health_raw_records)::text AS raw_record_count,
-            (SELECT COUNT(*) FROM health_samples)::text AS sample_count,
-            (SELECT COUNT(*) FROM import_batches)::text AS import_batch_count,
-            (SELECT COUNT(*) FROM import_batches WHERE status = 'failed')::text AS failed_batch_count,
-            (SELECT to_char(MIN(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_earliest,
-            (SELECT to_char(MAX(day), 'YYYY-MM-DD') FROM daily_summaries) AS daily_latest,
-            (SELECT to_char(MIN(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_earliest,
-            (SELECT to_char(MAX(measured_date), 'YYYY-MM-DD') FROM body_measurements) AS body_latest,
-            (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_earliest,
-            (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM cycling_activities) AS ride_latest,
-            (SELECT to_char(MIN((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_earliest,
-            (SELECT to_char(MAX((started_at AT TIME ZONE $1)::date), 'YYYY-MM-DD') FROM health_workouts WHERE started_at IS NOT NULL) AS workout_latest`,
-          [config.timezone]
-        ),
+        getCachedCounts(),
         getArchiveRetentionDays(),
-        getArchiveStats(),
+        getCachedArchiveStats(),
         listArchives(12),
         getActivityGoals(),
       ]);
